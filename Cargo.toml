@@ -1,0 +1,15 @@
+[package]
+name = "DATACOM"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+tobj = "3.2.3"
+glium = "0.31.0"
+nalgebra = "0.31.0"
+rand = "0.8.5"
+pretty_env_logger = "0.4.0"
+log = "0.4"
+num-traits = "0.2"

@@ -26,6 +26,7 @@ extern crate nalgebra as na;                                                // L
 extern crate glium;                                                         // OpenGL Bindings
 use glium::{glutin::{self, window, event::{ElementState, VirtualKeyCode, ModifiersState}}, Surface};                               // OpenGL imports
 use std::{rc::Rc, time::Instant, cell::RefCell, thread::scope, vec};        // Multithreading standard library items
+mod scenes_and_entities;
 extern crate tobj;                                                          // .obj file loader
 extern crate rand;                                                          // Random number generator
 extern crate pretty_env_logger;                                             // Logger
@@ -34,7 +35,7 @@ mod dc;                                                                     // D
 mod isoviewer;                                                              // Isometric viewer struct 
 mod wf;                                                                     // Wireframe struct
 mod plt;                                                                    // Plotter
-use crate::{dc::{Draw, cyan_vec}, gp::Sim};                                 // DATACOM item imports for functions
+use crate::{dc::{Draw, cyan_vec, null_content, Draw2, green_vec}, gp::Sim};                                 // DATACOM item imports for functions
 use std::{thread, time::Duration, sync::{mpsc, Arc, Mutex, RwLock}};        // Multithreading lib imports
 mod gp;                                                                     // 6DOF simulation
 
@@ -63,106 +64,157 @@ fn main() {
     let event_loop = glutin::event_loop::EventLoop::new();                  // Create Event Loop
     let gui = dc::GuiContainer::init_opengl(&event_loop);                   // Initialize OpenGL interface
 
-    // Unit vectors for display
-    let i = Arc::new(RwLock::new(plt::Curve::unit_i(5.0)));                 // i hat - x direction unit vector 
-    let j = Arc::new(RwLock::new(plt::Curve::unit_j(5.0)));                 // j hat - y direction unit vector
-    let k = Arc::new(RwLock::new(plt::Curve::unit_k(5.0)));                 // k hat - z direction unit vector
+    // // Unit vectors for display
+    // let i = Arc::new(RwLock::new(plt::Curve::unit_i(5.0)));                 // i hat - x direction unit vector 
+    // let j = Arc::new(RwLock::new(plt::Curve::unit_j(5.0)));                 // j hat - y direction unit vector
+    // let k = Arc::new(RwLock::new(plt::Curve::unit_k(5.0)));                 // k hat - z direction unit vector
 
-    // Plotter test
-    let tracer = plt::Curve::new(
-        vec![],
-        dc::rgba(
-            0.0/255.0,
-            100.0/255.0,
-            100.0/255.0,
-            0.0));
-    let tracer_ref = Arc::new(RwLock::new(tracer));
+    // // Plotter test
+    // let tracer = plt::Curve::new(
+    //     vec![],
+    //     dc::rgba(
+    //         0.0/255.0,
+    //         100.0/255.0,
+    //         100.0/255.0,
+    //         0.0));
+    // let tracer_ref = Arc::new(RwLock::new(tracer));
 
-    // 6DOF simulation test
-    let sim = Arc::new(
-        gp::SIXDOF::new(
-            vec![
-                blizz_sim_obj.clone(),
-            ]
-        )
+    // // 6DOF simulation test
+    // let sim = Arc::new(
+    //     gp::SIXDOF::new(
+    //         vec![
+    //             blizz_sim_obj.clone(),
+    //         ]
+    //     )
+    // );
+
+    // // Isometric viewer with unit vectors, 
+    // let iso_test = Arc::new(
+    //     isoviewer::IsoViewer::new(
+    //         vec![
+    //             i.clone(),
+    //             j.clone(),
+    //             k.clone(),
+    //             blizz_sim_obj.clone(),
+    //         ]
+    //     )
+    // );
+
+    // // Isometric plotter test
+    // let iso_camera_plotter = Arc::new(
+    //     isoviewer::IsoViewer::new(
+    //         vec![
+    //             i.clone(),
+    //             j.clone(),
+    //             k.clone(),
+    //             tracer_ref.clone()
+    //         ]
+    //     )
+    // );
+
+    // // Scope display test
+    // let mut scope_test = plt::Scope::new(
+    //     vec![
+    //         tracer_ref.clone(),
+    //         i.clone(),
+    //         j.clone(),
+    //         k.clone(),
+    //     ]
+    // );
+
+    // // Setting range on the scope
+    // scope_test.set_xrange(&[-10.0, 10.0]);
+    // scope_test.set_yrange(&[-10.0, 10.0]);
+    // let scope_test = Arc::new(scope_test);
+
+    // // Create Viewports
+    // let mut viewport_list = vec![
+    //     // Main Viewport
+    //     dc::Viewport::new_with_camera(
+    //         na::Point2::new(-0.95, 0.9),            // Root Position
+    //         1.85,                                   // Height
+    //         1.0,                                    // Width
+    //         sim.clone(),                            // Content
+    //         na::Matrix4::look_at_rh(                // Camera Position
+    //             &na::Point3::new(-5.0, 5.0, 5.0),   
+    //             &na::Point3::new(0.0, 0.0, 0.0), 
+    //             &na::Vector3::new(0.0, 0.0, 1.0)
+    //         ),
+    //     ),
+    //     // 2D Scope item
+    //     dc::Viewport::new_with_camera(
+    //         na::Point2::new(0.05, 0.9),             // Root Position
+    //         1.0,                                    // Height
+    //         0.85,                                   // Width
+    //         scope_test.clone(),                     // Content
+    //         na::Matrix4::look_at_rh(                // Camera Position
+    //             &na::Point3::new(0.0, 0.0, 1.0), 
+    //             &na::Point3::new(0.0, 0.0, 0.0), 
+    //             &na::Vector3::new(0.0, 1.0, 0.0)
+    //         ),
+    //     ),
+    //     // 3D Trace plotter
+    //     dc::Viewport::new_with_camera(
+    //         na::Point2::new(0.05, -0.105), 
+    //         0.85, 
+    //         0.85, 
+    //         iso_camera_plotter.clone(),
+    //         na::Matrix4::look_at_rh(
+    //             &na::Point3::new(20.0, 20.0, 20.0), 
+    //             &na::Point3::new(0.0, 0.0, 0.0), 
+    //             &na::Vector3::new(0.0, 0.0, 1.0)
+    //         ),
+    //     ),
+    // ];
+
+    // Null Content
+    let mut null_test = Arc::new(
+        null_content::new()
     );
+    
+    let mut test_scene = scenes_and_entities::Scene::new();
+    let mut test_entity = scenes_and_entities::Entity::new();
+    let test_wireframe = scenes_and_entities::WireframeObject::load_wireframe_from_obj("data/blizzard.obj", green_vec());
+    let test_model = scenes_and_entities::ModelComponent::new(test_wireframe);
+    test_entity.add_model(test_model);
+    test_scene.add_entity(test_entity);
 
-    // Isometric viewer with unit vectors, 
-    let iso_test = Arc::new(
-        isoviewer::IsoViewer::new(
-            vec![
-                i.clone(),
-                j.clone(),
-                k.clone(),
-                blizz_sim_obj.clone(),
-            ]
-        )
-    );
 
-    // Isometric plotter test
-    let iso_camera_plotter = Arc::new(
-        isoviewer::IsoViewer::new(
-            vec![
-                i.clone(),
-                j.clone(),
-                k.clone(),
-                tracer_ref.clone()
-            ]
-        )
-    );
+    // Viewport Refactor Test
 
-    // Scope display test
-    let mut scope_test = plt::Scope::new(
-        vec![
-            tracer_ref.clone(),
-            i.clone(),
-            j.clone(),
-            k.clone(),
-        ]
-    );
-
-    // Setting range on the scope
-    scope_test.set_xrange(&[-10.0, 10.0]);
-    scope_test.set_yrange(&[-10.0, 10.0]);
-    let scope_test = Arc::new(scope_test);
-
-    // Create Viewports
-    let mut viewport_list = vec![
-        // Main Viewport
-        dc::Viewport::new_with_camera(
-            na::Point2::new(-0.95, 0.9),            // Root Position
-            1.85,                                   // Height
-            1.0,                                    // Width
-            sim.clone(),                            // Content
-            na::Matrix4::look_at_rh(                // Camera Position
-                &na::Point3::new(-5.0, 5.0, 5.0),   
-                &na::Point3::new(0.0, 0.0, 0.0), 
-                &na::Vector3::new(0.0, 0.0, 1.0)
-            ),
-        ),
-        // 2D Scope item
-        dc::Viewport::new_with_camera(
-            na::Point2::new(0.05, 0.9),             // Root Position
-            1.0,                                    // Height
-            0.85,                                   // Width
-            scope_test.clone(),                     // Content
+    let mut viewport_refactor = vec![
+        dc::Twoport::new_with_camera(
+            na::Point2::new(-0.98, 0.98), 
+            0.98*2.0, 
+            0.6*2.0, 
+            null_test.clone(), 
             na::Matrix4::look_at_rh(                // Camera Position
                 &na::Point3::new(0.0, 0.0, 1.0), 
                 &na::Point3::new(0.0, 0.0, 0.0), 
                 &na::Vector3::new(0.0, 1.0, 0.0)
-            ),
+            )
         ),
-        // 3D Trace plotter
-        dc::Viewport::new_with_camera(
-            na::Point2::new(0.05, -0.105), 
-            0.85, 
-            0.85, 
-            iso_camera_plotter.clone(),
-            na::Matrix4::look_at_rh(
-                &na::Point3::new(20.0, 20.0, 20.0), 
+        dc::Twoport::new_with_camera(
+            na::Point2::new(0.22, 0.98), 
+            0.4*2.0, 
+            0.35*2.0, 
+            null_test.clone(), 
+            na::Matrix4::look_at_rh(                // Camera Position
+                &na::Point3::new(0.0, 0.0, 1.0), 
                 &na::Point3::new(0.0, 0.0, 0.0), 
-                &na::Vector3::new(0.0, 0.0, 1.0)
-            ),
+                &na::Vector3::new(0.0, 1.0, 0.0)
+            )
+        ),
+        dc::Twoport::new_with_camera(
+            na::Point2::new(0.22, 0.98-0.8), 
+            2.0*(0.98-0.4), 
+            0.35*2.0, 
+            null_test.clone(), 
+            na::Matrix4::look_at_rh(                // Camera Position
+                &na::Point3::new(0.0, 0.0, 1.0), 
+                &na::Point3::new(0.0, 0.0, 0.0), 
+                &na::Vector3::new(0.0, 1.0, 0.0)
+            )
         ),
     ];
 
@@ -185,11 +237,11 @@ fn main() {
             let new_pos = na::Point3::new((-5.0*&t.sin()) as f64, (5.0*&t.cos()) as f64, (5.0+2.0*(5.0*&t).sin()) as f64);
 
             // Write to tracer
-            {
-                let mut w = tracer_ref.write().unwrap();
-                (*w).add_point(&new_pos);
-                // println!("{}", w.positions.len());
-            }
+            // {
+            //     let mut w = tracer_ref.write().unwrap();
+            //     (*w).add_point(&new_pos);
+            //     // println!("{}", w.positions.len());
+            // }
         }
     });
 
@@ -285,13 +337,13 @@ fn main() {
 
         
 
-        viewport_list[0].update_camera(
-            na::Matrix4::look_at_rh(
-                &new_pos,
-                &na::Point3::new(0.0, 0.0, 0.0), 
-                &na::Vector3::new(0.0, 0.0, 1.0)
-            )
-        );
+        // viewport_list[0].update_camera(
+        //     na::Matrix4::look_at_rh(
+        //         &new_pos,
+        //         &na::Point3::new(0.0, 0.0, 0.0), 
+        //         &na::Vector3::new(0.0, 0.0, 1.0)
+        //     )
+        // );
 
         // viewport_list[1].update_camera(na::Matrix4::look_at_rh(
         //     &na::Point3::new(5.0*&t.sin(), 5.0*&t.cos(), 5.0), 
@@ -299,13 +351,21 @@ fn main() {
         //     &na::Vector3::new(0.0, 0.0, 1.0)
         // ));
         
-        for i in &mut viewport_list {
-            i.update_all_graphical_elements(&target);
-        }
+        // for i in &mut viewport_list {
+        //     i.update_all_graphical_elements(&target);
+        // }
 
         target.clear_color_and_depth((0.0, 0.0, 0.0, 1.0), 1.0);
-        for i in &viewport_list {
-            i.draw(&gui, &i.mvp, &mut target);
+        // for i in &viewport_list {
+        //     i.draw(&gui, &i.mvp, &mut target);
+        // }
+
+        for i in &mut viewport_refactor {
+            i.update_all_graphical_elements(&target)
+        }
+
+        for i in &viewport_refactor {
+            i.draw(&gui, &i.context, &mut target)
         }
 
         target.finish().unwrap();

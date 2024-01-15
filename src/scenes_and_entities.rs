@@ -2,6 +2,7 @@
 
 use crate::dc;
 use nalgebra as na;
+use num_traits::ToPrimitive;
 use tobj::Model;
 use std::{sync::atomic::{AtomicU64, Ordering}, vec};
 
@@ -128,6 +129,12 @@ impl ModelComponent {
     }
 }
 
+impl DrawInScene for ModelComponent {
+    fn draw_at_position(&self, gui: &dc::GuiContainer, context: &dc::RenderContext, target: &mut glium::Frame, model: na::Matrix4<f32>) {
+        ;
+    }
+}
+
 // Define the component for a behavior
 pub struct BehaviorComponent {
     // Define the behavior-specific data and logic
@@ -170,7 +177,11 @@ impl Entity {
 impl dc::Draw2 for Entity {
     
     fn draw(&self, gui: &dc::GuiContainer, context: &dc::RenderContext, target: &mut glium::Frame) {
-        
+        let translate = na::Translation3::from(self.position);
+        let parent_model_mat = na::Isometry3::from_parts(translate, self.rotation);
+        for model in &self.models {
+            model.draw_at_position(gui, context, target, parent_model_mat.to_homogeneous());
+        }
     }
 }
 
@@ -193,6 +204,14 @@ impl Scene {
     }
 }
 
+impl dc::Draw2 for Scene {
+    fn draw(&self, gui: &dc::GuiContainer, context: &dc::RenderContext, target: &mut glium::Frame) {
+        for entity in &self.entities {
+            entity.draw(gui, context, target);
+        }
+    }
+}
+
 pub trait DrawInScene {
-    fn draw_at_position(&self, gui: &dc::GuiContainer, context: &dc::RenderContext, target: &mut glium::Frame, model: na::Matrix4<f32>);
+    fn draw_at_position(&self, gui: &dc::GuiContainer, context: &dc::RenderContext, target: &mut glium::Frame, model_mat: na::Matrix4<f32>);
 }

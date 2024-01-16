@@ -55,11 +55,6 @@ fn main() {
     let event_loop = glutin::event_loop::EventLoop::new();                  // Create Event Loop
     let gui = dc::GuiContainer::init_opengl(&event_loop);                   // Initialize OpenGL interface
 
-    // // Unit vectors for display
-    // let i = Arc::new(RwLock::new(plt::Curve::unit_i(5.0)));                 // i hat - x direction unit vector 
-    // let j = Arc::new(RwLock::new(plt::Curve::unit_j(5.0)));                 // j hat - y direction unit vector
-    // let k = Arc::new(RwLock::new(plt::Curve::unit_k(5.0)));                 // k hat - z direction unit vector
-
     // // Plotter test
     // let tracer = plt::Curve::new(
     //     vec![],

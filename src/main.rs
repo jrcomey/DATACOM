@@ -196,7 +196,11 @@ fn main() {
                         ..
                     },
                     ..
-                } => println!("LEFT"),
+                } => {
+                    println!("LEFT");
+                    viewport_refactor[0].move_camera(na::Vector3::<f64>::new(0.0, -1.0, 0.0));
+                    println!("{}", viewport_refactor[0].camera_position);
+                },
 
                 glutin::event::WindowEvent::KeyboardInput {
                     input:
@@ -205,7 +209,11 @@ fn main() {
                         ..
                     },
                     ..
-                } => println!("RIGHT"),
+                } => {
+                    println!("RIGHT");
+                    viewport_refactor[0].move_camera(na::Vector3::<f64>::new(0.0, 1.0, 0.0));
+                    println!("{}", viewport_refactor[0].camera_position);
+                },
 
                 glutin::event::WindowEvent::KeyboardInput {
                     input:
@@ -214,7 +222,11 @@ fn main() {
                         ..
                     },
                     ..
-                } => println!("UP"),
+                } => {
+                    println!("UP");
+                    viewport_refactor[0].move_camera(na::Vector3::<f64>::new(0.0, 0.0, 1.0));
+                    println!("{}", viewport_refactor[0].camera_position);
+                },
 
                 glutin::event::WindowEvent::KeyboardInput {
                     input:
@@ -223,7 +235,11 @@ fn main() {
                         ..
                     },
                     ..
-                } => println!("DOWN"),
+                } => {
+                    println!("DOWN");
+                    viewport_refactor[0].move_camera(na::Vector3::<f64>::new(0.0, 0.0, -1.0));
+                    println!("{}", viewport_refactor[0].camera_position);
+                },
 
                 _ => return,
             },

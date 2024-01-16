@@ -117,9 +117,10 @@ impl DrawInScene for WireframeObject {
 
 // Define the component for a model
 pub struct ModelComponent {
-    wireframe: WireframeObject,
-    local_position: na::Point3<f32>,
-    local_rotation: na::UnitQuaternion<f32>,
+    wireframe: WireframeObject,                         // Wireframe model of the object to be displayed
+    local_position: na::Point3<f32>,                    // Local **unscaled** position relative to parent body
+    local_orientation: na::UnitQuaternion<f32>,         // Primary rotation of model relative to parent body. Intended to be static but can be modified.
+    local_rotation: na::UnitQuaternion<f32>,            // Secondary rotation of model relative to parent body. Intended to be a dynamic property.
 }
 
 impl ModelComponent {
@@ -128,6 +129,7 @@ impl ModelComponent {
         ModelComponent {
             wireframe: wireframe,
             local_position: na::Point3::origin(),
+            local_orientation: na::UnitQuaternion::identity(),
             local_rotation: na::UnitQuaternion::identity()
         }
     }

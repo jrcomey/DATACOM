@@ -118,20 +118,33 @@ impl DrawInScene for WireframeObject {
 // Define the component for a model
 pub struct ModelComponent {
     wireframe: WireframeObject,
+    local_position: na::Point3<f32>,
+    local_rotation: na::UnitQuaternion<f32>,
 }
 
 impl ModelComponent {
 
     pub fn new(wireframe: WireframeObject) -> ModelComponent {
         ModelComponent {
-            wireframe: wireframe
+            wireframe: wireframe,
+            local_position: na::Point3::origin(),
+            local_rotation: na::UnitQuaternion::identity()
         }
     }
 }
 
 impl DrawInScene for ModelComponent {
     fn draw_at_position(&self, gui: &dc::GuiContainer, context: &dc::RenderContext, target: &mut glium::Frame, model: na::Matrix4<f32>) {
-        ;
+        let local_model = na::Isometry3::from_parts(
+            na::Translation3::from(self.local_position), 
+            self.local_rotation
+        ).to_homogeneous();
+
+        self.wireframe.draw_at_position(
+            gui, 
+            context, 
+            target, 
+            model*local_model);
     }
 }
 
@@ -146,9 +159,9 @@ static ENTITY_COUNTER: AtomicU64 = AtomicU64::new(0);
 // Define the entity structure
 pub struct Entity {
     id: u64,  // Unique identifier for the entity
-    position: na::Point3<f32>,
-    rotation: na::UnitQuaternion<f32>,
-    scale: na::Vector3<f32>,
+    position: na::Point3<f64>,
+    rotation: na::UnitQuaternion<f64>,
+    scale: na::Vector3<f64>,
     models: Vec<ModelComponent>,
     behaviors: Vec<BehaviorComponent>,
     // Other entity-specific data...
@@ -178,7 +191,7 @@ impl dc::Draw2 for Entity {
     
     fn draw(&self, gui: &dc::GuiContainer, context: &dc::RenderContext, target: &mut glium::Frame) {
         let translate = na::Translation3::from(self.position);
-        let parent_model_mat = na::Isometry3::from_parts(translate, self.rotation);
+        let parent_model_mat = na::Isometry3::from_parts(na::convert(translate), na::convert(self.rotation));
         for model in &self.models {
             model.draw_at_position(gui, context, target, parent_model_mat.to_homogeneous());
         }

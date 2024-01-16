@@ -35,7 +35,7 @@ mod dc;                                                                     // D
 mod isoviewer;                                                              // Isometric viewer struct 
 mod wf;                                                                     // Wireframe struct
 mod plt;                                                                    // Plotter
-use crate::{dc::{Draw, cyan_vec, null_content, Draw2, green_vec}, gp::Sim};                                 // DATACOM item imports for functions
+use crate::{dc::{Draw, cyan_vec, null_content, Draw2, green_vec, red_vec}, gp::Sim};                                 // DATACOM item imports for functions
 use std::{thread, time::Duration, sync::{mpsc, Arc, Mutex, RwLock}};        // Multithreading lib imports
 mod gp;                                                                     // 6DOF simulation
 
@@ -176,8 +176,13 @@ fn main() {
     let mut test_entity = scenes_and_entities::Entity::new();
     let test_wireframe = scenes_and_entities::WireframeObject::load_wireframe_from_obj("data/blizzard.obj", green_vec());
     let test_model = scenes_and_entities::ModelComponent::new(test_wireframe);
+    let test_wireframe_2 = scenes_and_entities::WireframeObject::load_wireframe_from_obj("data/prop.obj", red_vec());
+    let test_model_2 = scenes_and_entities::ModelComponent::new(test_wireframe_2);
     test_entity.add_model(test_model);
+    test_entity.add_model(test_model_2);
     test_scene.add_entity(test_entity);
+
+    let test_scene_ref = Arc::new(test_scene);
 
 
     // Viewport Refactor Test
@@ -187,11 +192,11 @@ fn main() {
             na::Point2::new(-0.98, 0.98), 
             0.98*2.0, 
             0.6*2.0, 
-            null_test.clone(), 
+            test_scene_ref.clone(), 
             na::Matrix4::look_at_rh(                // Camera Position
-                &na::Point3::new(0.0, 0.0, 1.0), 
+                &na::Point3::new(-5.0, 5.0, 5.0),   
                 &na::Point3::new(0.0, 0.0, 0.0), 
-                &na::Vector3::new(0.0, 1.0, 0.0)
+                &na::Vector3::new(0.0, 0.0, 1.0)
             )
         ),
         dc::Twoport::new_with_camera(

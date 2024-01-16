@@ -201,7 +201,11 @@ impl RenderContext {
     }
 
     pub fn is_within_pixel_bounds(&self, query_x_position: &u32, query_y_position: &u32) -> bool {
-        if query_x_position >= &self.pixel_bounds.left && query_x_position <= &(self.pixel_bounds.left+self.pixel_bounds.width) && query_y_position >= &self.pixel_bounds.bottom && query_y_position <= &(self.pixel_bounds.bottom+self.pixel_bounds.height) {
+        if query_x_position >= &self.pixel_bounds.left 
+        && query_x_position <= &(self.pixel_bounds.left+self.pixel_bounds.width) 
+        && query_y_position >= &self.pixel_bounds.bottom 
+        && query_y_position <= &(self.pixel_bounds.bottom+self.pixel_bounds.height) 
+        {
             return true;
         }
         else {

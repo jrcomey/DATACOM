@@ -62,12 +62,21 @@ impl Twoport {
     pub fn update_all_graphical_elements(&mut self, target: &glium::Frame) {
         let (width, height) = target.get_dimensions();
 
+        // let bounds = na::base::Vector4::<f32>::new(                                                  // Bounds
+        //     (self.root[0]) as f32,   // Left X
+        //     (self.root[0]+self.width) as f32, // Right X
+        //     (self.root[1]-self.height) as f32, // Bottom Y 
+        //     (self.root[1]) as f32    // Top Y
+        // );
+
         let bounds = na::base::Vector4::<f32>::new(                                                  // Bounds
             (self.root[0]) as f32,   // Left X
             (self.root[0]+self.width) as f32, // Right X
             (self.root[1]-self.height) as f32, // Bottom Y 
             (self.root[1]) as f32    // Top Y
         );
+
+
 
         let boxxy = glium::Rect{
             left: (((bounds[0]+1.0)/2.0) * width as f32) as u32,
@@ -101,8 +110,23 @@ impl Twoport {
         self.color = new_color;
     }
 
-    pub fn in_viewport(&mut self, query_x_position: &u32, query_y_position: &u32) -> bool {
-        self.context.is_within_pixel_bounds(query_x_position, query_y_position)
+    pub fn in_viewport(&mut self, gui: &GuiContainer, query_x_position: &u32, query_y_position: &u32) -> bool {
+        // self.context.is_within_pixel_bounds(query_x_position, query_y_position)
+        let (viewport_width, viewport_height) = gui.display.get_framebuffer_dimensions();
+
+        let root_x_pixels = (((self.root[0]+1.0)/2.0) * viewport_width as f64) as u32;
+        let width_pixels = (((self.width)/2.0) * viewport_width as f64) as u32;
+        let root_y_pixels = (((-self.root[1]+1.0)/2.0) * viewport_height as f64) as u32;
+        let height_pixels = (((self.height)/2.0) * viewport_height as f64) as u32;
+        if query_x_position >= &root_x_pixels 
+        && query_x_position <= &(width_pixels+root_x_pixels)
+        && query_y_position >= &root_y_pixels
+        && query_y_position <= &(height_pixels + root_y_pixels) {
+            return true;
+        }
+        else {
+            return false;
+        }
     }
 }
 
@@ -199,19 +223,7 @@ impl RenderContext {
     pub fn update_viewport_pixel_bounds(&mut self, new_bounds: glium::Rect) {
         self.pixel_bounds = new_bounds;
     }
-
-    pub fn is_within_pixel_bounds(&self, query_x_position: &u32, query_y_position: &u32) -> bool {
-        if query_x_position >= &self.pixel_bounds.left 
-        && query_x_position <= &(self.pixel_bounds.left+self.pixel_bounds.width) 
-        && query_y_position >= &self.pixel_bounds.bottom 
-        && query_y_position <= &(self.pixel_bounds.bottom+self.pixel_bounds.height) 
-        {
-            return true;
-        }
-        else {
-            return false;
-        }
-    }
+    
 }
 
 pub trait Draw2 {

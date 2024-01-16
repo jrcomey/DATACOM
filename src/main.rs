@@ -38,6 +38,7 @@ mod plt;                                                                    // P
 use crate::{dc::{Draw, cyan_vec, null_content, Draw2, green_vec, red_vec}, gp::Sim};                                 // DATACOM item imports for functions
 use std::{thread, time::Duration, sync::{mpsc, Arc, Mutex, RwLock}};        // Multithreading lib imports
 mod gp;                                                                     // 6DOF simulation
+mod scene_composer;
 
 fn main() {
 
@@ -172,15 +173,17 @@ fn main() {
         null_content::new()
     );
     
-    let mut test_scene = scenes_and_entities::Scene::new();
-    let mut test_entity = scenes_and_entities::Entity::new();
-    let test_wireframe = scenes_and_entities::WireframeObject::load_wireframe_from_obj("data/blizzard.obj", green_vec());
-    let test_model = scenes_and_entities::ModelComponent::new(test_wireframe);
-    let test_wireframe_2 = scenes_and_entities::WireframeObject::load_wireframe_from_obj("data/prop.obj", red_vec());
-    let test_model_2 = scenes_and_entities::ModelComponent::new(test_wireframe_2);
-    test_entity.add_model(test_model);
-    test_entity.add_model(test_model_2);
-    test_scene.add_entity(test_entity);
+    // let mut test_scene = scenes_and_entities::Scene::new();
+    // let mut test_entity = scenes_and_entities::Entity::new();
+    // let test_wireframe = scenes_and_entities::WireframeObject::load_wireframe_from_obj("data/blizzard.obj", green_vec());
+    // let test_model = scenes_and_entities::ModelComponent::new(test_wireframe);
+    // let test_wireframe_2 = scenes_and_entities::WireframeObject::load_wireframe_from_obj("data/prop.obj", red_vec());
+    // let test_model_2 = scenes_and_entities::ModelComponent::new(test_wireframe_2);
+    // test_entity.add_model(test_model);
+    // test_entity.add_model(test_model_2);
+    // test_scene.add_entity(test_entity);
+
+    let test_scene = scene_composer::compose_scene_1();
 
     let test_scene_ref = Arc::new(test_scene);
 

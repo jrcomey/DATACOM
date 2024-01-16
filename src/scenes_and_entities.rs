@@ -131,6 +131,14 @@ impl ModelComponent {
             local_rotation: na::UnitQuaternion::identity()
         }
     }
+
+    pub fn update_local_position(&mut self, new_local_position: na::Point3<f32>) {
+        self.local_position = new_local_position;
+    }
+
+    pub fn update_local_rotation(&mut self, new_local_rotation: na::UnitQuaternion<f32>) {
+        self.local_rotation = new_local_rotation;
+    }
 }
 
 impl DrawInScene for ModelComponent {

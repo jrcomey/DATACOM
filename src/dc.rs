@@ -17,13 +17,15 @@ use glium::{glutin::{self, window}, Surface};
 /* VIEWPORT STRUCT */
 
 pub struct Twoport {
+    pub color: na::base::Vector4<f32>,                  // Color of viewport
+    pub is_active: bool,                                // Active status of viewport
     pub root: na::Point2<f64>,                          // Upper left window coordinate
     pub height: f64,                                    // Height of window from top -> down side   (RANGE 0 -> 2)
     pub width: f64,                                     // Width of window from left -> right side  (RANGE 0 -> 2)
     pub content: Arc<dyn Draw2>,                        // Pointer to content to be drawn           
     pub context: RenderContext,                         // Local Viewport Render Context
     pub camera_position: na::Point3<f64>,               // Camera position
-    pub camera_target: na::Point3<f64>,        // Position of the target the camera is looking at
+    pub camera_target: na::Point3<f64>,                 // Position of the target the camera is looking at
 }
 
 impl Twoport {
@@ -31,6 +33,8 @@ impl Twoport {
     // Creates a new viewport on the screen, initialized with an included camera. 
     pub fn new_with_camera(root: na::Point2<f64>, height: f64, width: f64, content: Arc<dyn Draw2>, camera_position: na::Point3<f64>, camera_target: na::Point3<f64>) -> Twoport {
         Twoport {
+            color: cyan_vec(),
+            is_active: false, 
             root: root,
             height: height,
             width: width,
@@ -82,6 +86,24 @@ impl Twoport {
             )
         )
     }
+
+    pub fn set_active(&mut self) {
+        self.is_active = true;
+        self.set_color(green_vec());
+    }
+
+    pub fn set_inactive(&mut self) {
+        self.is_active = false;
+        self.set_color(red_vec());
+    }
+
+    pub fn set_color(&mut self, new_color: na::Vector4<f32>) {
+        self.color = new_color;
+    }
+
+    pub fn in_viewport(&mut self, query_x_position: &u32, query_y_position: &u32) -> bool {
+        self.context.is_within_pixel_bounds(query_x_position, query_y_position)
+    }
 }
 
 impl Draw2 for Twoport {
@@ -93,7 +115,7 @@ impl Draw2 for Twoport {
             model: uniformifyMat4(eye4()),              // Identity matrix for M, not moving anywhere
             view: uniformifyMat4(eye4()),               // Identity matrix for V, should be viewed dead on
             perspective: uniformifyMat4(eye4()),        // Identity matrix for P, should not have perspective
-            color_obj: uniformifyVec4(cyan_vec()),       // Use set color
+            color_obj: uniformifyVec4(self.color),       // Use set color
             vp: uniformifyMat4(eye4()),                 // Identity matrix for post processing move. Viewport is stationary relative to itself!
             bounds: uniformifyVec4(full_range_vec()),   // Viewports should be able to take up the whole screen
         };
@@ -176,6 +198,15 @@ impl RenderContext {
 
     pub fn update_viewport_pixel_bounds(&mut self, new_bounds: glium::Rect) {
         self.pixel_bounds = new_bounds;
+    }
+
+    pub fn is_within_pixel_bounds(&self, query_x_position: &u32, query_y_position: &u32) -> bool {
+        if query_x_position >= &self.pixel_bounds.left && query_x_position <= &(self.pixel_bounds.left+self.pixel_bounds.width) && query_y_position >= &self.pixel_bounds.bottom && query_y_position <= &(self.pixel_bounds.bottom+self.pixel_bounds.height) {
+            return true;
+        }
+        else {
+            return false;
+        }
     }
 }
 

@@ -2,28 +2,45 @@ extern crate glium;
 use std::{rc::Rc, sync::Arc, time::Instant};
 use glium::{glutin::{self, window}, Surface};
 
-// ##################### 
+// #####################
 
-/* VIEWPORT TAKE 2 */
+/* VIEWPORT DEFINITION */
+
+/* 
+    This is a general viewport, the basic building block of the data visualizer program. 
+    It has some height and width, and a root location. It also contains a pointer to the content that is drawn within it.
+    When drawn, it draws a box outline around its position, and then draws its dependent content 
+*/
+
+// #####################
+
+/* VIEWPORT STRUCT */
 
 pub struct Twoport {
     pub root: na::Point2<f64>,                          // Upper left window coordinate
     pub height: f64,                                    // Height of window from top -> down side   (RANGE 0 -> 2)
     pub width: f64,                                     // Width of window from left -> right side  (RANGE 0 -> 2)
-    pub content: Arc<dyn Draw2>,                         // Pointer to content to be drawn           
+    pub content: Arc<dyn Draw2>,                        // Pointer to content to be drawn           
     pub context: RenderContext,                         // Local Viewport Render Context
+    pub camera_position: na::Point3<f64>,               // Camera position
+    pub camera_target: na::Point3<f64>,        // Position of the target the camera is looking at
 }
 
 impl Twoport {
 
-    pub fn new_with_camera(root: na::Point2<f64>, height: f64, width: f64, content: Arc<dyn Draw2>, view: na::Matrix4<f32>) -> Twoport {
+    // Creates a new viewport on the screen, initialized with an included camera. 
+    pub fn new_with_camera(root: na::Point2<f64>, height: f64, width: f64, content: Arc<dyn Draw2>, camera_position: na::Point3<f64>, camera_target: na::Point3<f64>) -> Twoport {
         Twoport {
             root: root,
             height: height,
             width: width,
             content: content,
             context: RenderContext::new(
-                view, 
+                na::Matrix4::look_at_rh(                // Camera Position
+                    &na::convert(camera_position),   
+                    &na::convert(camera_target), 
+                    &na::Vector3::z_axis()
+                ), 
                 na::Matrix4::new_perspective((3.0/2.0) as f32, 3.141592 / 3.0, 0.1, 1024.0),
                 xy_translation((root[0]+width/2.0) as f32, (root[1]-height/2.0) as f32),
                 glium::Rect{
@@ -32,7 +49,9 @@ impl Twoport {
                     width: 0, 
                     height: 0
                 }
-            )
+            ),
+            camera_position: camera_position,
+            camera_target: camera_target
         }
     }
 
@@ -52,6 +71,10 @@ impl Twoport {
             width: ((bounds[1]-bounds[0])/2.0*width as f32) as u32,
             height: ((bounds[3]-bounds[2])/2.0*height as f32) as u32};
         self.context.update_render_context(width, height, boxxy);
+    }
+
+    pub fn move_camera(&mut self){
+        ;
     }
 }
 

@@ -118,11 +118,6 @@ fn main() {
     // scope_test.set_yrange(&[-10.0, 10.0]);
     // let scope_test = Arc::new(scope_test);
 
-    // Null Content
-    let mut null_test = Arc::new(
-        null_content::new()
-    );
-
     let test_scene = scene_composer::compose_scene_1();
 
     let test_scene_ref = Arc::new(test_scene);

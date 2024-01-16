@@ -73,8 +73,14 @@ impl Twoport {
         self.context.update_render_context(width, height, boxxy);
     }
 
-    pub fn move_camera(&mut self){
-        ;
+    pub fn move_camera(&mut self, delta_camera: na::Vector3<f64>){
+        self.camera_position = self.camera_position + delta_camera;
+        self.context.update_view(na::Matrix4::look_at_rh(                // Camera Position
+            &na::convert(self.camera_position),   
+            &na::convert(self.camera_target), 
+            &na::Vector3::z_axis()
+            )
+        )
     }
 }
 

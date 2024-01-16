@@ -51,16 +51,6 @@ fn main() {
     let pi32 = std::f32::consts::PI;
     let pi64 = std::f64::consts::PI;
 
-    // Matrix multiplication test
-    // multiply_check();
-
-    // Basic Blizzard Object
-    let blizz_sim_obj = Arc::new(
-        RwLock::new(
-            create_blizzard()
-        )
-    );
-
     // Initialize glium items
     let event_loop = glutin::event_loop::EventLoop::new();                  // Create Event Loop
     let gui = dc::GuiContainer::init_opengl(&event_loop);                   // Initialize OpenGL interface
@@ -128,60 +118,10 @@ fn main() {
     // scope_test.set_yrange(&[-10.0, 10.0]);
     // let scope_test = Arc::new(scope_test);
 
-    // // Create Viewports
-    // let mut viewport_list = vec![
-    //     // Main Viewport
-    //     dc::Viewport::new_with_camera(
-    //         na::Point2::new(-0.95, 0.9),            // Root Position
-    //         1.85,                                   // Height
-    //         1.0,                                    // Width
-    //         sim.clone(),                            // Content
-    //         na::Matrix4::look_at_rh(                // Camera Position
-    //             &na::Point3::new(-5.0, 5.0, 5.0),   
-    //             &na::Point3::new(0.0, 0.0, 0.0), 
-    //             &na::Vector3::new(0.0, 0.0, 1.0)
-    //         ),
-    //     ),
-    //     // 2D Scope item
-    //     dc::Viewport::new_with_camera(
-    //         na::Point2::new(0.05, 0.9),             // Root Position
-    //         1.0,                                    // Height
-    //         0.85,                                   // Width
-    //         scope_test.clone(),                     // Content
-    //         na::Matrix4::look_at_rh(                // Camera Position
-    //             &na::Point3::new(0.0, 0.0, 1.0), 
-    //             &na::Point3::new(0.0, 0.0, 0.0), 
-    //             &na::Vector3::new(0.0, 1.0, 0.0)
-    //         ),
-    //     ),
-    //     // 3D Trace plotter
-    //     dc::Viewport::new_with_camera(
-    //         na::Point2::new(0.05, -0.105), 
-    //         0.85, 
-    //         0.85, 
-    //         iso_camera_plotter.clone(),
-    //         na::Matrix4::look_at_rh(
-    //             &na::Point3::new(20.0, 20.0, 20.0), 
-    //             &na::Point3::new(0.0, 0.0, 0.0), 
-    //             &na::Vector3::new(0.0, 0.0, 1.0)
-    //         ),
-    //     ),
-    // ];
-
     // Null Content
     let mut null_test = Arc::new(
         null_content::new()
     );
-    
-    // let mut test_scene = scenes_and_entities::Scene::new();
-    // let mut test_entity = scenes_and_entities::Entity::new();
-    // let test_wireframe = scenes_and_entities::WireframeObject::load_wireframe_from_obj("data/blizzard.obj", green_vec());
-    // let test_model = scenes_and_entities::ModelComponent::new(test_wireframe);
-    // let test_wireframe_2 = scenes_and_entities::WireframeObject::load_wireframe_from_obj("data/prop.obj", red_vec());
-    // let test_model_2 = scenes_and_entities::ModelComponent::new(test_wireframe_2);
-    // test_entity.add_model(test_model);
-    // test_entity.add_model(test_model_2);
-    // test_scene.add_entity(test_entity);
 
     let test_scene = scene_composer::compose_scene_1();
 
@@ -195,34 +135,26 @@ fn main() {
             na::Point2::new(-0.98, 0.98), 
             0.98*2.0, 
             0.6*2.0, 
-            test_scene_ref.clone(), 
-            na::Matrix4::look_at_rh(                // Camera Position
-                &na::Point3::new(-5.0, 5.0, 5.0),   
-                &na::Point3::new(0.0, 0.0, 0.0), 
-                &na::Vector3::new(0.0, 0.0, 1.0)
-            )
+            test_scene_ref.clone(),
+            na::Point3::new(-7.0, 3.0, 5.0),
+            na::Point3::new(0.0, 0.0, 0.0)
         ),
         dc::Twoport::new_with_camera(
             na::Point2::new(0.22, 0.98), 
             0.4*2.0, 
             0.35*2.0, 
-            null_test.clone(), 
-            na::Matrix4::look_at_rh(                // Camera Position
-                &na::Point3::new(0.0, 0.0, 1.0), 
-                &na::Point3::new(0.0, 0.0, 0.0), 
-                &na::Vector3::new(0.0, 1.0, 0.0)
-            )
+            test_scene_ref.clone(), 
+            na::Point3::new(10.0, 0.0, 0.0),
+            na::Point3::new(0.0, 0.0, 0.0)
         ),
         dc::Twoport::new_with_camera(
             na::Point2::new(0.22, 0.98-0.8), 
             2.0*(0.98-0.4), 
             0.35*2.0, 
-            null_test.clone(), 
-            na::Matrix4::look_at_rh(                // Camera Position
-                &na::Point3::new(0.0, 0.0, 1.0), 
-                &na::Point3::new(0.0, 0.0, 0.0), 
-                &na::Vector3::new(0.0, 1.0, 0.0)
-            )
+            test_scene_ref.clone(), 
+            na::Point3::new(0.0, 10.0, 1.0), 
+            na::Point3::new(0.0, 0.0, 0.0),
+            
         ),
     ];
 
@@ -312,61 +244,9 @@ fn main() {
             },
             _ => return,
         }
-
-        // match event {
-        //     glutin::event::Event::WindowEvent { event, .. } => match event {
-        //         glutin::event::WindowEvent::CloseRequested => {
-        //             *control_flow = glutin::event_loop::ControlFlow::Exit;
-        //             return;
-        //         },
-        //         _ => return,
-        //     },
-        //     glutin::event::Event::NewEvents(cause) => match cause {
-        //         glutin::event::StartCause::ResumeTimeReached { .. } => (),
-        //         glutin::event::StartCause::Init => (),
-        //         _ => return,
-        //     },
-        //     _ => return,
-        // }
-
-        
-
-        
-
         let mut target = gui.display.draw();
 
-
-        let new_pos = na::Point3::new(-5.0*&t.sin(), 5.0*&t.cos(), 5.0+2.0*(5.0*&t).sin());
-        {
-            let mut w = blizz_sim_obj.write().unwrap();
-            // (*w).advance_state();
-            (*w).update(t as f64)
-        }
-
-        
-
-        // viewport_list[0].update_camera(
-        //     na::Matrix4::look_at_rh(
-        //         &new_pos,
-        //         &na::Point3::new(0.0, 0.0, 0.0), 
-        //         &na::Vector3::new(0.0, 0.0, 1.0)
-        //     )
-        // );
-
-        // viewport_list[1].update_camera(na::Matrix4::look_at_rh(
-        //     &na::Point3::new(5.0*&t.sin(), 5.0*&t.cos(), 5.0), 
-        //     &na::Point3::new(0.0, 0.0, 0.0), 
-        //     &na::Vector3::new(0.0, 0.0, 1.0)
-        // ));
-        
-        // for i in &mut viewport_list {
-        //     i.update_all_graphical_elements(&target);
-        // }
-
         target.clear_color_and_depth((0.0, 0.0, 0.0, 1.0), 1.0);
-        // for i in &viewport_list {
-        //     i.draw(&gui, &i.mvp, &mut target);
-        // }
 
         for i in &mut viewport_refactor {
             i.update_all_graphical_elements(&target)
@@ -384,150 +264,6 @@ fn main() {
 
 }
 
-fn create_six_dof() -> gp::StateSpace<f64, 12, 8, 7> {
-    let A = na::base::SMatrix::<f64, 12, 12>::zeros();
-    let B = na::base::SMatrix::<f64, 12, 8>::zeros();
-    let C = na::base::SMatrix::<f64, 7, 12>::from_row_slice(&[
-        1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,         // x position
-        0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,         // y position
-        0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,         // z position
-        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0,         // Q 1 
-        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0,         // Q 2
-        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0,         // Q 3
-        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,         // Q 4
-    ]);
-
-    let D = na::base::SMatrix::<f64, 7, 8>::zeros();
-    let x = na::base::SVector::<f64, 12>::zeros();
-    let u = na::base::SVector::<f64, 8>::zeros();
-    let y = na::base::SVector::<f64, 7>::zeros();
-    gp::StateSpace::new(A, B, C, D, x, u, y)
-}
-
-fn create_blizzard() -> gp::SimObj<f64, 12, 8, 7> {
-
-    // Blizzard Model
-    let blizzard = Arc::new(RwLock::new(wf::Wireframe::load_wireframe_from_obj("data/blizzard.obj", dc::cyan_vec())));
-
-    // Rotor wireframe model
-    let prop_red =Arc::new(
-        wf::Wireframe::load_wireframe_from_obj("data/prop.obj", dc::red_vec())
-    );
-
-    let prop_blue =Arc::new(
-        wf::Wireframe::load_wireframe_from_obj("data/prop.obj", dc::blue_vec())
-    );
-
-    let sixdof = create_six_dof();
-
-    gp::SimObj::<f64,12,8,7>::new(
-        blizzard.clone(),
-        vec![
-            Arc::new(   // Front Right Bottom
-                RwLock::new(
-                    gp::Rotor::new(
-                        prop_red.clone(),
-                        na::base::Vector3::new(-0.72, 2.928, 1.041-0.15),
-                        na::base::Vector3::new(0.0, 0.0, 1.0),
-                        na::base::Vector3::new(0.0, 0.0, 1.0),
-                    )
-                )
-            ),
-            Arc::new(   // Front Right Top
-                RwLock::new(
-                    gp::Rotor::new(
-                        prop_blue.clone(),
-                        na::base::Vector3::new(-0.72, 2.928, 1.041+0.15),
-                        na::base::Vector3::new(0.0, 0.0, -1.0),
-                        na::base::Vector3::new(0.0, 0.0, -1.0),
-                    )
-                )
-            ),
-            Arc::new(   // Front Left Bottom
-                RwLock::new(
-                    gp::Rotor::new(
-                        prop_blue.clone(),
-                        na::base::Vector3::new(-0.72, -2.928, 1.041-0.15),
-                        na::base::Vector3::new(0.0, 0.0, 1.0),
-                        na::base::Vector3::new(0.0, 0.0, -1.0),
-                    )
-                )
-            ),
-            Arc::new(   // Front Left Top
-                RwLock::new(  
-                    gp::Rotor::new(
-                        prop_red.clone(),
-                        na::base::Vector3::new(-0.72, -2.928, 1.041+0.15),
-                        na::base::Vector3::new(0.0, 0.0, 1.0),
-                        na::base::Vector3::new(0.0, 0.0, 1.0),
-                    )
-                )
-            ),
-            Arc::new(   // Back Right Bottom
-                RwLock::new(
-                    gp::Rotor::new(
-                        prop_blue.clone(),
-                        na::base::Vector3::new(4.220, 2.928, 1.041-0.15),
-                        na::base::Vector3::new(0.0, 0.0, 1.0),
-                        na::base::Vector3::new(0.0, 0.0, -1.0)
-                    )
-                )
-            ),
-            Arc::new(   // Back Right Top
-                RwLock::new(
-                    gp::Rotor::new(
-                        prop_red.clone(),
-                        na::base::Vector3::new(4.220, 2.928, 1.041+0.15),
-                        na::base::Vector3::new(0.0, 0.0, 1.0),
-                        na::base::Vector3::new(0.0, 0.0, 1.0),
-                    )
-                )
-            ),
-            Arc::new(   // Back Left Bottom
-                RwLock::new(
-                    gp::Rotor::new(
-                        prop_red.clone(),
-                        na::base::Vector3::new(4.220, -2.928, 1.041-0.15),
-                        na::base::Vector3::new(0.0, 0.0, 1.0),
-                        na::base::Vector3::new(0.0, 0.0, 1.0)
-                    )
-                )
-            ),
-            Arc::new(   // Back Left Top
-                RwLock::new(
-                    gp::Rotor::new(
-                        prop_blue.clone(),
-                        na::base::Vector3::new(4.220, -2.928, 1.041+0.15),
-                        na::base::Vector3::new(0.0, 0.0, 1.0),
-                        na::base::Vector3::new(0.0, 0.0, -1.0)
-                    )
-                )
-            ),
-            ],
-        dc::MVPetal::null(),
-        sixdof
-    )
-}
-
 #[cfg(test)]
 mod tests {
-    use crate::{create_blizzard, gp::Sim};
-
-    
-    #[test]
-    fn multiply_check() {
-        let B = na::base::SMatrix::<f64, 12, 8>::zeros();
-        let u = na::base::SVector::<f64, 8>::zeros();
-
-        let xdot = B*u;
-
-        assert_eq!(xdot, na::base::SVector::<f64, 12>::zeros());
-    }
-
-    #[test]
-    fn observation_checl() {
-        let blizz = create_blizzard();
-        // let y_init = blizz.observe_full_state(na::base::SVector::<f64, 8>::zeros());
-        // assert_eq!(y_init, (xdot, na::base::SVector::<f64, 7>::zeros());
-    }
 }

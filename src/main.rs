@@ -189,6 +189,22 @@ fn main() {
                     return;
                 },
 
+                // Do this when the mouse moves 
+                glutin::event::WindowEvent::CursorMoved { 
+                    position,
+                    ..
+                 } => {
+                    for viewport in &mut viewport_refactor {
+                        if viewport.in_viewport(&(position.x as u32), &(position.y as u32)) {
+                            viewport.set_active();
+                        }
+                        else {
+                            viewport.set_inactive();
+                        }
+                    }
+
+                 },
+
                 glutin::event::WindowEvent::KeyboardInput {
                     input:
                     glutin::event::KeyboardInput {

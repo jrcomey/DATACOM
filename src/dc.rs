@@ -101,15 +101,18 @@ impl Twoport {
         self.set_color(green_vec());
     }
 
+    /// Sets status of the viewport to inactive.
     pub fn set_inactive(&mut self) {
         self.is_active = false;
         self.set_color(red_vec());
     }
 
+    /// Sets a new color for the viewport box
     pub fn set_color(&mut self, new_color: na::Vector4<f32>) {
         self.color = new_color;
     }
 
+    /// Checks to see if a queried position is within the viewport box or not
     pub fn in_viewport(&mut self, gui: &GuiContainer, query_x_position: &u32, query_y_position: &u32) -> bool {
         // self.context.is_within_pixel_bounds(query_x_position, query_y_position)
         let (viewport_width, viewport_height) = gui.display.get_framebuffer_dimensions();
@@ -127,6 +130,19 @@ impl Twoport {
         else {
             return false;
         }
+    }
+
+    /// Zooms in by a perscribed magnitude
+    pub fn zoom(&mut self, zoom_magnitude: f64) {
+        let r_bar = self.camera_position - self.camera_target;
+        let r_hat = r_bar / r_bar.magnitude();
+        self.camera_position = self.camera_position - zoom_magnitude * r_hat;
+        self.context.update_view(na::Matrix4::look_at_rh(
+            &na::convert(self.camera_position),   
+            &na::convert(self.camera_target), 
+            &na::Vector3::z_axis()
+            )
+        )
     }
 }
 
@@ -223,7 +239,7 @@ impl RenderContext {
     pub fn update_viewport_pixel_bounds(&mut self, new_bounds: glium::Rect) {
         self.pixel_bounds = new_bounds;
     }
-    
+
 }
 
 pub trait Draw2 {

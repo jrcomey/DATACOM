@@ -1,6 +1,6 @@
 extern crate glium;
 use std::{rc::Rc, sync::Arc, time::Instant};
-use glium::{glutin::{self, window}, Surface};
+use glium::{glutin::{self, window, event::MouseScrollDelta}, Surface};
 
 // #####################
 
@@ -133,7 +133,15 @@ impl Twoport {
     }
 
     /// Zooms in by a perscribed magnitude
-    pub fn zoom(&mut self, zoom_magnitude: f64) {
+    pub fn zoom(&mut self, mouse_delta: MouseScrollDelta) {
+
+        let zoom_magnitude = match mouse_delta {
+            MouseScrollDelta::LineDelta(mouse_main, _) => {
+                mouse_main as f64
+            },
+            _ => {0.0}
+        };
+
         let r_bar = self.camera_position - self.camera_target;
         let r_hat = r_bar / r_bar.magnitude();
         self.camera_position = self.camera_position - zoom_magnitude * r_hat;

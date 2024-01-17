@@ -1,6 +1,6 @@
 extern crate glium;
 use std::{rc::Rc, sync::Arc, time::Instant};
-use glium::{glutin::{self, window, event::MouseScrollDelta}, Surface};
+use glium::{glutin::{self, window, event::MouseScrollDelta}, Surface, debug};
 
 // #####################
 
@@ -136,11 +136,13 @@ impl Twoport {
     pub fn zoom(&mut self, mouse_delta: MouseScrollDelta) {
 
         let zoom_magnitude = match mouse_delta {
-            MouseScrollDelta::LineDelta(mouse_main, _) => {
+            MouseScrollDelta::LineDelta(_, mouse_main) => {
                 mouse_main as f64
             },
             _ => {0.0}
         };
+
+        debug!("ZOOM FACTOR: {}", zoom_magnitude);
 
         let r_bar = self.camera_position - self.camera_target;
         let r_hat = r_bar / r_bar.magnitude();
@@ -151,6 +153,33 @@ impl Twoport {
             &na::Vector3::z_axis()
             )
         )
+    }
+
+    fn get_camera_radius_vector(&self) -> na::Vector3<f64> {
+        self.camera_position - self.camera_target
+    }
+
+    pub fn orbit(&mut self, rotation_degree: f64, up_direction: na::Vector3<f64>) {
+        let rotation_rad = rotation_degree * std::f64::consts::PI / 180.0;
+
+        let orbit_mat = na::base::Matrix3::new(
+            rotation_rad.cos(), -rotation_rad.sin(), 0.0,
+            rotation_rad.sin(), rotation_rad.cos(), 0.0,
+            0.0, 0.0, 1.0,
+        );
+
+
+
+        let r_bar = self.get_camera_radius_vector();
+        self.camera_position = self.camera_target + orbit_mat * r_bar;
+        self.context.update_view(na::Matrix4::look_at_rh(
+            &na::convert(self.camera_position),   
+            &na::convert(self.camera_target), 
+            &na::Vector3::z_axis()
+            )
+        );
+
+
     }
 }
 

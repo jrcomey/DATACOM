@@ -85,8 +85,5 @@ fn create_entity_blizzard() -> scenes_and_entities::Entity {
     let mut prop_RRB = scenes_and_entities::ModelComponent::new(prop_wf);
     prop_RRB.update_local_position(na::Point3::<f32>::new(4.220, 2.928, 1.041-0.15));
     blizzard_entity.add_model(prop_RRB);
-
-
-
     return blizzard_entity;
 }

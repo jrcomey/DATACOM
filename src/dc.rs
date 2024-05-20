@@ -159,19 +159,52 @@ impl Twoport {
         self.camera_position - self.camera_target
     }
 
-    pub fn orbit(&mut self, rotation_degree: f64, up_direction: na::Vector3<f64>) {
-        let rotation_rad = rotation_degree * std::f64::consts::PI / 180.0;
+    pub fn orbit(&mut self,rotation_theta_degree: f64, rotation_phi_degree: f64, up_direction: na::Vector3<f64>) {
 
-        let orbit_mat = na::base::Matrix3::new(
-            rotation_rad.cos(), -rotation_rad.sin(), 0.0,
-            rotation_rad.sin(), rotation_rad.cos(), 0.0,
-            0.0, 0.0, 1.0,
+        // Convert orbit command to radians and structure as a vector
+        let theta = rotation_theta_degree * std::f64::consts::PI / 180.0;
+        let phi = rotation_phi_degree * std::f64::consts::PI / 180.0;
+        let delta_vector_spherical = na::base::Vector3::new(
+            0.0,
+            theta,
+            phi
         );
 
+        // Normalize camera position relative to target and convert to spherical coordinates
+        let spherical_transform = na::base::Matrix3::new(
+            theta.sin()*phi.cos(), theta.cos()*phi.sin(), -phi.sin(),
+            theta.sin()*phi.sin(), theta.cos()*phi.sin(), phi.cos(),
+            theta.cos(), -theta.sin(), 0.0,
+        );
+
+        let normalized_camera_position = self.camera_position - self.camera_target;
+
+        // Convert to spherical:
+        // rho:     sqrt(x^2 + y^2 + z^2)
+        // theta:   atan(y/x)
+        // phi:     arccos(z / sqrt(x^2 + y^2 + z^2))
+        let mut normalized_spherical_camera_position = na::Vector3::new(
+            (normalized_camera_position.x.powf(2.0)+normalized_camera_position.y.powf(2.0)+normalized_camera_position.z.powf(2.0)).sqrt(), 
+            normalized_camera_position.y.atan2(normalized_camera_position.x), 
+            (normalized_camera_position.z / (normalized_camera_position.x.powf(2.0)+normalized_camera_position.y.powf(2.0)+normalized_camera_position.z.powf(2.0)).sqrt()).acos()
+        );
+
+        // Add delta vector
+        normalized_spherical_camera_position += delta_vector_spherical;
 
 
-        let r_bar = self.get_camera_radius_vector();
-        self.camera_position = self.camera_target + orbit_mat * r_bar;
+        // Convert new camera position back to cartesian coordinates and de-normalize
+        // x = rho * sin(theta) * cos(phi)
+        self.camera_position[0] = normalized_spherical_camera_position[0]*normalized_spherical_camera_position[1].cos()*normalized_spherical_camera_position[2].sin() + self.camera_target[0];
+        // y = rho * sin(theta) * sin(theta)
+        self.camera_position[1] = normalized_spherical_camera_position[0]*normalized_spherical_camera_position[1].sin()*normalized_spherical_camera_position[2].sin() + self.camera_target[1];
+        // z = rho * cos(phi)
+        self.camera_position[2] = normalized_spherical_camera_position[0] * normalized_spherical_camera_position[2].cos() + self.camera_target[2];
+        
+
+
+        // let r_bar = self.get_camera_radius_vector();
+        // self.camera_position = self.camera_target + r_bar + spherical_transform*delta_vector_spherical;
         self.context.update_view(na::Matrix4::look_at_rh(
             &na::convert(self.camera_position),   
             &na::convert(self.camera_target), 
@@ -279,13 +312,33 @@ impl RenderContext {
 
 }
 
+// #####################
+
+// pub struct Camera {
+//     pub camera_position: na::Point3<f64>,               // Camera position
+//     pub camera_target: na::Point3<f64>,                 // Position of the target the camera is looking at
+// }
+
+// impl Camera {
+
+//     pub fn new(camera_position: na::Point3<f64>, camera_target: na::Point3<f64>) {
+
+//     }
+
+//     pub fn move_camera(&mut self, delta_camera: na::Vector3<f64>){
+//         self.camera_position = self.camera_position + delta_camera;
+//         self.context.update_view(na::Matrix4::look_at_rh(                // Camera Position
+//             &na::convert(self.camera_position),   
+//             &na::convert(self.camera_target), 
+//             &na::Vector3::z_axis()
+//             )
+//         )
+//     }
+// }
+
 pub trait Draw2 {
     fn draw(&self, gui: &GuiContainer, context: &RenderContext, target: &mut glium::Frame);
 }
-
-
-
-
 
 
 

@@ -55,64 +55,6 @@ fn main() {
     let event_loop = glutin::event_loop::EventLoop::new();                  // Create Event Loop
     let gui = dc::GuiContainer::init_opengl(&event_loop);                   // Initialize OpenGL interface
 
-    // // Plotter test
-    // let tracer = plt::Curve::new(
-    //     vec![],
-    //     dc::rgba(
-    //         0.0/255.0,
-    //         100.0/255.0,
-    //         100.0/255.0,
-    //         0.0));
-    // let tracer_ref = Arc::new(RwLock::new(tracer));
-
-    // // 6DOF simulation test
-    // let sim = Arc::new(
-    //     gp::SIXDOF::new(
-    //         vec![
-    //             blizz_sim_obj.clone(),
-    //         ]
-    //     )
-    // );
-
-    // // Isometric viewer with unit vectors, 
-    // let iso_test = Arc::new(
-    //     isoviewer::IsoViewer::new(
-    //         vec![
-    //             i.clone(),
-    //             j.clone(),
-    //             k.clone(),
-    //             blizz_sim_obj.clone(),
-    //         ]
-    //     )
-    // );
-
-    // // Isometric plotter test
-    // let iso_camera_plotter = Arc::new(
-    //     isoviewer::IsoViewer::new(
-    //         vec![
-    //             i.clone(),
-    //             j.clone(),
-    //             k.clone(),
-    //             tracer_ref.clone()
-    //         ]
-    //     )
-    // );
-
-    // // Scope display test
-    // let mut scope_test = plt::Scope::new(
-    //     vec![
-    //         tracer_ref.clone(),
-    //         i.clone(),
-    //         j.clone(),
-    //         k.clone(),
-    //     ]
-    // );
-
-    // // Setting range on the scope
-    // scope_test.set_xrange(&[-10.0, 10.0]);
-    // scope_test.set_yrange(&[-10.0, 10.0]);
-    // let scope_test = Arc::new(scope_test);
-
     let test_scene = scene_composer::compose_scene_1();
 
     let test_scene_ref = Arc::new(test_scene);
@@ -144,7 +86,6 @@ fn main() {
             test_scene_ref.clone(), 
             na::Point3::new(0.0, 10.0, 1.0), 
             na::Point3::new(0.0, 0.0, 0.0),
-            
         ),
     ];
 
@@ -195,16 +136,32 @@ fn main() {
                     ..
                  } => {
                     for viewport in &mut viewport_refactor {
-                        if viewport.in_viewport(&(position.x as u32), &(position.y as u32)) {
+                        if viewport.in_viewport(&gui, &(position.x as u32), &(position.y as u32)) {
                             viewport.set_active();
                         }
                         else {
                             viewport.set_inactive();
                         }
                     }
-
                  },
 
+
+                // Zoom when mouse wheel moved
+                glutin::event::WindowEvent::MouseWheel { 
+                delta,
+                ..
+                } => {
+                for viewport in &mut viewport_refactor {
+                    if viewport.is_active {
+                        viewport.zoom(delta);
+                        debug!("ZOOM")
+                    }
+                }
+                
+                },
+
+
+                // Pan Left using left arrow key
                 glutin::event::WindowEvent::KeyboardInput {
                     input:
                     glutin::event::KeyboardInput {
@@ -213,11 +170,16 @@ fn main() {
                     },
                     ..
                 } => {
-                    println!("LEFT");
-                    viewport_refactor[0].move_camera(na::Vector3::<f64>::new(0.0, -1.0, 0.0));
-                    println!("{}", viewport_refactor[0].camera_position);
+                    debug!("LEFT");
+                    for viewport in &mut viewport_refactor {
+                        if viewport.is_active {
+                            viewport.move_camera(na::Vector3::<f64>::new(0.0, -1.0, 0.0));
+                            println!("{}", viewport.camera_position);
+                        }
+                    }
                 },
 
+                // Pan Right using right arrow key
                 glutin::event::WindowEvent::KeyboardInput {
                     input:
                     glutin::event::KeyboardInput {
@@ -227,10 +189,17 @@ fn main() {
                     ..
                 } => {
                     println!("RIGHT");
-                    viewport_refactor[0].move_camera(na::Vector3::<f64>::new(0.0, 1.0, 0.0));
-                    println!("{}", viewport_refactor[0].camera_position);
-                },
+                    for viewport in &mut viewport_refactor {
+                        if viewport.is_active {
+                            viewport.move_camera(na::Vector3::<f64>::new(0.0, 1.0, 0.0));
+                            debug!("{}", viewport.camera_position);
+                        }
+                    }
+                }
+                    // viewport_refactor[0].move_camera(na::Vector3::<f64>::new(0.0, 1.0, 0.0));
+                    
 
+                // Pan Up using up arrow key
                 glutin::event::WindowEvent::KeyboardInput {
                     input:
                     glutin::event::KeyboardInput {
@@ -240,10 +209,15 @@ fn main() {
                     ..
                 } => {
                     println!("UP");
-                    viewport_refactor[0].move_camera(na::Vector3::<f64>::new(0.0, 0.0, 1.0));
-                    println!("{}", viewport_refactor[0].camera_position);
+                    for viewport in &mut viewport_refactor {
+                        if viewport.is_active {
+                            viewport.move_camera(na::Vector3::<f64>::new(0.0, 0.0, 1.0));
+                            debug!("{}", viewport.camera_position);
+                        }
+                    }
                 },
 
+                // Pan Down using down arrow key
                 glutin::event::WindowEvent::KeyboardInput {
                     input:
                     glutin::event::KeyboardInput {
@@ -253,9 +227,82 @@ fn main() {
                     ..
                 } => {
                     println!("DOWN");
-                    viewport_refactor[0].move_camera(na::Vector3::<f64>::new(0.0, 0.0, -1.0));
-                    println!("{}", viewport_refactor[0].camera_position);
+                    for viewport in &mut viewport_refactor {
+                        if viewport.is_active {
+                            viewport.move_camera(na::Vector3::<f64>::new(0.0, 0.0, -1.0));
+                            debug!("{}", viewport.camera_position);
+                        }
+                    }
                 },
+
+                glutin::event::WindowEvent::KeyboardInput {
+                    input:
+                    glutin::event::KeyboardInput {
+                        virtual_keycode: Some(VirtualKeyCode::A),
+                        ..
+                    },
+                    ..
+                } => {
+                    println!("A");
+                    for viewport in &mut viewport_refactor {
+                        if viewport.is_active {
+                            viewport.orbit(-5.0, 0.0, na::base::Vector3::new(0.0, 0.0, 1.0));
+                            debug!("{}", viewport.camera_position);
+                        }
+                    }
+                },
+
+                glutin::event::WindowEvent::KeyboardInput {
+                    input:
+                    glutin::event::KeyboardInput {
+                        virtual_keycode: Some(VirtualKeyCode::D),
+                        ..
+                    },
+                    ..
+                } => {
+                    println!("D");
+                    for viewport in &mut viewport_refactor {
+                        if viewport.is_active {
+                            viewport.orbit(5.0, 0.0,  na::base::Vector3::new(0.0, 0.0, 1.0));
+                            println!("{}", viewport.camera_position);
+                        }
+                    }
+                },
+
+                glutin::event::WindowEvent::KeyboardInput {
+                    input:
+                    glutin::event::KeyboardInput {
+                        virtual_keycode: Some(VirtualKeyCode::W),
+                        ..
+                    },
+                    ..
+                } => {
+                    println!("W");
+                    for viewport in &mut viewport_refactor {
+                        if viewport.is_active {
+                            viewport.orbit(0.0, -5.0,  na::base::Vector3::new(0.0, 0.0, 1.0));
+                            println!("{}", viewport.camera_position);
+                        }
+                    }
+                },
+
+                glutin::event::WindowEvent::KeyboardInput {
+                    input:
+                    glutin::event::KeyboardInput {
+                        virtual_keycode: Some(VirtualKeyCode::S),
+                        ..
+                    },
+                    ..
+                } => {
+                    println!("S");
+                    for viewport in &mut viewport_refactor {
+                        if viewport.is_active {
+                            viewport.orbit(0.0, 5.0,  na::base::Vector3::new(0.0, 0.0, 1.0));
+                            println!("{}", viewport.camera_position);
+                        }
+                    }
+                },
+                
 
                 _ => return,
             },
@@ -281,6 +328,7 @@ fn main() {
         target.finish().unwrap();
 
         *control_flow = glutin::event_loop::ControlFlow::WaitUntil(next_frame_time);
+
 
     }));
 

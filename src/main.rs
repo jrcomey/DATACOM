@@ -24,7 +24,8 @@
 // Imports
 extern crate nalgebra as na;                                                // Linear Algebra 
 extern crate glium;                                                         // OpenGL Bindings
-use glium::{glutin::{self, window, event::{ElementState, VirtualKeyCode, ModifiersState}}, Surface};                               // OpenGL imports
+use glium::{glutin::{self, window, event::{ElementState, VirtualKeyCode, ModifiersState}}, Surface};                               use core::time;
+// OpenGL imports
 use std::{rc::Rc, time::Instant, cell::RefCell, thread::scope, vec};        // Multithreading standard library items
 mod scenes_and_entities;
 extern crate tobj;                                                          // .obj file loader
@@ -55,9 +56,10 @@ fn main() {
     let event_loop = glutin::event_loop::EventLoop::new();                  // Create Event Loop
     let gui = dc::GuiContainer::init_opengl(&event_loop);                   // Initialize OpenGL interface
 
-    let test_scene = scene_composer::compose_scene_1();
+    let mut test_scene = scene_composer::compose_scene_2();
 
-    let test_scene_ref = Arc::new(test_scene);
+    let mut test_scene_ref = Arc::new(RwLock::new(test_scene));
+    let mut test_scene_ref_2 = test_scene_ref.clone();
 
 
     // Viewport Refactor Test
@@ -96,7 +98,6 @@ fn main() {
 
     // Multithreading TRx
     let (tx_gui, rx_gui) = mpsc::sync_channel(1);
-
     // Thread for calculations
     thread::spawn(move || {
         loop {
@@ -105,14 +106,16 @@ fn main() {
             tx_gui.send(t).unwrap();
 
             // Log new position
-            let new_pos = na::Point3::new((-5.0*&t.sin()) as f64, (5.0*&t.cos()) as f64, (5.0+2.0*(5.0*&t).sin()) as f64);
+            test_scene_ref_2.write().unwrap().change_entity_position(1, na::Point3::<f64>::new(5.0*t.sin() as f64, 5.0*t.cos() as f64, 0.0));
+            
+        }
+    });
 
-            // Write to tracer
-            // {
-            //     let mut w = tracer_ref.write().unwrap();
-            //     (*w).add_point(&new_pos);
-            //     // println!("{}", w.positions.len());
-            // }
+    let mut user_input = String::new();
+    thread::spawn(move || {
+        loop {
+            // thread::sleep(time::Duration::from_millis(10));
+            ;
         }
     });
 
@@ -122,7 +125,7 @@ fn main() {
         let t = rx_gui.recv().unwrap();
         // let t = (std::time::SystemTime::now().duration_since(start_time).unwrap().as_micros() as f32) / (2.0*1E6*std::f32::consts::PI);
 
-        // Event Handling
+        // Event Handling (Key presses, mouse movement)
         match event {
             glutin::event::Event::WindowEvent { event, .. } => match event {
                 glutin::event::WindowEvent::CloseRequested => {
@@ -174,7 +177,7 @@ fn main() {
                     for viewport in &mut viewport_refactor {
                         if viewport.is_active {
                             viewport.move_camera(na::Vector3::<f64>::new(0.0, -1.0, 0.0));
-                            println!("{}", viewport.camera_position);
+                            debug!("{}", viewport.camera_position);
                         }
                     }
                 },
@@ -188,7 +191,7 @@ fn main() {
                     },
                     ..
                 } => {
-                    println!("RIGHT");
+                    debug!("RIGHT");
                     for viewport in &mut viewport_refactor {
                         if viewport.is_active {
                             viewport.move_camera(na::Vector3::<f64>::new(0.0, 1.0, 0.0));
@@ -208,7 +211,7 @@ fn main() {
                     },
                     ..
                 } => {
-                    println!("UP");
+                    debug!("UP");
                     for viewport in &mut viewport_refactor {
                         if viewport.is_active {
                             viewport.move_camera(na::Vector3::<f64>::new(0.0, 0.0, 1.0));
@@ -226,7 +229,7 @@ fn main() {
                     },
                     ..
                 } => {
-                    println!("DOWN");
+                    debug!("DOWN");
                     for viewport in &mut viewport_refactor {
                         if viewport.is_active {
                             viewport.move_camera(na::Vector3::<f64>::new(0.0, 0.0, -1.0));
@@ -243,7 +246,7 @@ fn main() {
                     },
                     ..
                 } => {
-                    println!("A");
+                    debug!("A");
                     for viewport in &mut viewport_refactor {
                         if viewport.is_active {
                             viewport.orbit(-5.0, 0.0, na::base::Vector3::new(0.0, 0.0, 1.0));
@@ -260,11 +263,11 @@ fn main() {
                     },
                     ..
                 } => {
-                    println!("D");
+                    debug!("D");
                     for viewport in &mut viewport_refactor {
                         if viewport.is_active {
                             viewport.orbit(5.0, 0.0,  na::base::Vector3::new(0.0, 0.0, 1.0));
-                            println!("{}", viewport.camera_position);
+                            debug!("{}", viewport.camera_position);
                         }
                     }
                 },
@@ -277,11 +280,11 @@ fn main() {
                     },
                     ..
                 } => {
-                    println!("W");
+                    debug!("W");
                     for viewport in &mut viewport_refactor {
                         if viewport.is_active {
                             viewport.orbit(0.0, -5.0,  na::base::Vector3::new(0.0, 0.0, 1.0));
-                            println!("{}", viewport.camera_position);
+                            debug!("{}", viewport.camera_position);
                         }
                     }
                 },
@@ -294,11 +297,11 @@ fn main() {
                     },
                     ..
                 } => {
-                    println!("S");
+                    debug!("S");
                     for viewport in &mut viewport_refactor {
                         if viewport.is_active {
                             viewport.orbit(0.0, 5.0,  na::base::Vector3::new(0.0, 0.0, 1.0));
-                            println!("{}", viewport.camera_position);
+                            debug!("{}", viewport.camera_position);
                         }
                     }
                 },
@@ -316,6 +319,15 @@ fn main() {
         let mut target = gui.display.draw();
 
         target.clear_color_and_depth((0.0, 0.0, 0.0, 1.0), 1.0);
+
+        test_scene_ref.clone().write().unwrap().change_entity_position(1, na::Point3::<f64>::new(5.0*t.sin() as f64, 5.0*t.cos() as f64, 0.0));
+
+        
+        // unsafe {
+        //     let scene = Arc::downgrade(&test_scene_ref_2);
+        //     (&mut *test_scene_ref).change_entity_position(1, na::Point3::<f64>::new(t.sin() as f64, t.cos() as f64, 0.0));
+        // }
+        
 
         for i in &mut viewport_refactor {
             i.update_all_graphical_elements(&target)

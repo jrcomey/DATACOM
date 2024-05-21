@@ -1,5 +1,5 @@
 extern crate glium;
-use std::{rc::Rc, sync::Arc, time::Instant};
+use std::{rc::Rc, sync::{Arc, RwLock}, time::Instant};
 use glium::{glutin::{self, window, event::MouseScrollDelta}, Surface, debug};
 
 // #####################
@@ -22,7 +22,7 @@ pub struct Twoport {
     pub root: na::Point2<f64>,                          // Upper left window coordinate
     pub height: f64,                                    // Height of window from top -> down side   (RANGE 0 -> 2)
     pub width: f64,                                     // Width of window from left -> right side  (RANGE 0 -> 2)
-    pub content: Arc<dyn Draw2>,                        // Pointer to content to be drawn           
+    pub content: Arc<RwLock<dyn Draw2>>,                        // Pointer to content to be drawn           
     pub context: RenderContext,                         // Local Viewport Render Context
     pub camera_position: na::Point3<f64>,               // Camera position
     pub camera_target: na::Point3<f64>,                 // Position of the target the camera is looking at
@@ -31,7 +31,7 @@ pub struct Twoport {
 impl Twoport {
 
     // Creates a new viewport on the screen, initialized with an included camera. 
-    pub fn new_with_camera(root: na::Point2<f64>, height: f64, width: f64, content: Arc<dyn Draw2>, camera_position: na::Point3<f64>, camera_target: na::Point3<f64>) -> Twoport {
+    pub fn new_with_camera(root: na::Point2<f64>, height: f64, width: f64, content: Arc<RwLock<dyn Draw2>>, camera_position: na::Point3<f64>, camera_target: na::Point3<f64>) -> Twoport {
         Twoport {
             color: cyan_vec(),
             is_active: false, 
@@ -211,8 +211,6 @@ impl Twoport {
             &na::Vector3::z_axis()
             )
         );
-
-
     }
 }
 
@@ -267,7 +265,7 @@ impl Draw2 for Twoport {
                 .unwrap();
 
         // Draw Dependents  
-        self.content.draw(&gui, &self.context, target); // Draw dependent content
+        self.content.read().unwrap().draw(&gui, &self.context, target); // Draw dependent content
     }
 }
 

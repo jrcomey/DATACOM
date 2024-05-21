@@ -4,7 +4,7 @@ use crate::dc;
 use nalgebra as na;
 use num_traits::ToPrimitive;
 use tobj::Model;
-use std::{sync::atomic::{AtomicU64, Ordering}, vec};
+use std::{ops::DerefMut, sync::atomic::{AtomicU64, Ordering}, vec};
 
 // Define the wireframe or model representation
 pub struct WireframeObject {
@@ -195,6 +195,14 @@ impl Entity {
     pub fn add_model(&mut self, model: ModelComponent) {
         self.models.push(model);
     }
+
+    pub fn change_position(&mut self, new_position: na::Point3<f64>) {
+        self.position = new_position;
+    }
+
+    pub fn change_scale(&mut self, new_scale: na::Vector3<f64>) {
+        self.scale = new_scale;
+    }
 }
 
 impl dc::Draw2 for Entity {
@@ -210,7 +218,7 @@ impl dc::Draw2 for Entity {
 
 // Define the scene structure
 pub struct Scene {
-    entities: Vec<Entity>,
+    pub entities: Vec<Entity>,
 }
 
 impl Scene {
@@ -224,6 +232,18 @@ impl Scene {
         Scene{
             entities: vec![]
         }
+    }
+
+    pub fn change_entity_position(&mut self, entity_id: u64, new_position: na::Point3<f64>) {
+        self.entities[entity_id as usize].change_position(new_position);
+    }
+
+    pub fn change_entity_scale(&mut self, entity_id: u64, new_scale: na::Vector3<f64>) {
+        self.entities[entity_id as usize].change_scale(new_scale);
+    }
+
+    pub fn update(&mut self) {
+        ;
     }
 }
 

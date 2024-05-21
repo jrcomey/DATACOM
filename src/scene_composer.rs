@@ -13,6 +13,17 @@ pub fn compose_scene_1() -> scenes_and_entities::Scene {
 
 }
 
+pub fn compose_scene_2() -> scenes_and_entities::Scene {
+    let mut scene = scenes_and_entities::Scene::new();
+
+    let mut blizzard_static = create_entity_blizzard();
+    scene.add_entity(blizzard_static);
+    let mut blizzard_dynamic = create_entity_blizzard();
+    scene.add_entity(blizzard_dynamic);
+
+    return scene;
+}
+
 fn create_entity_blizzard() -> scenes_and_entities::Entity {
 
     // Main Blizzard Entity

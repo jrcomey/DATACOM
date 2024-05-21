@@ -36,7 +36,8 @@ mod dc;                                                                     // D
 mod isoviewer;                                                              // Isometric viewer struct 
 mod wf;                                                                     // Wireframe struct
 mod plt;                                                                    // Plotter
-use crate::{dc::{Draw, cyan_vec, null_content, Draw2, green_vec, red_vec}, gp::Sim};                                 // DATACOM item imports for functions
+use crate::{dc::{Draw, cyan_vec, null_content, 
+    Draw2, green_vec, red_vec}, gp::Sim};                                   // DATACOM item imports for functions
 use std::{thread, time::Duration, sync::{mpsc, Arc, Mutex, RwLock}};        // Multithreading lib imports
 mod gp;                                                                     // 6DOF simulation
 mod scene_composer;
@@ -48,6 +49,17 @@ fn main() {
     pretty_env_logger::init();
     info!("Starting Program");
 
+    
+
+    let test_scene = scene_composer::compose_scene_2();
+
+    start_program(test_scene);
+
+
+}
+
+fn start_program(scene: scenes_and_entities::Scene) {
+
     // PI constants
     let pi32 = std::f32::consts::PI;
     let pi64 = std::f64::consts::PI;
@@ -56,10 +68,8 @@ fn main() {
     let event_loop = glutin::event_loop::EventLoop::new();                  // Create Event Loop
     let gui = dc::GuiContainer::init_opengl(&event_loop);                   // Initialize OpenGL interface
 
-    let mut test_scene = scene_composer::compose_scene_2();
-
-    let mut test_scene_ref = Arc::new(RwLock::new(test_scene));
-    let mut test_scene_ref_2 = test_scene_ref.clone();
+    let scene_ref = Arc::new(RwLock::new(scene));
+    let scene_ref_2 = scene_ref.clone();
 
 
     // Viewport Refactor Test
@@ -69,7 +79,7 @@ fn main() {
             na::Point2::new(-0.98, 0.98), 
             0.98*2.0, 
             0.6*2.0, 
-            test_scene_ref.clone(),
+            scene_ref.clone(),
             na::Point3::new(-7.0, 3.0, 5.0),
             na::Point3::new(0.0, 0.0, 0.0)
         ),
@@ -77,7 +87,7 @@ fn main() {
             na::Point2::new(0.22, 0.98), 
             0.4*2.0, 
             0.35*2.0, 
-            test_scene_ref.clone(), 
+            scene_ref.clone(), 
             na::Point3::new(10.0, 0.0, 0.0),
             na::Point3::new(0.0, 0.0, 0.0)
         ),
@@ -85,7 +95,7 @@ fn main() {
             na::Point2::new(0.22, 0.98-0.8), 
             2.0*(0.98-0.4), 
             0.35*2.0, 
-            test_scene_ref.clone(), 
+            scene_ref.clone(), 
             na::Point3::new(0.0, 10.0, 1.0), 
             na::Point3::new(0.0, 0.0, 0.0),
         ),
@@ -106,8 +116,7 @@ fn main() {
             tx_gui.send(t).unwrap();
 
             // Log new position
-            test_scene_ref_2.write().unwrap().change_entity_position(1, na::Point3::<f64>::new(5.0*t.sin() as f64, 5.0*t.cos() as f64, 0.0));
-            
+            scene_ref_2.write().unwrap().change_entity_position(1, na::Point3::<f64>::new(5.0*t.sin() as f64, 5.0*t.cos() as f64, 0.0));
         }
     });
 
@@ -320,12 +329,12 @@ fn main() {
 
         target.clear_color_and_depth((0.0, 0.0, 0.0, 1.0), 1.0);
 
-        test_scene_ref.clone().write().unwrap().change_entity_position(1, na::Point3::<f64>::new(5.0*t.sin() as f64, 5.0*t.cos() as f64, 0.0));
+        scene_ref.clone().write().unwrap().change_entity_position(1, na::Point3::<f64>::new(5.0*t.sin() as f64, 5.0*t.cos() as f64, 0.0));
 
         
         // unsafe {
-        //     let scene = Arc::downgrade(&test_scene_ref_2);
-        //     (&mut *test_scene_ref).change_entity_position(1, na::Point3::<f64>::new(t.sin() as f64, t.cos() as f64, 0.0));
+        //     let scene = Arc::downgrade(&scene_ref_2);
+        //     (&mut *scene_ref).change_entity_position(1, na::Point3::<f64>::new(t.sin() as f64, t.cos() as f64, 0.0));
         // }
         
 
@@ -343,7 +352,6 @@ fn main() {
 
 
     }));
-
 }
 
 #[cfg(test)]

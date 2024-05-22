@@ -203,6 +203,10 @@ impl Entity {
     pub fn change_scale(&mut self, new_scale: na::Vector3<f64>) {
         self.scale = new_scale;
     }
+
+    pub fn get_model(&mut self, model_component_id: u64) -> &mut ModelComponent {
+        &mut self.models[model_component_id as usize]
+    }
 }
 
 impl dc::Draw2 for Entity {
@@ -244,6 +248,10 @@ impl Scene {
 
     pub fn update(&mut self) {
         ;
+    }
+
+    pub fn get_entity(&mut self, entity_id: u64) -> &mut Entity {
+        &mut self.entities[entity_id as usize]
     }
 }
 

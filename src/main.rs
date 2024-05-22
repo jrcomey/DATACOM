@@ -20,7 +20,7 @@
 #![allow(redundant_semicolons)]
 #![allow(unused_assignments)]
 #![allow(unreachable_patterns)]
-
+#![allow(unused_mut)]
 // Imports
 extern crate nalgebra as na;                                                // Linear Algebra 
 extern crate glium;                                                         // OpenGL Bindings
@@ -51,7 +51,7 @@ fn main() {
 
     
 
-    let test_scene = scene_composer::compose_scene_2();
+    let test_scene = scene_composer::compose_scene_1();
 
     start_program(test_scene);
 
@@ -75,29 +75,38 @@ fn start_program(scene: scenes_and_entities::Scene) {
     // Viewport Refactor Test
 
     let mut viewport_refactor = vec![
+        // dc::Twoport::new_with_camera(
+        //     na::Point2::new(-0.98, 0.98), 
+        //     0.98*2.0, 
+        //     0.6*2.0, 
+        //     scene_ref.clone(),
+        //     na::Point3::new(-7.0, 3.0, 5.0),
+        //     na::Point3::new(0.0, 0.0, 0.0)
+        // ),
+        // dc::Twoport::new_with_camera(
+        //     na::Point2::new(0.22, 0.98), 
+        //     0.4*2.0, 
+        //     0.35*2.0, 
+        //     scene_ref.clone(), 
+        //     na::Point3::new(10.0, 0.0, 0.0),
+        //     na::Point3::new(0.0, 0.0, 0.0)
+        // ),
+        // dc::Twoport::new_with_camera(
+        //     na::Point2::new(0.22, 0.98-0.8), 
+        //     2.0*(0.98-0.4), 
+        //     0.35*2.0, 
+        //     scene_ref.clone(), 
+        //     na::Point3::new(0.0, 10.0, 1.0), 
+        //     na::Point3::new(0.0, 0.0, 0.0),
+        // ),
+
         dc::Twoport::new_with_camera(
-            na::Point2::new(-0.98, 0.98), 
-            0.98*2.0, 
-            0.6*2.0, 
+            na::Point2::new(-1.0, 1.0), 
+            1.0*2.0, 
+            1.0*2.0, 
             scene_ref.clone(),
             na::Point3::new(-7.0, 3.0, 5.0),
             na::Point3::new(0.0, 0.0, 0.0)
-        ),
-        dc::Twoport::new_with_camera(
-            na::Point2::new(0.22, 0.98), 
-            0.4*2.0, 
-            0.35*2.0, 
-            scene_ref.clone(), 
-            na::Point3::new(10.0, 0.0, 0.0),
-            na::Point3::new(0.0, 0.0, 0.0)
-        ),
-        dc::Twoport::new_with_camera(
-            na::Point2::new(0.22, 0.98-0.8), 
-            2.0*(0.98-0.4), 
-            0.35*2.0, 
-            scene_ref.clone(), 
-            na::Point3::new(0.0, 10.0, 1.0), 
-            na::Point3::new(0.0, 0.0, 0.0),
         ),
     ];
 
@@ -116,7 +125,20 @@ fn start_program(scene: scenes_and_entities::Scene) {
             tx_gui.send(t).unwrap();
 
             // Log new position
-            scene_ref_2.write().unwrap().change_entity_position(1, na::Point3::<f64>::new(5.0*t.sin() as f64, 5.0*t.cos() as f64, 0.0));
+            // scene_ref_2.write().unwrap().change_entity_position(1, na::Point3::<f64>::new(5.0*t.sin() as f64, 5.0*t.cos() as f64, 0.0));
+
+
+            // Prop Rotation
+            let prop_rot_speed = 30.0;
+            scene_ref_2.write().unwrap().get_entity(0).get_model(1).update_local_rotation(na::UnitQuaternion::new(na::Vector3::new(0.0, 0.0, prop_rot_speed*t)));
+            scene_ref_2.write().unwrap().get_entity(0).get_model(4).update_local_rotation(na::UnitQuaternion::new(na::Vector3::new(0.0, 0.0, prop_rot_speed*t)));
+            scene_ref_2.write().unwrap().get_entity(0).get_model(6).update_local_rotation(na::UnitQuaternion::new(na::Vector3::new(0.0, 0.0, prop_rot_speed*t)));
+            scene_ref_2.write().unwrap().get_entity(0).get_model(7).update_local_rotation(na::UnitQuaternion::new(na::Vector3::new(0.0, 0.0, prop_rot_speed*t)));
+
+            scene_ref_2.write().unwrap().get_entity(0).get_model(2).update_local_rotation(na::UnitQuaternion::new(na::Vector3::new(0.0, 0.0, -prop_rot_speed*t)));
+            scene_ref_2.write().unwrap().get_entity(0).get_model(3).update_local_rotation(na::UnitQuaternion::new(na::Vector3::new(0.0, 0.0, -prop_rot_speed*t)));
+            scene_ref_2.write().unwrap().get_entity(0).get_model(5).update_local_rotation(na::UnitQuaternion::new(na::Vector3::new(0.0, 0.0, -prop_rot_speed*t)));
+            scene_ref_2.write().unwrap().get_entity(0).get_model(8).update_local_rotation(na::UnitQuaternion::new(na::Vector3::new(0.0, 0.0, -prop_rot_speed*t)));
         }
     });
 
@@ -329,13 +351,21 @@ fn start_program(scene: scenes_and_entities::Scene) {
 
         target.clear_color_and_depth((0.0, 0.0, 0.0, 1.0), 1.0);
 
-        scene_ref.clone().write().unwrap().change_entity_position(1, na::Point3::<f64>::new(5.0*t.sin() as f64, 5.0*t.cos() as f64, 0.0));
+        // scene_ref.clone().write().unwrap().change_entity_position(1, na::Point3::<f64>::new(5.0*t.sin() as f64, 5.0*t.cos() as f64, 0.0));
 
         
         // unsafe {
         //     let scene = Arc::downgrade(&scene_ref_2);
         //     (&mut *scene_ref).change_entity_position(1, na::Point3::<f64>::new(t.sin() as f64, t.cos() as f64, 0.0));
         // }
+        
+        let seconds_per_rotation: f64 = 5.0;
+
+        viewport_refactor[0].change_camera_position(na::Point3::<f64>::new(
+            7.0*(t/1.0).cos() as f64,
+            7.0*(t/1.0).sin() as f64,
+            0.0,
+        ));
         
 
         for i in &mut viewport_refactor {

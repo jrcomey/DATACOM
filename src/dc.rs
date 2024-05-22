@@ -96,6 +96,16 @@ impl Twoport {
         )
     }
 
+    pub fn change_camera_position(&mut self, new_camera_position: na::Point3<f64>) {
+        self.camera_position = new_camera_position;
+        self.context.update_view(na::Matrix4::look_at_rh(                // Camera Position
+            &na::convert(self.camera_position),   
+            &na::convert(self.camera_target), 
+            &na::Vector3::z_axis()
+            )
+        )
+    }
+
     pub fn set_active(&mut self) {
         self.is_active = true;
         self.set_color(green_vec());

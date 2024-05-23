@@ -1,0 +1,8 @@
+{
+    "Name": "Blizzard",
+    "ObjectFilePath": "data/blizzard.obj",
+    "Position": [0.0, 0.0, 0.0],
+    "Orientation": [0.0, 0.0, 0.0],
+    "Rotation": [0.0,0.0,0.0],
+    "Color": [0.0, 1.0, 0.0, 1.0]
+}

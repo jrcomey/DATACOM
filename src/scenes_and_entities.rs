@@ -1,10 +1,12 @@
 // SCENES AND ENTITIES
 
-use crate::dc;
+use crate::{dc::{self, green_vec}, wf::Wireframe};
 use nalgebra as na;
 use num_traits::ToPrimitive;
+use rand::Error;
 use tobj::Model;
 use std::{ops::DerefMut, sync::atomic::{AtomicU64, Ordering}, vec};
+use serde_json::{Result, Value};
 
 // Define the wireframe or model representation
 pub struct WireframeObject {
@@ -129,6 +131,58 @@ impl ModelComponent {
         ModelComponent {
             wireframe: wireframe,
             local_position: na::Point3::origin(),
+            local_orientation: na::UnitQuaternion::identity(),
+            local_rotation: na::UnitQuaternion::identity()
+        }
+    }
+
+    pub fn load_from_json_file(filepath: &str) -> ModelComponent {
+        let json_unparsed = std::fs::read_to_string(filepath).unwrap();
+        ModelComponent::load_from_json_str(&json_unparsed)
+    }
+
+    pub fn load_from_json_str(json_string: &str) -> ModelComponent {
+        let json_parsed: Value = serde_json::from_str(json_string).unwrap();
+
+        let name = json_parsed["Name"].as_str().unwrap();
+        let filepath = json_parsed["ObjectFilePath"].as_str().unwrap();
+        let position_temp: Vec<_> = json_parsed["Position"].as_array().unwrap().into_iter().collect();
+        let orientation_temp: Vec<_> = json_parsed["Orientation"].as_array().unwrap().into_iter().collect();
+        let rotation_temp: Vec<_> = json_parsed["Rotation"].as_array().unwrap().into_iter().collect();
+        let color_temp: Vec<_> = json_parsed["Color"].as_array().unwrap().into_iter().collect();
+        let mut position_vec = na::Point3::<f32>::new(0.0,0.0,0.0);
+        for (i, position) in position_temp.iter().enumerate() {
+            position_vec[i] = position.as_f64().unwrap() as f32;
+        }
+
+        let mut orientation_vec = na::Vector3::<f32>::new(0.0, 0.0, 0.0);
+        for (i, orientation_comp) in orientation_temp.iter().enumerate() {
+            orientation_vec[i] = orientation_comp.as_f64().unwrap() as f32;
+        }
+
+        let mut rotation_vec = na::Vector3::<f32>::new(0.0, 0.0, 0.0);
+        for (i, rotation_comp) in rotation_temp.iter().enumerate() {
+            rotation_vec[i] = rotation_comp.as_f64().unwrap() as f32;
+        }
+
+        let mut color_vec = na::Vector4::<f32>::new(0.0, 0.0, 0.0, 0.0);
+        for (i, color_comp) in color_temp.iter().enumerate() {
+            color_vec[i] = color_comp.as_f64().unwrap() as f32;
+        }
+
+
+        debug!("NAME: {}", name);
+        debug!("POSITION: {}", position_vec);
+        debug!("ORIENTATION: {}", orientation_vec);
+        debug!("ROTATION: {}", rotation_vec);
+        debug!("COLOR: {}", color_vec);
+
+
+
+
+        ModelComponent {
+            wireframe: WireframeObject::load_wireframe_from_obj(&filepath, color_vec),
+            local_position: position_vec,
             local_orientation: na::UnitQuaternion::identity(),
             local_rotation: na::UnitQuaternion::identity()
         }

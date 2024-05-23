@@ -62,6 +62,14 @@ impl WireframeObject {
         WireframeObject { positions: positions, normals: normals, indices: indices, color: color }
     }
 
+    pub fn change_color(&mut self, new_color: na::Vector4<f32>) {
+        self.color = new_color;
+    }
+
+    pub fn get_color(&mut self) -> na::Vector4<f32> {
+        self.color
+    }
+
 }
 
 impl DrawInScene for WireframeObject {
@@ -200,6 +208,14 @@ impl ModelComponent {
     pub fn update_local_rotation(&mut self, new_local_rotation: na::UnitQuaternion<f32>) {
         self.local_rotation = new_local_rotation;
     }
+
+    pub fn change_color(&mut self, new_color: na::Vector4<f32>) {
+        self.wireframe.change_color(new_color);
+    }
+
+    pub fn get_color(&mut self) -> na::Vector4<f32> {
+        self.wireframe.get_color()
+    }
 }
 
 impl DrawInScene for ModelComponent {
@@ -221,6 +237,7 @@ impl DrawInScene for ModelComponent {
 pub struct BehaviorComponent {
     // Define the behavior-specific data and logic
     // This could include methods for movement, rotation, etc.
+
 }
 
 static ENTITY_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -323,6 +340,38 @@ impl Entity {
     pub fn get_model(&mut self, model_component_id: u64) -> &mut ModelComponent {
         &mut self.models[model_component_id as usize]
     }
+
+    pub fn command(&mut self, cmd: Command) {
+        
+        match cmd.cmd_type {
+            CommandType::EntityTranslate => {
+                let new_position = na::Vector3::<f64>::new(cmd.data[0], cmd.data[1], cmd.data[2]);
+                self.change_position(self.position+new_position);
+            },
+
+            CommandType::EntityChangePosition => {
+                let new_position = na::Point3::<f64>::new(cmd.data[0], cmd.data[1], cmd.data[2]);
+                self.change_position(new_position);
+            },
+
+            CommandType::ComponentColorChange => {
+                let model_id = cmd.data[0] as u64;
+                let new_color = na::Vector4::<f32>::new(
+                    cmd.data[1] as f32,
+                    cmd.data[2] as f32,
+                    cmd.data[3] as f32,
+                    cmd.data[4] as f32,
+                );
+                self.get_model(model_id).change_color(new_color);
+            }
+
+            _ => return,
+        }
+    }
+
+    pub fn get_position(&mut self) -> na::Point3<f64> {
+        self.position
+    }
 }
 
 impl dc::Draw2 for Entity {
@@ -336,6 +385,30 @@ impl dc::Draw2 for Entity {
     }
 }
 
+// Types of command
+
+pub enum CommandType {
+    EntityRotate,
+    EntityTranslate,
+    EntityChangePosition,
+    ComponentRotate,
+    ComponentTranslate,
+    ComponentColorChange,
+}
+
+pub struct Command {
+    pub cmd_type: CommandType,
+    pub data: Vec<f64>
+}
+
+impl Command {
+    pub fn new(cmd_type: CommandType, data: Vec<f64>) -> Command {
+        Command {
+            cmd_type: cmd_type,
+            data: data
+        }
+    }
+}
 // Define the scene structure
 pub struct Scene {
     pub entities: Vec<Entity>,

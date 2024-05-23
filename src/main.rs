@@ -1,15 +1,10 @@
 /*  TO DO:
-        - Implement drawtype into MVPetal struct
-            - Determine appropriate drawtypes
-                - Full
-                - PositionOnly
-                - RotationOnly
-                - InheritPosition
-                - InheritPositionAndRotation
-                - InheritCamera
-                - etc
-            - create match cases for different passed draw types
-                - e.g. RotationOnly should ignore position when 
+        - Implement various camera behaviors
+            - Tracking
+                - Camera with a static position locks on to a moving object
+            - Following 
+                - Camera is static relative to moving target
+        - Create command that maps to behavior
 */
 
 #![allow(non_snake_case)]
@@ -37,9 +32,9 @@ mod isoviewer;                                                              // I
 mod wf;                                                                     // Wireframe struct
 mod plt;                                                                    // Plotter
 use crate::{dc::{Draw, cyan_vec, null_content, 
-    Draw2, green_vec, red_vec}, gp::Sim};                                   // DATACOM item imports for functions
+    Draw2, green_vec, red_vec}};                                   // DATACOM item imports for functions
 use std::{thread, time::Duration, sync::{mpsc, Arc, Mutex, RwLock}};        // Multithreading lib imports
-mod gp;                                                                     // 6DOF simulation
+// mod gp;                                                                     // 6DOF simulation
 mod scene_composer;
 
 fn main() {
@@ -387,7 +382,7 @@ fn start_program(scene: scenes_and_entities::Scene) {
 
 #[cfg(test)]
 mod tests {
-    use crate::scenes_and_entities::{self, ModelComponent};
+    use crate::{scene_composer, scenes_and_entities::{self, ModelComponent}};
 
 
     #[test]
@@ -399,5 +394,45 @@ mod tests {
     fn load_from_json(){
         scenes_and_entities::ModelComponent::load_from_json_file(&"data/object_loading.blizzard_initialize.json");
         
+    }
+
+    #[test]
+    fn color_change() {
+        let mut test_scene = scene_composer::compose_scene_3();
+        let color_cmd = scenes_and_entities::Command::new(
+            scenes_and_entities::CommandType::ComponentColorChange,
+            vec![0.0, 1.0, 1.0, 1.0, 1.0]
+        );
+        assert_eq!(
+            test_scene.get_entity(0).get_model(0).get_color(),
+            na::Vector4::<f32>::new(0.0, 1.0, 0.0, 1.0),
+            "Base color is green"
+        );
+        test_scene.get_entity(0).command(color_cmd);
+        assert_eq!(
+            test_scene.get_entity(0).get_model(0).get_color(),
+            na::Vector4::<f32>::new(1.0, 1.0, 1.0, 1.0),
+            "New color is white"
+        );
+    }
+
+    #[test]
+    fn position_change() {
+        let mut test_scene = scene_composer::compose_scene_3();
+        let pos_cmd = scenes_and_entities::Command::new(
+            scenes_and_entities::CommandType::EntityChangePosition,
+            vec![1.0, 1.0, 1.0]
+        );
+        assert_eq!(
+            test_scene.get_entity(0).get_position(),
+            na::Point3::<f64>::origin(),
+            "Initial Position is Origin"
+        );
+        test_scene.get_entity(0).command(pos_cmd);
+        assert_eq!(
+            test_scene.get_entity(0).get_position(),
+            na::Point3::<f64>::new(1.0, 1.0, 1.0),
+            "Position commanded successfully"
+        );
     }
 }

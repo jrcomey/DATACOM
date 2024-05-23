@@ -33,6 +33,16 @@ pub fn compose_scene_3() -> scenes_and_entities::Scene {
     return scene;
 }
 
+pub fn test_scene() -> scenes_and_entities::Scene {
+    let mut scene = scenes_and_entities::Scene::new();
+
+    let mut blizzard_loaded = create_entity_blizzard_from_file();
+    blizzard_loaded.change_position(na::Point3::<f64>::origin());   // Ensure model is at origin
+    scene.add_entity(blizzard_loaded);
+
+    return scene;
+}
+
 fn create_entity_blizzard() -> scenes_and_entities::Entity {
 
     // Main Blizzard Entity

@@ -143,28 +143,33 @@ impl ModelComponent {
 
     pub fn load_from_json_str(json_string: &str) -> ModelComponent {
         let json_parsed: Value = serde_json::from_str(json_string).unwrap();
+        ModelComponent::load_from_json(&json_parsed)
+    }
 
+    pub fn load_from_json(json_parsed: &serde_json::Value) -> ModelComponent{
         let name = json_parsed["Name"].as_str().unwrap();
         let filepath = json_parsed["ObjectFilePath"].as_str().unwrap();
-        let position_temp: Vec<_> = json_parsed["Position"].as_array().unwrap().into_iter().collect();
-        let orientation_temp: Vec<_> = json_parsed["Orientation"].as_array().unwrap().into_iter().collect();
-        let rotation_temp: Vec<_> = json_parsed["Rotation"].as_array().unwrap().into_iter().collect();
-        let color_temp: Vec<_> = json_parsed["Color"].as_array().unwrap().into_iter().collect();
+        
+        
         let mut position_vec = na::Point3::<f32>::new(0.0,0.0,0.0);
+        let position_temp: Vec<_> = json_parsed["Position"].as_array().unwrap().into_iter().collect();
         for (i, position) in position_temp.iter().enumerate() {
             position_vec[i] = position.as_f64().unwrap() as f32;
         }
 
+        let orientation_temp: Vec<_> = json_parsed["Orientation"].as_array().unwrap().into_iter().collect();
         let mut orientation_vec = na::Vector3::<f32>::new(0.0, 0.0, 0.0);
         for (i, orientation_comp) in orientation_temp.iter().enumerate() {
             orientation_vec[i] = orientation_comp.as_f64().unwrap() as f32;
         }
 
+        let rotation_temp: Vec<_> = json_parsed["Rotation"].as_array().unwrap().into_iter().collect();
         let mut rotation_vec = na::Vector3::<f32>::new(0.0, 0.0, 0.0);
         for (i, rotation_comp) in rotation_temp.iter().enumerate() {
             rotation_vec[i] = rotation_comp.as_f64().unwrap() as f32;
         }
 
+        let color_temp: Vec<_> = json_parsed["Color"].as_array().unwrap().into_iter().collect();
         let mut color_vec = na::Vector4::<f32>::new(0.0, 0.0, 0.0, 0.0);
         for (i, color_comp) in color_temp.iter().enumerate() {
             color_vec[i] = color_comp.as_f64().unwrap() as f32;
@@ -183,8 +188,8 @@ impl ModelComponent {
         ModelComponent {
             wireframe: WireframeObject::load_wireframe_from_obj(&filepath, color_vec),
             local_position: position_vec,
-            local_orientation: na::UnitQuaternion::identity(),
-            local_rotation: na::UnitQuaternion::identity()
+            local_orientation: na::UnitQuaternion::new(orientation_vec),
+            local_rotation: na::UnitQuaternion::new(rotation_vec)
         }
     }
 
@@ -226,7 +231,7 @@ pub struct Entity {
     position: na::Point3<f64>,
     rotation: na::UnitQuaternion<f64>,
     scale: na::Vector3<f64>,
-    models: Vec<ModelComponent>,
+    pub models: Vec<ModelComponent>,
     behaviors: Vec<BehaviorComponent>,
     // Other entity-specific data...
 }
@@ -244,6 +249,63 @@ impl Entity {
             behaviors: Vec::new(),
             // Other entity-specific data...
         }
+    }
+
+    pub fn load_from_json_file(filepath: &str) -> Entity{
+        let json_unparsed = std::fs::read_to_string(filepath).unwrap();
+        Entity::load_from_json_str(&json_unparsed)
+    }
+
+    pub fn load_from_json_str(json_string: &str) -> Entity {
+        let json_parsed: Value = serde_json::from_str(json_string).unwrap();
+
+
+        let name = json_parsed["Name"].as_str().unwrap();
+        let mut position_vec = na::Point3::<f64>::new(0.0,0.0,0.0);
+        let position_temp: Vec<_> = json_parsed["Position"].as_array().unwrap().into_iter().collect();
+        for (i, position) in position_temp.iter().enumerate() {
+            position_vec[i] = position.as_f64().unwrap();
+        }
+
+        let rotation_temp: Vec<_> = json_parsed["Rotation"].as_array().unwrap().into_iter().collect();
+        let mut rotation_vec = na::Vector3::<f64>::new(0.0, 0.0, 0.0);
+        for (i, rotation_comp) in rotation_temp.iter().enumerate() {
+            rotation_vec[i] = rotation_comp.as_f64().unwrap();
+        }
+
+        let scale_temp: Vec<_> = json_parsed["Scale"].as_array().unwrap().into_iter().collect();
+        let mut scale_vec = na::Vector3::<f64>::new(0.0, 0.0, 0.0);
+        for (i, scale_comp) in scale_temp.iter().enumerate() {
+            scale_vec[i] = scale_comp.as_f64().unwrap();
+        }
+
+        let model_temp: Vec<_> = json_parsed["Models"].as_array().unwrap().into_iter().collect();
+
+        
+
+        
+        let mut model_vec = vec![];
+        for i in model_temp.iter() {
+            model_vec.push(ModelComponent::load_from_json(*i));
+        }
+        debug!("{}", model_temp[0]["Name"]);
+
+        debug!("NAME: {}", name);
+        debug!("POSITION: {}", position_vec);
+        debug!("ROTATION: {}", rotation_vec);
+        debug!("SCALE: {}", scale_vec);
+        
+
+        Entity {
+            id: ENTITY_COUNTER.fetch_add(1, Ordering::Relaxed),
+            position: position_vec,
+            rotation: na::UnitQuaternion::new(rotation_vec),
+            scale: scale_vec,
+            models: model_vec,
+            behaviors: Vec::new(),
+            // Other entity-specific data...
+        }
+        
     }
 
     pub fn add_model(&mut self, model: ModelComponent) {

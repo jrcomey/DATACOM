@@ -52,7 +52,6 @@ fn main() {
     
 
     let test_scene = scene_composer::compose_scene_3();
-    scenes_and_entities::ModelComponent::load_from_json_file(&"data/object_loading/blizzard_initialize.json");
 
     start_program(test_scene);
 
@@ -131,15 +130,16 @@ fn start_program(scene: scenes_and_entities::Scene) {
 
             // Prop Rotation
             let prop_rot_speed = 30.0;
-            scene_ref_2.write().unwrap().get_entity(0).get_model(1).update_local_rotation(na::UnitQuaternion::new(na::Vector3::new(0.0, 0.0, prop_rot_speed*t)));
-            // scene_ref_2.write().unwrap().get_entity(0).get_model(4).update_local_rotation(na::UnitQuaternion::new(na::Vector3::new(0.0, 0.0, prop_rot_speed*t)));
-            // scene_ref_2.write().unwrap().get_entity(0).get_model(6).update_local_rotation(na::UnitQuaternion::new(na::Vector3::new(0.0, 0.0, prop_rot_speed*t)));
-            // scene_ref_2.write().unwrap().get_entity(0).get_model(7).update_local_rotation(na::UnitQuaternion::new(na::Vector3::new(0.0, 0.0, prop_rot_speed*t)));
 
-            // scene_ref_2.write().unwrap().get_entity(0).get_model(2).update_local_rotation(na::UnitQuaternion::new(na::Vector3::new(0.0, 0.0, -prop_rot_speed*t)));
-            // scene_ref_2.write().unwrap().get_entity(0).get_model(3).update_local_rotation(na::UnitQuaternion::new(na::Vector3::new(0.0, 0.0, -prop_rot_speed*t)));
-            // scene_ref_2.write().unwrap().get_entity(0).get_model(5).update_local_rotation(na::UnitQuaternion::new(na::Vector3::new(0.0, 0.0, -prop_rot_speed*t)));
-            // scene_ref_2.write().unwrap().get_entity(0).get_model(8).update_local_rotation(na::UnitQuaternion::new(na::Vector3::new(0.0, 0.0, -prop_rot_speed*t)));
+            scene_ref_2.write().unwrap().get_entity(0).get_model(1).update_local_rotation(na::UnitQuaternion::new(na::Vector3::new(0.0, 0.0, prop_rot_speed*t)));
+            scene_ref_2.write().unwrap().get_entity(0).get_model(4).update_local_rotation(na::UnitQuaternion::new(na::Vector3::new(0.0, 0.0, prop_rot_speed*t)));
+            scene_ref_2.write().unwrap().get_entity(0).get_model(6).update_local_rotation(na::UnitQuaternion::new(na::Vector3::new(0.0, 0.0, prop_rot_speed*t)));
+            scene_ref_2.write().unwrap().get_entity(0).get_model(7).update_local_rotation(na::UnitQuaternion::new(na::Vector3::new(0.0, 0.0, prop_rot_speed*t)));
+
+            scene_ref_2.write().unwrap().get_entity(0).get_model(2).update_local_rotation(na::UnitQuaternion::new(na::Vector3::new(0.0, 0.0, -prop_rot_speed*t)));
+            scene_ref_2.write().unwrap().get_entity(0).get_model(3).update_local_rotation(na::UnitQuaternion::new(na::Vector3::new(0.0, 0.0, -prop_rot_speed*t)));
+            scene_ref_2.write().unwrap().get_entity(0).get_model(5).update_local_rotation(na::UnitQuaternion::new(na::Vector3::new(0.0, 0.0, -prop_rot_speed*t)));
+            scene_ref_2.write().unwrap().get_entity(0).get_model(8).update_local_rotation(na::UnitQuaternion::new(na::Vector3::new(0.0, 0.0, -prop_rot_speed*t)));
         }
     });
 

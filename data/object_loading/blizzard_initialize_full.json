@@ -15,10 +15,66 @@
         {
             "Name": "propeller FLT",
             "ObjectFilePath": "data/prop.obj",
-            "Position": [-0.72, 2.928, 1.191],
+            "Position": [-0.72, -2.928, 1.191],
             "Orientation": [0.0, 0.0, 0.0],
             "Rotation": [0.0,0.0,0.0],
             "Color": [1.0, 0.0, 0.0, 1.0]
+        },
+        {
+            "Name": "propeller FLB",
+            "ObjectFilePath": "data/prop.obj",
+            "Position": [-0.72, -2.928, 0.891],
+            "Orientation": [0.0, 0.0, 0.0],
+            "Rotation": [0.0,0.0,0.0],
+            "Color": [0.0, 0.0, 1.0, 1.0]
+        },
+        {
+            "Name": "propeller FRT",
+            "ObjectFilePath": "data/prop.obj",
+            "Position": [-0.72, 2.928, 1.191],
+            "Orientation": [0.0, 0.0, 0.0],
+            "Rotation": [0.0,0.0,0.0],
+            "Color": [0.0, 0.0, 1.0, 1.0]
+        },
+        {
+            "Name": "propeller FRB",
+            "ObjectFilePath": "data/prop.obj",
+            "Position": [-0.72, 2.928, 0.891],
+            "Orientation": [0.0, 0.0, 0.0],
+            "Rotation": [0.0,0.0,0.0],
+            "Color": [1.0, 0.0, 0.0, 1.0]
+        },
+        {
+            "Name": "propeller RLT",
+            "ObjectFilePath": "data/prop.obj",
+            "Position": [4.220, -2.928, 1.191],
+            "Orientation": [0.0, 0.0, 0.0],
+            "Rotation": [0.0,0.0,0.0],
+            "Color": [0.0, 0.0, 1.0, 1.0]
+        },
+        {
+            "Name": "propeller RLB",
+            "ObjectFilePath": "data/prop.obj",
+            "Position": [4.220, -2.928, 0.891],
+            "Orientation": [0.0, 0.0, 0.0],
+            "Rotation": [0.0,0.0,0.0],
+            "Color": [1.0, 0.0, 0.0, 1.0]
+        },
+        {
+            "Name": "propeller RRT",
+            "ObjectFilePath": "data/prop.obj",
+            "Position": [4.220, 2.928, 1.191],
+            "Orientation": [0.0, 0.0, 0.0],
+            "Rotation": [0.0,0.0,0.0],
+            "Color": [1.0, 0.0, 0.0, 1.0]
+        },
+        {
+            "Name": "propeller RRB",
+            "ObjectFilePath": "data/prop.obj",
+            "Position": [4.220, 2.928, 0.891],
+            "Orientation": [0.0, 0.0, 0.0],
+            "Rotation": [0.0,0.0,0.0],
+            "Color": [0.0, 0.0, 1.0, 1.0]
         }
     ]
 }

@@ -1,4 +1,6 @@
-use crate::{scenes_and_entities, dc};
+use std::process::Command;
+
+use crate::{dc, scenes_and_entities::{self, CommandType}};
 use nalgebra as na;
 
 
@@ -36,7 +38,7 @@ pub fn compose_scene_3() -> scenes_and_entities::Scene {
 pub fn test_scene() -> scenes_and_entities::Scene {
     let mut scene = scenes_and_entities::Scene::new();
 
-    let mut blizzard_loaded = create_entity_blizzard_from_file();
+    let mut blizzard_loaded = create_test_blizzard();
     blizzard_loaded.change_position(na::Point3::<f64>::origin());   // Ensure model is at origin
     scene.add_entity(blizzard_loaded);
 
@@ -124,6 +126,54 @@ fn create_entity_blizzard_from_file() -> scenes_and_entities::Entity {
     // Main Blizzard Entity
 
     let mut blizzard_entity = scenes_and_entities::Entity::load_from_json_file(&"data/object_loading/blizzard_initialize_full.json");
+
+    for (i, id) in (1..=8).enumerate() {
+
+        let mut sign = 0.0;
+        if i % 2 == 1 {
+            sign = 1.0;
+        } 
+        else {
+            sign = -1.0;
+        }
+        
+        let cmd = scenes_and_entities::Command::new(
+            scenes_and_entities::CommandType::ComponentRotateConstantSpeed,
+            vec![
+                id as f64, // Model id
+                sign*1.0, // Rotation Speed
+                0.0,
+                1.0,
+                0.0
+            ]
+        );
+        let behavior = scenes_and_entities::BehaviorComponent::new(cmd);
+        blizzard_entity.add_behavior(behavior);
+    }
+
+    
+
+    return blizzard_entity;
+} 
+
+fn create_test_blizzard() -> scenes_and_entities::Entity {
+
+    // Main Blizzard Entity
+
+    let mut blizzard_entity = scenes_and_entities::Entity::load_from_json_file(&"data/object_loading/blizzard_initialize_full.json");
+
+    let cmd = scenes_and_entities::Command::new(
+        scenes_and_entities::CommandType::ComponentRotateConstantSpeed,
+        vec![
+            1.0, // Model id
+            0.001, // Rotation Speed
+            0.0,
+            1.0,
+            0.0
+        ]
+    );
+    let behavior = scenes_and_entities::BehaviorComponent::new(cmd);
+    blizzard_entity.add_behavior(behavior);
 
     return blizzard_entity;
 } 

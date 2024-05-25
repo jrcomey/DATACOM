@@ -1,6 +1,7 @@
 // SCENES AND ENTITIES
 
 use crate::{dc::{self, green_vec}, wf::Wireframe};
+use glium::debug;
 use nalgebra as na;
 use num_traits::ToPrimitive;
 use rand::Error;
@@ -184,11 +185,11 @@ impl ModelComponent {
         }
 
 
-        debug!("NAME: {}", name);
-        debug!("POSITION: {}", position_vec);
-        debug!("ORIENTATION: {}", orientation_vec);
-        debug!("ROTATION: {}", rotation_vec);
-        debug!("COLOR: {}", color_vec);
+        // debug!("NAME: {}", name);
+        // debug!("POSITION: {}", position_vec);
+        // debug!("ORIENTATION: {}", orientation_vec);
+        // debug!("ROTATION: {}", rotation_vec);
+        // debug!("COLOR: {}", color_vec);
 
 
 
@@ -207,6 +208,10 @@ impl ModelComponent {
 
     pub fn update_local_rotation(&mut self, new_local_rotation: na::UnitQuaternion<f32>) {
         self.local_rotation = new_local_rotation;
+    }
+
+    pub fn rotate_by(&mut self, rotation_factor: na::UnitQuaternion<f32>){
+        self.local_rotation = self.local_rotation*rotation_factor;
     }
 
     pub fn change_color(&mut self, new_color: na::Vector4<f32>) {
@@ -237,6 +242,26 @@ impl DrawInScene for ModelComponent {
 pub struct BehaviorComponent {
     // Define the behavior-specific data and logic
     // This could include methods for movement, rotation, etc.
+    // Intended to be used for constant animations: e.g. spinning rotors that
+    // don't need to wait for external command but should perform anyway
+    pub behavior: Command
+}
+
+impl BehaviorComponent {
+
+    pub fn new(behavior_vector: Command) -> BehaviorComponent {
+        BehaviorComponent {
+            behavior: behavior_vector
+        }
+    }
+
+    pub fn get_behavior(&self) -> Command{
+        self.behavior.clone()
+    }
+
+    pub fn change_command_data(&mut self, new_data: Vec<f64>) {
+        self.behavior.change_data(new_data);
+    }
 
 }
 
@@ -305,12 +330,12 @@ impl Entity {
         for i in model_temp.iter() {
             model_vec.push(ModelComponent::load_from_json(*i));
         }
-        debug!("{}", model_temp[0]["Name"]);
+        // debug!("{}", model_temp[0]["Name"]);
 
-        debug!("NAME: {}", name);
-        debug!("POSITION: {}", position_vec);
-        debug!("ROTATION: {}", rotation_vec);
-        debug!("SCALE: {}", scale_vec);
+        // debug!("NAME: {}", name);
+        // debug!("POSITION: {}", position_vec);
+        // debug!("ROTATION: {}", rotation_vec);
+        // debug!("SCALE: {}", scale_vec);
         
 
         Entity {
@@ -329,6 +354,9 @@ impl Entity {
         self.models.push(model);
     }
 
+    pub fn add_behavior(&mut self, behavior: BehaviorComponent) {
+        self.behaviors.push(behavior);
+    }
     pub fn change_position(&mut self, new_position: na::Point3<f64>) {
         self.position = new_position;
     }
@@ -341,20 +369,27 @@ impl Entity {
         &mut self.models[model_component_id as usize]
     }
 
+    pub fn get_behavior(&mut self, index: usize) -> Command {
+        self.behaviors[index].get_behavior()
+    }
     pub fn command(&mut self, cmd: Command) {
         
         match cmd.cmd_type {
+
+            // Translate entity by vector
             CommandType::EntityTranslate => {
                 let new_position = na::Vector3::<f64>::new(cmd.data[0], cmd.data[1], cmd.data[2]);
                 self.change_position(self.position+new_position);
             },
 
+            // Change position to input
             CommandType::EntityChangePosition => {
                 let new_position = na::Point3::<f64>::new(cmd.data[0], cmd.data[1], cmd.data[2]);
                 self.change_position(new_position);
             },
 
-            CommandType::ComponentColorChange => {
+            // Change color to input
+            CommandType::ComponentChangeColor => {
                 let model_id = cmd.data[0] as u64;
                 let new_color = na::Vector4::<f32>::new(
                     cmd.data[1] as f32,
@@ -363,9 +398,55 @@ impl Entity {
                     cmd.data[4] as f32,
                 );
                 self.get_model(model_id).change_color(new_color);
+            },
+
+            // Rotate item at constant speed
+            CommandType::ComponentRotateConstantSpeed => {
+                let model_id = cmd.data[0] as u64;
+                let rotation_factor = cmd.data[1];
+                let new_quaternion_vector = na::Vector3::<f32>::new(
+                    (rotation_factor*cmd.data[2]) as f32,
+                    (rotation_factor*cmd.data[4]) as f32,
+                    (rotation_factor*cmd.data[3]) as f32,
+                );
+                let new_quaternion = na::UnitQuaternion::<f32>::new(
+                    new_quaternion_vector
+                );
+
+                self.get_model(model_id).rotate_by(
+                    new_quaternion
+                );
             }
 
+            // Modify Existing Behavior
+            CommandType::ModifyBehavior => {
+                let behavior_id = cmd.data[0] as usize;
+                let new_data = cmd.data.into_iter().collect();
+                self.get_behavior(behavior_id).change_data(new_data);
+            }
+
+
+
             _ => return,
+        }
+    }
+
+    pub fn clear_behaviors(&mut self) {
+        self.behaviors = vec![];
+    }
+
+    pub fn run_behaviors(&mut self) {
+
+        // Gather behaviors into vector
+
+        let mut cmds = vec![];
+        for i in &mut self.behaviors {
+            cmds.push(i.get_behavior());
+        }
+        //Run them all in an iterator
+        
+        for i in cmds.iter(){
+            self.command(i.clone());
         }
     }
 
@@ -386,16 +467,19 @@ impl dc::Draw2 for Entity {
 }
 
 // Types of command
-
+#[derive(Copy, Clone)]
 pub enum CommandType {
     EntityRotate,
     EntityTranslate,
     EntityChangePosition,
     ComponentRotate,
     ComponentTranslate,
-    ComponentColorChange,
+    ComponentChangeColor,
+    ComponentRotateConstantSpeed,
+    ModifyBehavior,
 }
 
+#[derive(Clone)]
 pub struct Command {
     pub cmd_type: CommandType,
     pub data: Vec<f64>
@@ -408,7 +492,16 @@ impl Command {
             data: data
         }
     }
+
+    pub fn change_data(&mut self, new_data: Vec<f64>) {
+        self.data = new_data;
+    }
+
+    pub fn get_data(&self) -> &Vec<f64> {
+        &self.data
+    }
 }
+
 // Define the scene structure
 pub struct Scene {
     pub entities: Vec<Entity>,
@@ -436,7 +529,12 @@ impl Scene {
     }
 
     pub fn update(&mut self) {
-        ;
+
+        // for entity in self.entities.iter().collect::<Vec<_>>() {
+        //     entity.run_behaviors();
+        // }
+
+        // self.entities.iter().map(|x| x.run_behaviors()).next();
     }
 
     pub fn get_entity(&mut self, entity_id: u64) -> &mut Entity {

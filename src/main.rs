@@ -1,10 +1,22 @@
 /*  TO DO:
+    -Camera
         - Implement various camera behaviors
             - Tracking
                 - Camera with a static position locks on to a moving object
             - Following 
                 - Camera is static relative to moving target
-        - Create command that maps to behavior
+    - Behaviors
+        // - Create command that maps to behavior
+        // - Create command that modifies behaviors in situ
+        - Create command that deletes behaviors in situ
+        - Allow behaviors to be created from json file
+        - Create function to iterate over all behaviors in a 
+    - 2D Display
+        - Basics
+            - Create 2D Viewport
+            - Create 2D render context
+            - Create 2D primitives (Vertex, Normals)
+        - 
 */
 
 #![allow(non_snake_case)]
@@ -31,10 +43,9 @@ mod dc;                                                                     // D
 mod isoviewer;                                                              // Isometric viewer struct 
 mod wf;                                                                     // Wireframe struct
 mod plt;                                                                    // Plotter
-use crate::{dc::{Draw, cyan_vec, null_content, 
-    Draw2, green_vec, red_vec}};                                   // DATACOM item imports for functions
+use crate::dc::{Draw, cyan_vec, null_content, 
+    Draw2, green_vec, red_vec};                                             // DATACOM item imports for functions
 use std::{thread, time::Duration, sync::{mpsc, Arc, Mutex, RwLock}};        // Multithreading lib imports
-// mod gp;                                                                     // 6DOF simulation
 mod scene_composer;
 
 fn main() {
@@ -70,39 +81,39 @@ fn start_program(scene: scenes_and_entities::Scene) {
     // Viewport Refactor Test
 
     let mut viewport_refactor = vec![
-        // dc::Twoport::new_with_camera(
-        //     na::Point2::new(-0.98, 0.98), 
-        //     0.98*2.0, 
-        //     0.6*2.0, 
-        //     scene_ref.clone(),
-        //     na::Point3::new(-7.0, 3.0, 5.0),
-        //     na::Point3::new(0.0, 0.0, 0.0)
-        // ),
-        // dc::Twoport::new_with_camera(
-        //     na::Point2::new(0.22, 0.98), 
-        //     0.4*2.0, 
-        //     0.35*2.0, 
-        //     scene_ref.clone(), 
-        //     na::Point3::new(10.0, 0.0, 0.0),
-        //     na::Point3::new(0.0, 0.0, 0.0)
-        // ),
-        // dc::Twoport::new_with_camera(
-        //     na::Point2::new(0.22, 0.98-0.8), 
-        //     2.0*(0.98-0.4), 
-        //     0.35*2.0, 
-        //     scene_ref.clone(), 
-        //     na::Point3::new(0.0, 10.0, 1.0), 
-        //     na::Point3::new(0.0, 0.0, 0.0),
-        // ),
-
         dc::Twoport::new_with_camera(
-            na::Point2::new(-1.0, 1.0), 
-            1.0*2.0, 
-            1.0*2.0, 
+            na::Point2::new(-0.98, 0.98), 
+            0.98*2.0, 
+            0.6*2.0, 
             scene_ref.clone(),
             na::Point3::new(-7.0, 3.0, 5.0),
             na::Point3::new(0.0, 0.0, 0.0)
         ),
+        dc::Twoport::new_with_camera(
+            na::Point2::new(0.22, 0.98), 
+            0.4*2.0, 
+            0.35*2.0, 
+            scene_ref.clone(), 
+            na::Point3::new(10.0, 0.0, 0.0),
+            na::Point3::new(0.0, 0.0, 0.0)
+        ),
+        dc::Twoport::new_with_camera(
+            na::Point2::new(0.22, 0.98-0.8), 
+            2.0*(0.98-0.4), 
+            0.35*2.0, 
+            scene_ref.clone(), 
+            na::Point3::new(0.0, 10.0, 1.0), 
+            na::Point3::new(0.0, 0.0, 0.0),
+        ),
+
+        // dc::Twoport::new_with_camera(
+        //     na::Point2::new(-1.0, 1.0), 
+        //     1.0*2.0, 
+        //     1.0*2.0, 
+        //     scene_ref.clone(),
+        //     na::Point3::new(-7.0, 3.0, 5.0),
+        //     na::Point3::new(0.0, 0.0, 0.0)
+        // ),
     ];
 
     // Framerate and clock items
@@ -124,25 +135,22 @@ fn start_program(scene: scenes_and_entities::Scene) {
 
 
             // Prop Rotation
-            let prop_rot_speed = 30.0;
+            // let prop_rot_speed = 30.0;
 
-            scene_ref_2.write().unwrap().get_entity(0).get_model(1).update_local_rotation(na::UnitQuaternion::new(na::Vector3::new(0.0, 0.0, prop_rot_speed*t)));
-            scene_ref_2.write().unwrap().get_entity(0).get_model(4).update_local_rotation(na::UnitQuaternion::new(na::Vector3::new(0.0, 0.0, prop_rot_speed*t)));
-            scene_ref_2.write().unwrap().get_entity(0).get_model(6).update_local_rotation(na::UnitQuaternion::new(na::Vector3::new(0.0, 0.0, prop_rot_speed*t)));
-            scene_ref_2.write().unwrap().get_entity(0).get_model(7).update_local_rotation(na::UnitQuaternion::new(na::Vector3::new(0.0, 0.0, prop_rot_speed*t)));
+            // let cmd = scene_ref_2.write().unwrap().get_entity(0).get_behavior(0);
+            // scene_ref_2.write().unwrap().get_entity(0).command(cmd);
+            
+            scene_ref_2.write().unwrap().get_entity(0).run_behaviors();
 
-            scene_ref_2.write().unwrap().get_entity(0).get_model(2).update_local_rotation(na::UnitQuaternion::new(na::Vector3::new(0.0, 0.0, -prop_rot_speed*t)));
-            scene_ref_2.write().unwrap().get_entity(0).get_model(3).update_local_rotation(na::UnitQuaternion::new(na::Vector3::new(0.0, 0.0, -prop_rot_speed*t)));
-            scene_ref_2.write().unwrap().get_entity(0).get_model(5).update_local_rotation(na::UnitQuaternion::new(na::Vector3::new(0.0, 0.0, -prop_rot_speed*t)));
-            scene_ref_2.write().unwrap().get_entity(0).get_model(8).update_local_rotation(na::UnitQuaternion::new(na::Vector3::new(0.0, 0.0, -prop_rot_speed*t)));
-        }
-    });
+            // scene_ref_2.write().unwrap().get_entity(0).get_model(1).update_local_rotation(na::UnitQuaternion::new(na::Vector3::new(0.0, 0.0, prop_rot_speed*t)));
+            // scene_ref_2.write().unwrap().get_entity(0).get_model(4).update_local_rotation(na::UnitQuaternion::new(na::Vector3::new(0.0, 0.0, prop_rot_speed*t)));
+            // scene_ref_2.write().unwrap().get_entity(0).get_model(6).update_local_rotation(na::UnitQuaternion::new(na::Vector3::new(0.0, 0.0, prop_rot_speed*t)));
+            // scene_ref_2.write().unwrap().get_entity(0).get_model(7).update_local_rotation(na::UnitQuaternion::new(na::Vector3::new(0.0, 0.0, prop_rot_speed*t)));
 
-    let mut user_input = String::new();
-    thread::spawn(move || {
-        loop {
-            // thread::sleep(time::Duration::from_millis(10));
-            ;
+            // scene_ref_2.write().unwrap().get_entity(0).get_model(2).update_local_rotation(na::UnitQuaternion::new(na::Vector3::new(0.0, 0.0, -prop_rot_speed*t)));
+            // scene_ref_2.write().unwrap().get_entity(0).get_model(3).update_local_rotation(na::UnitQuaternion::new(na::Vector3::new(0.0, 0.0, -prop_rot_speed*t)));
+            // scene_ref_2.write().unwrap().get_entity(0).get_model(5).update_local_rotation(na::UnitQuaternion::new(na::Vector3::new(0.0, 0.0, -prop_rot_speed*t)));
+            // scene_ref_2.write().unwrap().get_entity(0).get_model(8).update_local_rotation(na::UnitQuaternion::new(na::Vector3::new(0.0, 0.0, -prop_rot_speed*t)));
         }
     });
 
@@ -189,8 +197,7 @@ fn start_program(scene: scenes_and_entities::Scene) {
                 }
                 
                 },
-
-
+                
                 // Pan Left using left arrow key
                 glutin::event::WindowEvent::KeyboardInput {
                     input:
@@ -398,9 +405,9 @@ mod tests {
 
     #[test]
     fn color_change() {
-        let mut test_scene = scene_composer::compose_scene_3();
+        let mut test_scene = scene_composer::test_scene();
         let color_cmd = scenes_and_entities::Command::new(
-            scenes_and_entities::CommandType::ComponentColorChange,
+            scenes_and_entities::CommandType::ComponentChangeColor,
             vec![0.0, 1.0, 1.0, 1.0, 1.0]
         );
         assert_eq!(
@@ -418,7 +425,7 @@ mod tests {
 
     #[test]
     fn position_change() {
-        let mut test_scene = scene_composer::compose_scene_3();
+        let mut test_scene = scene_composer::test_scene();
         let pos_cmd = scenes_and_entities::Command::new(
             scenes_and_entities::CommandType::EntityChangePosition,
             vec![1.0, 1.0, 1.0]
@@ -433,6 +440,15 @@ mod tests {
             test_scene.get_entity(0).get_position(),
             na::Point3::<f64>::new(1.0, 1.0, 1.0),
             "Position commanded successfully"
+        );
+    }
+
+    #[test]
+    fn change_command() {
+        let mut test_scene = scene_composer::test_scene();
+        let change_command = scenes_and_entities::Command::new(
+            scenes_and_entities::CommandType::ModifyBehavior, 
+            vec![0.0, ]
         );
     }
 }

@@ -16,7 +16,11 @@
             - Create 2D Viewport
             - Create 2D render context
             - Create 2D primitives (Vertex, Normals)
-        - 
+    - JSON parsing and loading
+        - Make wireframe loadable from JSON
+        - Make behaviors loadable from JSON
+        - Make scenes loadable from JSON
+
 */
 
 #![allow(non_snake_case)]
@@ -130,27 +134,8 @@ fn start_program(scene: scenes_and_entities::Scene) {
             t = (std::time::SystemTime::now().duration_since(start_time).unwrap().as_micros() as f32) / (2.0*1E6*std::f32::consts::PI);
             tx_gui.send(t).unwrap();
 
-            // Log new position
-            // scene_ref_2.write().unwrap().change_entity_position(1, na::Point3::<f64>::new(5.0*t.sin() as f64, 5.0*t.cos() as f64, 0.0));
-
-
-            // Prop Rotation
-            // let prop_rot_speed = 30.0;
-
-            // let cmd = scene_ref_2.write().unwrap().get_entity(0).get_behavior(0);
-            // scene_ref_2.write().unwrap().get_entity(0).command(cmd);
-            
-            scene_ref_2.write().unwrap().get_entity(0).run_behaviors();
-
-            // scene_ref_2.write().unwrap().get_entity(0).get_model(1).update_local_rotation(na::UnitQuaternion::new(na::Vector3::new(0.0, 0.0, prop_rot_speed*t)));
-            // scene_ref_2.write().unwrap().get_entity(0).get_model(4).update_local_rotation(na::UnitQuaternion::new(na::Vector3::new(0.0, 0.0, prop_rot_speed*t)));
-            // scene_ref_2.write().unwrap().get_entity(0).get_model(6).update_local_rotation(na::UnitQuaternion::new(na::Vector3::new(0.0, 0.0, prop_rot_speed*t)));
-            // scene_ref_2.write().unwrap().get_entity(0).get_model(7).update_local_rotation(na::UnitQuaternion::new(na::Vector3::new(0.0, 0.0, prop_rot_speed*t)));
-
-            // scene_ref_2.write().unwrap().get_entity(0).get_model(2).update_local_rotation(na::UnitQuaternion::new(na::Vector3::new(0.0, 0.0, -prop_rot_speed*t)));
-            // scene_ref_2.write().unwrap().get_entity(0).get_model(3).update_local_rotation(na::UnitQuaternion::new(na::Vector3::new(0.0, 0.0, -prop_rot_speed*t)));
-            // scene_ref_2.write().unwrap().get_entity(0).get_model(5).update_local_rotation(na::UnitQuaternion::new(na::Vector3::new(0.0, 0.0, -prop_rot_speed*t)));
-            // scene_ref_2.write().unwrap().get_entity(0).get_model(8).update_local_rotation(na::UnitQuaternion::new(na::Vector3::new(0.0, 0.0, -prop_rot_speed*t)));
+            // Scene update
+            scene_ref_2.write().unwrap().update();
         }
     });
 

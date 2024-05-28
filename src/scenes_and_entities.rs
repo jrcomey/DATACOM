@@ -535,10 +535,13 @@ impl Scene {
         // }
 
         // self.entities.iter().map(|x| x.run_behaviors()).next();
+        for i in 0..self.entities.len(){
+            self.get_entity(i).run_behaviors();
+        }
     }
 
-    pub fn get_entity(&mut self, entity_id: u64) -> &mut Entity {
-        &mut self.entities[entity_id as usize]
+    pub fn get_entity(&mut self, entity_id: usize) -> &mut Entity {
+        &mut self.entities[entity_id]
     }
 }
 

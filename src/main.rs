@@ -1,26 +1,38 @@
 /*  TO DO:
+    // indicates completed.
     -Camera
         - Implement various camera behaviors
             - Tracking
                 - Camera with a static position locks on to a moving object
             - Following 
-                - Camera is static relative to moving target
+                - Camera is static relative to moving current_frame
     - Behaviors
         // - Create command that maps to behavior
         // - Create command that modifies behaviors in situ
         - Create command that deletes behaviors in situ
         - Allow behaviors to be created from json file
-        - Create function to iterate over all behaviors in a 
+        // - Create function to iterate over all behaviors in an entity
     - 2D Display
         - Basics
             - Create 2D Viewport
             - Create 2D render context
             - Create 2D primitives (Vertex, Normals)
+            - Create 2D shape primitives
+                - Ellipse
+                - Circle
+                - Line
+                - Square
+        - More Advanced
+            - Flatten 3D scene and display as 2D
+            - 
     - JSON parsing and loading
+        // - Make models loadable from JSON
+        // - Make entities loadable from JSON
         - Make wireframe loadable from JSON
         - Make behaviors loadable from JSON
         - Make scenes loadable from JSON
-
+        // - Entities commandable from JSON
+        - All entities in scene can be commanded over JSON
 */
 
 #![allow(non_snake_case)]
@@ -58,8 +70,6 @@ fn main() {
     std::env::set_var("RUST_LOG", "trace");                                 // Initialize logger
     pretty_env_logger::init();
     info!("Starting Program");
-
-    
 
     let test_scene = scene_composer::compose_scene_3();
 
@@ -122,17 +132,34 @@ fn start_program(scene: scenes_and_entities::Scene) {
 
     // Framerate and clock items
     let frame_time_nanos = 16_666_667;
+    // let frame_time_nanos = 33_333_333;
     let start_time = std::time::SystemTime::now();
     let mut t = (std::time::SystemTime::now().duration_since(start_time).unwrap().as_micros() as f32) / (2.0*1E6*std::f32::consts::PI);
 
+    let str = std::fs::read_to_string("data/test_commands/test_command.json").unwrap();
+    scene_ref_2.write().unwrap().cmd_msg(&str);
     // Multithreading TRx
     let (tx_gui, rx_gui) = mpsc::sync_channel(1);
     // Thread for calculations
-    thread::spawn(move || {
+    let calculation_thread = thread::Builder::new().name("calculation thread".to_string()).spawn(move || {
         loop {
             // Clock update
             t = (std::time::SystemTime::now().duration_since(start_time).unwrap().as_micros() as f32) / (2.0*1E6*std::f32::consts::PI);
             tx_gui.send(t).unwrap();
+
+            let test_command_data = format!("
+                {{
+                    \"targetEntityID\": 0,
+                    \"commandType\": \"ComponentChangeColor\",
+                    \"data\": [0.0,{},{},{},1.0]
+                }}
+            ", 
+            t.sin().abs(),
+            t.cos().abs(),
+            t.tan().abs()
+        );
+            // let test_command_json: serde_json::Value = serde_json::from_str(test_command_data.as_str()).unwrap();
+            scene_ref_2.write().unwrap().cmd_msg(&test_command_data.as_str());
 
             // Scene update
             scene_ref_2.write().unwrap().update();
@@ -335,17 +362,10 @@ fn start_program(scene: scenes_and_entities::Scene) {
             },
             _ => return,
         }
-        let mut target = gui.display.draw();
+        let mut current_frame = gui.display.draw();
 
-        target.clear_color_and_depth((0.0, 0.0, 0.0, 1.0), 1.0);
+        current_frame.clear_color_and_depth((0.0, 0.0, 0.0, 1.0), 1.0);
 
-        // scene_ref.clone().write().unwrap().change_entity_position(1, na::Point3::<f64>::new(5.0*t.sin() as f64, 5.0*t.cos() as f64, 0.0));
-
-        
-        // unsafe {
-        //     let scene = Arc::downgrade(&scene_ref_2);
-        //     (&mut *scene_ref).change_entity_position(1, na::Point3::<f64>::new(t.sin() as f64, t.cos() as f64, 0.0));
-        // }
         
         let seconds_per_rotation: f64 = 5.0;
 
@@ -357,14 +377,14 @@ fn start_program(scene: scenes_and_entities::Scene) {
         
 
         for i in &mut viewport_refactor {
-            i.update_all_graphical_elements(&target)
+            i.update_all_graphical_elements(&current_frame)
         }
 
         for i in &viewport_refactor {
-            i.draw(&gui, &i.context, &mut target)
+            i.draw(&gui, &i.context, &mut current_frame)
         }
 
-        target.finish().unwrap();
+        current_frame.finish().unwrap();
 
         *control_flow = glutin::event_loop::ControlFlow::WaitUntil(next_frame_time);
 
@@ -436,4 +456,6 @@ mod tests {
             vec![0.0, ]
         );
     }
+
+
 }

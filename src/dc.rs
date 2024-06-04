@@ -322,30 +322,40 @@ impl RenderContext {
 
 // #####################
 
-// pub struct Camera {
-//     pub camera_position: na::Point3<f64>,               // Camera position
-//     pub camera_target: na::Point3<f64>,                 // Position of the target the camera is looking at
-// }
+pub enum CameraMode {
+    Static,
 
-// impl Camera {
+}
 
-//     pub fn new(camera_position: na::Point3<f64>, camera_target: na::Point3<f64>) {
+pub struct Camera {
+    pub camera_position: na::Point3<f64>,               // Camera position
+    pub camera_target: na::Point3<f64>,                 // Position of the target the camera is looking at
+    camera_mode: CameraMode,                            // Enum describing camera mode
+}
 
-//     }
+impl Camera {
 
-//     pub fn move_camera(&mut self, delta_camera: na::Vector3<f64>){
-//         self.camera_position = self.camera_position + delta_camera;
-//         self.context.update_view(na::Matrix4::look_at_rh(                // Camera Position
-//             &na::convert(self.camera_position),   
-//             &na::convert(self.camera_target), 
-//             &na::Vector3::z_axis()
-//             )
-//         )
-//     }
-// }
+    pub fn new(camera_position: na::Point3<f64>, camera_target: na::Point3<f64>) {
+
+    }
+
+    // pub fn move_camera(&mut self, delta_camera: na::Vector3<f64>){
+    //     self.camera_position = self.camera_position + delta_camera;
+    //     self.context.update_view(na::Matrix4::look_at_rh(                // Camera Position
+    //         &na::convert(self.camera_position),   
+    //         &na::convert(self.camera_target), 
+    //         &na::Vector3::z_axis()
+    //         )
+    //     )
+    // }
+}
 
 pub trait Draw2 {
     fn draw(&self, gui: &GuiContainer, context: &RenderContext, target: &mut glium::Frame);
+}
+
+pub fn event_handling() {
+
 }
 
 

@@ -357,6 +357,7 @@ impl Entity {
     pub fn add_behavior(&mut self, behavior: BehaviorComponent) {
         self.behaviors.push(behavior);
     }
+
     pub fn change_position(&mut self, new_position: na::Point3<f64>) {
         self.position = new_position;
     }
@@ -372,6 +373,7 @@ impl Entity {
     pub fn get_behavior(&mut self, index: usize) -> Command {
         self.behaviors[index].get_behavior()
     }
+    
     pub fn command(&mut self, cmd: Command) {
         
         match cmd.cmd_type {
@@ -477,6 +479,7 @@ pub enum CommandType {
     ComponentChangeColor,
     ComponentRotateConstantSpeed,
     ModifyBehavior,
+    Null,
 }
 
 #[derive(Clone)]
@@ -535,9 +538,38 @@ impl Scene {
         // }
 
         // self.entities.iter().map(|x| x.run_behaviors()).next();
+
+        // This is really dumb, but this is the only way to do it without cloning the data.
         for i in 0..self.entities.len(){
             self.get_entity(i).run_behaviors();
         }
+    }
+
+    pub fn cmd_msg(&mut self, json_unparsed: &str) {
+        let json_parsed: Value = serde_json::from_str(json_unparsed).unwrap();
+
+        let target_entity_id = json_parsed["targetEntityID"].as_u64().unwrap() as usize;
+        let data_temp: Vec<_> = json_parsed["data"].as_array().unwrap().into_iter().collect();
+        let mut data: Vec<f64> = vec![];
+        for (i, data_point) in data_temp.iter().enumerate() {
+            data.push(data_point.as_f64().unwrap());
+        }
+    
+        let command_type: CommandType = match json_parsed["commandType"].as_str().unwrap() {
+            "EntityRotate" => CommandType::EntityRotate,
+            "EntityTranslate" => CommandType::EntityTranslate,
+            "EntityChangePosition" => CommandType::EntityChangePosition,
+            "ComponentRotate" => CommandType::ComponentRotate,
+            "ComponentTranslate" => CommandType::ComponentTranslate,
+            "ComponentChangeColor" => CommandType::ComponentChangeColor,
+            "ComponentRotateConstantSpeed" => CommandType::ComponentRotateConstantSpeed,
+            "ModifyBehavior" => CommandType::ModifyBehavior,
+            _ => CommandType::Null,
+        };
+
+        self.get_entity(target_entity_id).command(
+            Command::new(command_type, data)
+        );
     }
 
     pub fn get_entity(&mut self, entity_id: usize) -> &mut Entity {

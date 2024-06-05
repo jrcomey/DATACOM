@@ -462,8 +462,9 @@ impl dc::Draw2 for Entity {
     fn draw(&self, gui: &dc::GuiContainer, context: &dc::RenderContext, target: &mut glium::Frame) {
         let translate = na::Translation3::from(self.position);
         let parent_model_mat = na::Isometry3::from_parts(na::convert(translate), na::convert(self.rotation));
+        let scale_vec = na::Vector3::new(self.scale.x as f32, self.scale.y as f32, self.scale.z as f32);
         for model in &self.models {
-            model.draw_at_position(gui, context, target, parent_model_mat.to_homogeneous());
+            model.draw_at_position(gui, context, target, parent_model_mat.to_homogeneous().prepend_nonuniform_scaling(&scale_vec));
         }
     }
 }

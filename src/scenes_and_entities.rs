@@ -263,6 +263,13 @@ impl BehaviorComponent {
         self.behavior.change_data(new_data);
     }
 
+    pub fn load_from_json(json_parsed: &serde_json::Value) -> BehaviorComponent {
+
+        let command = Command::from_json(json_parsed);
+        BehaviorComponent { behavior: command }
+        
+    }
+
 }
 
 static ENTITY_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -273,7 +280,7 @@ pub struct Entity {
     position: na::Point3<f64>,
     rotation: na::UnitQuaternion<f64>,
     scale: na::Vector3<f64>,
-    pub models: Vec<ModelComponent>,
+    models: Vec<ModelComponent>,
     behaviors: Vec<BehaviorComponent>,
     // Other entity-specific data...
 }
@@ -301,9 +308,6 @@ impl Entity {
     pub fn load_from_json_str(json_string: &str) -> Entity {
         let json_parsed: Value = serde_json::from_str(json_string).unwrap();
         Entity::load_from_json(&json_parsed)
-
-        
-        
     }
 
     pub fn load_from_json(json_parsed: &serde_json::Value) -> Entity{
@@ -331,6 +335,12 @@ impl Entity {
         for i in model_temp.iter() {
             model_vec.push(ModelComponent::load_from_json(*i));
         }
+
+        let behavior_temp: Vec<_> = json_parsed["Behaviors"].as_array().unwrap().into_iter().collect();
+        let mut behavior_vec = vec![];
+        for i in behavior_temp.iter() {
+            behavior_vec.push(BehaviorComponent::load_from_json(*i));
+        }
         // debug!("{}", model_temp[0]["Name"]);
 
         // debug!("NAME: {}", name);
@@ -345,7 +355,7 @@ impl Entity {
             rotation: na::UnitQuaternion::new(rotation_vec),
             scale: scale_vec,
             models: model_vec,
-            behaviors: Vec::new(),
+            behaviors: behavior_vec,
             // Other entity-specific data...
         }
     }
@@ -483,6 +493,21 @@ pub enum CommandType {
     Null,
 }
 
+impl CommandType {
+    pub fn match_from_string(input_string: &str) -> CommandType {
+        match input_string {
+            "EntityRotate" => CommandType::EntityRotate,
+            "EntityTranslate" => CommandType::EntityTranslate,
+            "EntityChangePosition" => CommandType::EntityChangePosition,
+            "ComponentRotate" => CommandType::ComponentRotate,
+            "ComponentTranslate" => CommandType::ComponentTranslate,
+            "ComponentChangeColor" => CommandType::ComponentChangeColor,
+            "ComponentRotateConstantSpeed" => CommandType::ComponentRotateConstantSpeed,
+            "ModifyBehavior" => CommandType::ModifyBehavior,
+            _ => CommandType::Null,
+        }
+    }
+}
 #[derive(Clone)]
 pub struct Command {
     pub cmd_type: CommandType,
@@ -503,6 +528,18 @@ impl Command {
 
     pub fn get_data(&self) -> &Vec<f64> {
         &self.data
+    }
+
+    pub fn from_json(json_parsed: &serde_json::Value) -> Command {
+        let data_temp: Vec<_> = json_parsed["data"].as_array().unwrap().into_iter().collect();
+        let mut data: Vec<f64> = vec![];
+        for (i, data_point) in data_temp.iter().enumerate() {
+            data.push(data_point.as_f64().unwrap());
+        }
+    
+        let command_type: CommandType = CommandType::match_from_string(json_parsed["commandType"].as_str().unwrap());
+
+        Command::new(command_type, data)
     }
 }
 
@@ -552,30 +589,19 @@ impl Scene {
         }
     }
 
-    pub fn cmd_msg(&mut self, json_unparsed: &str) {
+    pub fn cmd_msg_str(&mut self, json_unparsed: &str) {
         let json_parsed: Value = serde_json::from_str(json_unparsed).unwrap();
+        self.cmd_msg(&json_parsed);
+        
+    }
 
+    pub fn cmd_msg(&mut self, json_parsed: &serde_json::Value) {
         let target_entity_id = json_parsed["targetEntityID"].as_u64().unwrap() as usize;
-        let data_temp: Vec<_> = json_parsed["data"].as_array().unwrap().into_iter().collect();
-        let mut data: Vec<f64> = vec![];
-        for (i, data_point) in data_temp.iter().enumerate() {
-            data.push(data_point.as_f64().unwrap());
-        }
-    
-        let command_type: CommandType = match json_parsed["commandType"].as_str().unwrap() {
-            "EntityRotate" => CommandType::EntityRotate,
-            "EntityTranslate" => CommandType::EntityTranslate,
-            "EntityChangePosition" => CommandType::EntityChangePosition,
-            "ComponentRotate" => CommandType::ComponentRotate,
-            "ComponentTranslate" => CommandType::ComponentTranslate,
-            "ComponentChangeColor" => CommandType::ComponentChangeColor,
-            "ComponentRotateConstantSpeed" => CommandType::ComponentRotateConstantSpeed,
-            "ModifyBehavior" => CommandType::ModifyBehavior,
-            _ => CommandType::Null,
-        };
+
+        let cmd = Command::from_json(json_parsed);
 
         self.get_entity(target_entity_id).command(
-            Command::new(command_type, data)
+            cmd
         );
     }
 

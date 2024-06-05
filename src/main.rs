@@ -139,7 +139,7 @@ fn start_program(scene: scenes_and_entities::Scene) {
     let mut t = (std::time::SystemTime::now().duration_since(start_time).unwrap().as_micros() as f32) / (2.0*1E6*std::f32::consts::PI);
 
     let str = std::fs::read_to_string("data/test_commands/test_command.json").unwrap();
-    scene_ref_2.write().unwrap().cmd_msg(&str);
+    scene_ref_2.write().unwrap().cmd_msg_str(&str);
     // Multithreading TRx
     let (tx_gui, rx_gui) = mpsc::sync_channel(1);
     // Thread for calculations
@@ -161,7 +161,7 @@ fn start_program(scene: scenes_and_entities::Scene) {
             t.tan().abs()
         );
             // let test_command_json: serde_json::Value = serde_json::from_str(test_command_data.as_str()).unwrap();
-            scene_ref_2.write().unwrap().cmd_msg(&test_command_data.as_str());
+            scene_ref_2.write().unwrap().cmd_msg_str(&test_command_data.as_str());
 
             // Scene update
             scene_ref_2.write().unwrap().update();

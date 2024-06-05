@@ -10,7 +10,7 @@
         // - Create command that maps to behavior
         // - Create command that modifies behaviors in situ
         - Create command that deletes behaviors in situ
-        - Allow behaviors to be created from json file
+        // - Allow behaviors to be created from json file
         // - Create function to iterate over all behaviors in an entity
     - 2D Display
         - Basics
@@ -29,10 +29,10 @@
         // - Make models loadable from JSON
         // - Make entities loadable from JSON
         - Make wireframe loadable from JSON
-        - Make behaviors loadable from JSON
-        - Make scenes loadable from JSON
+        // - Make behaviors loadable from JSON
+        // - Make scenes loadable from JSON
         // - Entities commandable from JSON
-        - All entities in scene can be commanded over JSON
+        // - All entities in scene can be commanded over JSON
 */
 
 #![allow(non_snake_case)]

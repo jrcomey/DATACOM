@@ -1,0 +1,329 @@
+{
+    "viewports": [],
+    "entities": [
+        {   
+            "Name": "ATP-XW Blizzard",
+            "Position": [0.0, 0.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "Models": [
+                {
+                    "Name": "Blizzard",
+                    "ObjectFilePath": "data/blizzard.obj",
+                    "Position": [0.0, 0.0, 0.0],
+                    "Orientation": [0.0, 0.0, 0.0],
+                    "Rotation": [0.0,0.0,0.0],
+                    "Color": [0.0, 1.0, 0.0, 1.0]
+                },
+                {
+                    "Name": "propeller FLT",
+                    "ObjectFilePath": "data/prop.obj",
+                    "Position": [-0.72, -2.928, 1.191],
+                    "Orientation": [0.0, 0.0, 0.0],
+                    "Rotation": [0.0,0.0,0.0],
+                    "Color": [1.0, 0.0, 0.0, 1.0]
+                },
+                {
+                    "Name": "propeller FLB",
+                    "ObjectFilePath": "data/prop.obj",
+                    "Position": [-0.72, -2.928, 0.891],
+                    "Orientation": [0.0, 0.0, 0.0],
+                    "Rotation": [0.0,0.0,0.0],
+                    "Color": [0.0, 0.0, 1.0, 1.0]
+                },
+                {
+                    "Name": "propeller FRT",
+                    "ObjectFilePath": "data/prop.obj",
+                    "Position": [-0.72, 2.928, 1.191],
+                    "Orientation": [0.0, 0.0, 0.0],
+                    "Rotation": [0.0,0.0,0.0],
+                    "Color": [0.0, 0.0, 1.0, 1.0]
+                },
+                {
+                    "Name": "propeller FRB",
+                    "ObjectFilePath": "data/prop.obj",
+                    "Position": [-0.72, 2.928, 0.891],
+                    "Orientation": [0.0, 0.0, 0.0],
+                    "Rotation": [0.0,0.0,0.0],
+                    "Color": [1.0, 0.0, 0.0, 1.0]
+                },
+                {
+                    "Name": "propeller RLT",
+                    "ObjectFilePath": "data/prop.obj",
+                    "Position": [4.220, -2.928, 1.191],
+                    "Orientation": [0.0, 0.0, 0.0],
+                    "Rotation": [0.0,0.0,0.0],
+                    "Color": [0.0, 0.0, 1.0, 1.0]
+                },
+                {
+                    "Name": "propeller RLB",
+                    "ObjectFilePath": "data/prop.obj",
+                    "Position": [4.220, -2.928, 0.891],
+                    "Orientation": [0.0, 0.0, 0.0],
+                    "Rotation": [0.0,0.0,0.0],
+                    "Color": [1.0, 0.0, 0.0, 1.0]
+                },
+                {
+                    "Name": "propeller RRT",
+                    "ObjectFilePath": "data/prop.obj",
+                    "Position": [4.220, 2.928, 1.191],
+                    "Orientation": [0.0, 0.0, 0.0],
+                    "Rotation": [0.0,0.0,0.0],
+                    "Color": [1.0, 0.0, 0.0, 1.0]
+                },
+                {
+                    "Name": "propeller RRB",
+                    "ObjectFilePath": "data/prop.obj",
+                    "Position": [4.220, 2.928, 0.891],
+                    "Orientation": [0.0, 0.0, 0.0],
+                    "Rotation": [0.0,0.0,0.0],
+                    "Color": [0.0, 0.0, 1.0, 1.0]
+                }
+            ],
+            "Behaviors": [
+                {
+                    "commandType": "ComponentRotateConstantSpeed",
+                    "data": [
+                        1.0,
+                        1.0,
+                        0.0,
+                        1.0,
+                        0.0
+                    ]
+                },
+                {
+                    "commandType": "ComponentRotateConstantSpeed",
+                    "data": [
+                        2.0,
+                        -1.0,
+                        0.0,
+                        1.0,
+                        0.0
+                    ]
+                },
+                {
+                    "commandType": "ComponentRotateConstantSpeed",
+                    "data": [
+                        3.0,
+                        1.0,
+                        0.0,
+                        1.0,
+                        0.0
+                    ]
+                },
+                {
+                    "commandType": "ComponentRotateConstantSpeed",
+                    "data": [
+                        4.0,
+                        -1.0,
+                        0.0,
+                        1.0,
+                        0.0
+                    ]
+                },
+                {
+                    "commandType": "ComponentRotateConstantSpeed",
+                    "data": [
+                        5.0,
+                        1.0,
+                        0.0,
+                        1.0,
+                        0.0
+                    ]
+                },
+                {
+                    "commandType": "ComponentRotateConstantSpeed",
+                    "data": [
+                        6.0,
+                        -1.0,
+                        0.0,
+                        1.0,
+                        0.0
+                    ]
+                },
+                {
+                    "commandType": "ComponentRotateConstantSpeed",
+                    "data": [
+                        7.0,
+                        1.0,
+                        0.0,
+                        1.0,
+                        0.0
+                    ]
+                },
+                {
+                    "commandType": "ComponentRotateConstantSpeed",
+                    "data": [
+                        8.0,
+                        -1.0,
+                        0.0,
+                        1.0,
+                        0.0
+                    ]
+                }
+            ]
+        },
+        {   
+            "Name": "ATP-XW Blizzard",
+            "Position": [-5.0, -5.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [0.25, 0.25, 0.25],
+            "Models": [
+                {
+                    "Name": "Blizzard",
+                    "ObjectFilePath": "data/blizzard.obj",
+                    "Position": [0.0, 0.0, 0.0],
+                    "Orientation": [0.0, 0.0, 0.0],
+                    "Rotation": [0.0,0.0,0.0],
+                    "Color": [0.0, 1.0, 0.0, 1.0]
+                },
+                {
+                    "Name": "propeller FLT",
+                    "ObjectFilePath": "data/prop.obj",
+                    "Position": [-0.72, -2.928, 1.191],
+                    "Orientation": [0.0, 0.0, 0.0],
+                    "Rotation": [0.0,0.0,0.0],
+                    "Color": [1.0, 0.0, 0.0, 1.0]
+                },
+                {
+                    "Name": "propeller FLB",
+                    "ObjectFilePath": "data/prop.obj",
+                    "Position": [-0.72, -2.928, 0.891],
+                    "Orientation": [0.0, 0.0, 0.0],
+                    "Rotation": [0.0,0.0,0.0],
+                    "Color": [0.0, 0.0, 1.0, 1.0]
+                },
+                {
+                    "Name": "propeller FRT",
+                    "ObjectFilePath": "data/prop.obj",
+                    "Position": [-0.72, 2.928, 1.191],
+                    "Orientation": [0.0, 0.0, 0.0],
+                    "Rotation": [0.0,0.0,0.0],
+                    "Color": [0.0, 0.0, 1.0, 1.0]
+                },
+                {
+                    "Name": "propeller FRB",
+                    "ObjectFilePath": "data/prop.obj",
+                    "Position": [-0.72, 2.928, 0.891],
+                    "Orientation": [0.0, 0.0, 0.0],
+                    "Rotation": [0.0,0.0,0.0],
+                    "Color": [1.0, 0.0, 0.0, 1.0]
+                },
+                {
+                    "Name": "propeller RLT",
+                    "ObjectFilePath": "data/prop.obj",
+                    "Position": [4.220, -2.928, 1.191],
+                    "Orientation": [0.0, 0.0, 0.0],
+                    "Rotation": [0.0,0.0,0.0],
+                    "Color": [0.0, 0.0, 1.0, 1.0]
+                },
+                {
+                    "Name": "propeller RLB",
+                    "ObjectFilePath": "data/prop.obj",
+                    "Position": [4.220, -2.928, 0.891],
+                    "Orientation": [0.0, 0.0, 0.0],
+                    "Rotation": [0.0,0.0,0.0],
+                    "Color": [1.0, 0.0, 0.0, 1.0]
+                },
+                {
+                    "Name": "propeller RRT",
+                    "ObjectFilePath": "data/prop.obj",
+                    "Position": [4.220, 2.928, 1.191],
+                    "Orientation": [0.0, 0.0, 0.0],
+                    "Rotation": [0.0,0.0,0.0],
+                    "Color": [1.0, 0.0, 0.0, 1.0]
+                },
+                {
+                    "Name": "propeller RRB",
+                    "ObjectFilePath": "data/prop.obj",
+                    "Position": [4.220, 2.928, 0.891],
+                    "Orientation": [0.0, 0.0, 0.0],
+                    "Rotation": [0.0,0.0,0.0],
+                    "Color": [0.0, 0.0, 1.0, 1.0]
+                }
+            ],
+            "Behaviors": [
+                {
+                    "commandType": "ComponentRotateConstantSpeed",
+                    "data": [
+                        1.0,
+                        1.0,
+                        0.0,
+                        1.0,
+                        0.0
+                    ]
+                },
+                {
+                    "commandType": "ComponentRotateConstantSpeed",
+                    "data": [
+                        2.0,
+                        -1.0,
+                        0.0,
+                        1.0,
+                        0.0
+                    ]
+                },
+                {
+                    "commandType": "ComponentRotateConstantSpeed",
+                    "data": [
+                        3.0,
+                        1.0,
+                        0.0,
+                        1.0,
+                        0.0
+                    ]
+                },
+                {
+                    "commandType": "ComponentRotateConstantSpeed",
+                    "data": [
+                        4.0,
+                        -1.0,
+                        0.0,
+                        1.0,
+                        0.0
+                    ]
+                },
+                {
+                    "commandType": "ComponentRotateConstantSpeed",
+                    "data": [
+                        5.0,
+                        1.0,
+                        0.0,
+                        1.0,
+                        0.0
+                    ]
+                },
+                {
+                    "commandType": "ComponentRotateConstantSpeed",
+                    "data": [
+                        6.0,
+                        -1.0,
+                        0.0,
+                        1.0,
+                        0.0
+                    ]
+                },
+                {
+                    "commandType": "ComponentRotateConstantSpeed",
+                    "data": [
+                        7.0,
+                        1.0,
+                        0.0,
+                        1.0,
+                        0.0
+                    ]
+                },
+                {
+                    "commandType": "ComponentRotateConstantSpeed",
+                    "data": [
+                        8.0,
+                        -1.0,
+                        0.0,
+                        1.0,
+                        0.0
+                    ]
+                }
+            ]
+        }
+    ]
+}

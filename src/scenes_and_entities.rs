@@ -300,8 +300,13 @@ impl Entity {
 
     pub fn load_from_json_str(json_string: &str) -> Entity {
         let json_parsed: Value = serde_json::from_str(json_string).unwrap();
+        Entity::load_from_json(&json_parsed)
 
+        
+        
+    }
 
+    pub fn load_from_json(json_parsed: &serde_json::Value) -> Entity{
         let name = json_parsed["Name"].as_str().unwrap();
         let mut position_vec = na::Point3::<f64>::new(0.0,0.0,0.0);
         let position_temp: Vec<_> = json_parsed["Position"].as_array().unwrap().into_iter().collect();
@@ -321,11 +326,7 @@ impl Entity {
             scale_vec[i] = scale_comp.as_f64().unwrap();
         }
 
-        let model_temp: Vec<_> = json_parsed["Models"].as_array().unwrap().into_iter().collect();
-
-        
-
-        
+        let model_temp: Vec<_> = json_parsed["Models"].as_array().unwrap().into_iter().collect();        
         let mut model_vec = vec![];
         for i in model_temp.iter() {
             model_vec.push(ModelComponent::load_from_json(*i));
@@ -347,7 +348,6 @@ impl Entity {
             behaviors: Vec::new(),
             // Other entity-specific data...
         }
-        
     }
 
     pub fn add_model(&mut self, model: ModelComponent) {
@@ -523,6 +523,12 @@ impl Scene {
         }
     }
 
+    pub fn new_entities(entities: Vec<Entity>) -> Scene{
+        Scene {
+            entities: entities
+        }
+    }
+
     pub fn change_entity_position(&mut self, entity_id: u64, new_position: na::Point3<f64>) {
         self.entities[entity_id as usize].change_position(new_position);
     }
@@ -572,6 +578,28 @@ impl Scene {
         );
     }
 
+    
+    pub fn load_from_json_file(filepath: &str) -> Scene {
+        let json_unparsed = std::fs::read_to_string(filepath).unwrap();
+        Scene::load_from_json_str(&json_unparsed)
+    }
+
+    pub fn load_from_json_str(json_unparsed: &str) -> Scene {
+        let json_parsed: Value = serde_json::from_str(json_unparsed).unwrap();
+        Scene::load_from_json(&json_parsed)
+    }
+
+    pub fn load_from_json(json_parsed: &serde_json::Value) -> Scene {
+        let entity_temp: Vec<_> = json_parsed["entities"].as_array().unwrap().into_iter().collect();        
+        let mut entity_vec = vec![];
+        for i in entity_temp.iter() {
+            entity_vec.push(Entity::load_from_json(*i));
+        }
+
+        Scene {
+            entities: entity_vec
+        }
+    }
     pub fn get_entity(&mut self, entity_id: usize) -> &mut Entity {
         &mut self.entities[entity_id]
     }

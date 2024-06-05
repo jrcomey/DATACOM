@@ -71,7 +71,9 @@ fn main() {
     pretty_env_logger::init();
     info!("Starting Program");
 
-    let test_scene = scene_composer::compose_scene_3();
+    // let test_scene = scene_composer::compose_scene_3();
+
+    let test_scene = scenes_and_entities::Scene::load_from_json_file("data/scene_loading/test_scene.json");
 
     start_program(test_scene);
 

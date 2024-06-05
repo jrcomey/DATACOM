@@ -47,8 +47,11 @@
 // Imports
 extern crate nalgebra as na;                                                // Linear Algebra 
 extern crate glium;                                                         // OpenGL Bindings
-use glium::{glutin::{self, window, event::{ElementState, VirtualKeyCode, ModifiersState}}, Surface};                               use core::time;
-// OpenGL imports
+use glium::{glutin::{self, 
+    window, 
+    event::{ElementState, VirtualKeyCode, ModifiersState}},
+     Surface};                                                              // OpenGL imports
+use core::time;
 use std::{rc::Rc, time::Instant, cell::RefCell, thread::scope, vec};        // Multithreading standard library items
 mod scenes_and_entities;
 extern crate tobj;                                                          // .obj file loader
@@ -76,8 +79,6 @@ fn main() {
     let test_scene = scenes_and_entities::Scene::load_from_json_file("data/scene_loading/test_scene.json");
 
     start_program(test_scene);
-
-
 }
 
 fn start_program(scene: scenes_and_entities::Scene) {
@@ -138,8 +139,11 @@ fn start_program(scene: scenes_and_entities::Scene) {
     let start_time = std::time::SystemTime::now();
     let mut t = (std::time::SystemTime::now().duration_since(start_time).unwrap().as_micros() as f32) / (2.0*1E6*std::f32::consts::PI);
 
+    // TEST CODE
     let str = std::fs::read_to_string("data/test_commands/test_command.json").unwrap();
     scene_ref_2.write().unwrap().cmd_msg_str(&str);
+    // END TEST
+
     // Multithreading TRx
     let (tx_gui, rx_gui) = mpsc::sync_channel(1);
     // Thread for calculations
@@ -149,6 +153,7 @@ fn start_program(scene: scenes_and_entities::Scene) {
             t = (std::time::SystemTime::now().duration_since(start_time).unwrap().as_micros() as f32) / (2.0*1E6*std::f32::consts::PI);
             tx_gui.send(t).unwrap();
 
+            // TEST CODE
             let test_command_data = format!("
                 {{
                     \"targetEntityID\": 0,
@@ -162,6 +167,7 @@ fn start_program(scene: scenes_and_entities::Scene) {
         );
             // let test_command_json: serde_json::Value = serde_json::from_str(test_command_data.as_str()).unwrap();
             scene_ref_2.write().unwrap().cmd_msg_str(&test_command_data.as_str());
+            // END TEST CODE
 
             // Scene update
             scene_ref_2.write().unwrap().update();

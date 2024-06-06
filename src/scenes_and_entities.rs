@@ -629,9 +629,7 @@ impl Scene {
 
         let cmd = Command::from_json(json_parsed);
 
-        self.get_entity(target_entity_id).command(
-            cmd
-        );
+        self.get_entity(target_entity_id).command(cmd);
     }
 
     

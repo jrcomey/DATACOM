@@ -33,6 +33,11 @@
         // - Make scenes loadable from JSON
         // - Entities commandable from JSON
         // - All entities in scene can be commanded over JSON
+    - Networking
+        // - Commands sendable over TCP connection
+        // - Commands are receivable over TCP connection
+        - Multiple commands can be sent in the same json
+        - Load Scene from network
 */
 
 #![allow(non_snake_case)]
@@ -47,12 +52,11 @@
 // Imports
 extern crate nalgebra as na;                                                // Linear Algebra 
 extern crate glium;                                                         // OpenGL Bindings
-use glium::{glutin::{self, 
-    window, 
-    event::{ElementState, VirtualKeyCode, ModifiersState}},
-     Surface};                                                              // OpenGL imports
+use glium::{buffer, debug, glutin::{self, event::{ElementState, ModifiersState, VirtualKeyCode}, window}, Surface};
+use num_traits::ops::bytes;
+use scene_composer::test_scene;                                                              // OpenGL imports
 use core::time;
-use std::{rc::Rc, time::Instant, cell::RefCell, thread::scope, vec};        // Multithreading standard library items
+use std::{cell::RefCell, io::Write, rc::Rc, thread::scope, time::Instant, vec};        // Multithreading standard library items
 mod scenes_and_entities;
 extern crate tobj;                                                          // .obj file loader
 extern crate rand;                                                          // Random number generator
@@ -67,7 +71,7 @@ use crate::dc::{Draw, cyan_vec, null_content,
 use std::{thread, time::Duration, sync::{mpsc, Arc, Mutex, RwLock}};        // Multithreading lib imports
 mod scene_composer;
 use std::net::{SocketAddr, TcpListener, TcpStream};
-
+mod com;
 
 fn main() {
 
@@ -77,10 +81,44 @@ fn main() {
     info!("Starting Program");
 
     // let test_scene = scene_composer::compose_scene_3();
+    // let recv_thread = thread::spawn(move|| {
+    //     // let test_scene = load_scene_from_network("127.0.0.1:8080".parse().unwrap());
+    //     ;
+    // });
+
+    // let send_thread = thread::spawn(move|| {
+    //     send_test_scene("data/scene_loading/test_scene.json", "127.0.0.1:8080".parse().unwrap());
+    // });
+
+    // let test_scene = load_scene_from_network("127.0.0.1:8080".parse().unwrap());
+
+
+    // send_thread.join().unwrap();
+    // recv_thread.join().unwrap();
 
     let test_scene = scenes_and_entities::Scene::load_from_json_file("data/scene_loading/test_scene.json");
 
     start_program(test_scene);
+}
+
+fn load_scene_from_network(addr: SocketAddr) -> scenes_and_entities::Scene {
+    let listener = TcpListener::bind(addr).unwrap();
+    match listener.accept() {
+        Ok((stream, _)) => {
+                let packet = com::from_network(&stream);
+                scenes_and_entities::Scene::load_from_json_str(&packet)
+        }
+        _ => {scene_composer::test_scene()},
+    }
+}
+
+fn send_test_scene(filepath: &str, addr: SocketAddr) {
+    let scene_packet = std::fs::read_to_string(filepath).unwrap();
+    println!("{}", scene_packet);
+    let mut stream = TcpStream::connect(addr).unwrap();
+    thread::sleep(Duration::from_millis(10));
+    stream.write_all(scene_packet.as_bytes()).unwrap();
+    
 }
 
 fn start_program(scene: scenes_and_entities::Scene) {
@@ -95,6 +133,7 @@ fn start_program(scene: scenes_and_entities::Scene) {
 
     let scene_ref = Arc::new(RwLock::new(scene));
     let scene_ref_2 = scene_ref.clone();
+    let scene_ref_3 = scene_ref.clone();
 
 
     // Viewport Refactor Test
@@ -124,7 +163,6 @@ fn start_program(scene: scenes_and_entities::Scene) {
             na::Point3::new(0.0, 10.0, 1.0), 
             na::Point3::new(0.0, 0.0, 0.0),
         ),
-
         // dc::Twoport::new_with_camera(
         //     na::Point2::new(-1.0, 1.0), 
         //     1.0*2.0, 
@@ -137,31 +175,37 @@ fn start_program(scene: scenes_and_entities::Scene) {
 
     // Framerate and clock items
     let frame_time_nanos = 16_666_667;
-    // let frame_time_nanos = 33_333_333;
     let start_time = std::time::SystemTime::now();
     let mut t = (std::time::SystemTime::now().duration_since(start_time).unwrap().as_micros() as f32) / (2.0*1E6*std::f32::consts::PI);
 
-    // TEST CODE
-    let str = std::fs::read_to_string("data/test_commands/test_command.json").unwrap();
-    scene_ref_2.write().unwrap().cmd_msg_str(&str);
-    // END TEST CODE
-
-    // TEST CODE
+    // Listener Thread
     let sender_thread = thread::Builder::new().name("sender thread".to_string()).spawn(move|| {
         let addr: SocketAddr = "127.0.0.1:8080".parse().unwrap();
-        let mut stream = TcpStream::connect(addr);
-    });
-    // END TEST CODE
+        let mut stream = TcpStream::connect(addr).unwrap();
 
-    // TEST CODE
-    let addr: SocketAddr = "127.0.0.1:8080".parse().unwrap();
-    let listener_thread = thread::Builder::new().name("listener thread".to_string()).spawn(move || {
         loop {
-            ;
+            t = (std::time::SystemTime::now().duration_since(start_time).unwrap().as_micros() as f32) / (2.0*1E6*std::f32::consts::PI);
+            let test_command_data = format!("
+                {{
+                    \"targetEntityID\": 0,
+                    \"commandType\": \"ComponentChangeColor\",
+                    \"data\": [0.0,{},{},{},1.0]
+                }}", 
+                t.sin().abs(),
+                t.cos().abs(),
+                t.tan().abs()
+            );
+            thread::sleep(Duration::from_millis(10));
+            stream.write_all(test_command_data.as_bytes()).unwrap();
+            stream.flush().unwrap();
         }
     });
 
-    // END TEST CODE
+    let addr: SocketAddr = "127.0.0.1:8080".parse().unwrap();
+    let listener_thread = thread::Builder::new().name("listener thread".to_string()).spawn(move || {
+        info!("Opened listener thread");
+        com::run_server(scene_ref_3, addr);
+    });
 
     // Multithreading TRx
     let (tx_gui, rx_gui) = mpsc::sync_channel(1);
@@ -171,24 +215,6 @@ fn start_program(scene: scenes_and_entities::Scene) {
             // Clock update
             t = (std::time::SystemTime::now().duration_since(start_time).unwrap().as_micros() as f32) / (2.0*1E6*std::f32::consts::PI);
             tx_gui.send(t).unwrap();
-
-            // TEST CODE
-            let test_command_data = format!("
-                {{
-                    \"targetEntityID\": 0,
-                    \"commandType\": \"ComponentChangeColor\",
-                    \"data\": [0.0,{},{},{},1.0]
-                }}
-            ", 
-            t.sin().abs(),
-            t.cos().abs(),
-            t.tan().abs()
-        );
-            // let test_command_json: serde_json::Value = serde_json::from_str(test_command_data.as_str()).unwrap();
-            scene_ref_2.write().unwrap().cmd_msg_str(&test_command_data.as_str());
-            // END TEST CODE
-
-            // Scene update
             scene_ref_2.write().unwrap().update();
         }
     });
@@ -417,13 +443,12 @@ fn start_program(scene: scenes_and_entities::Scene) {
 
 
     }));
+
 }
 
 #[cfg(test)]
 mod tests {
     use std::{io::Read, net::{SocketAddr, TcpListener, TcpStream}, sync::mpsc, thread};
-
-    use tokio::time;
 
     use crate::{scene_composer, scenes_and_entities::{self, ModelComponent}};
 
@@ -487,57 +512,4 @@ mod tests {
             vec![0.0, ]
         );
     }
-
-    #[test]
-    fn socket_test() {
-
-        let (tx, rx) = mpsc::channel();
-
-        
-        let listener = thread::spawn(move|| {
-            let addr: SocketAddr = "127.0.0.1:8080".parse().unwrap();
-            let listener = TcpListener::bind(addr).unwrap();
-            let (mut stream, _) = listener.accept().unwrap();
-            let mut buffer = [0; 1024];
-            let bytes_read = stream.read(&mut buffer).unwrap();
-            let packet = String::from_utf8_lossy(&buffer[..bytes_read]).to_string();
-            tx.send(packet).unwrap();
-        });
-        
-        thread::spawn(move|| {
-            let addr: SocketAddr = "127.0.0.1:8080".parse().unwrap();
-            let stream = TcpStream::connect(addr).unwrap();
-            let packet = format!("
-                {{
-                    \"targetEntityID\": 0,
-                    \"commandType\": \"ComponentChangeColor\",
-                    \"data\": [0.0,{},{},{},1.0]
-                }}
-            ", 
-            1.0,
-            1.0,
-            1.0
-        );
-        });
-
-        listener.join().unwrap();
-
-        let packet_original = format!("
-                {{
-                    \"targetEntityID\": 0,
-                    \"commandType\": \"ComponentChangeColor\",
-                    \"data\": [0.0,{},{},{},1.0]
-                }}
-            ", 
-            1.0,
-            1.0,
-            1.0
-        );
-        let packet_transmitted = rx.recv().unwrap();
-
-        assert_eq!(packet_transmitted, packet_original);
-
-    }
-
-
 }

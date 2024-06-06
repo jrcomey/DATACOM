@@ -4,10 +4,10 @@ use crate::{dc::{self, green_vec}, wf::Wireframe};
 use glium::debug;
 use nalgebra as na;
 use num_traits::ToPrimitive;
-use rand::Error;
+// use rand::Error;
 use tobj::Model;
 use std::{ops::DerefMut, sync::atomic::{AtomicU64, Ordering}, vec};
-use serde_json::{Result, Value};
+use serde_json::{Value};
 
 // Define the wireframe or model representation
 pub struct WireframeObject {
@@ -336,11 +336,11 @@ impl Entity {
             model_vec.push(ModelComponent::load_from_json(*i));
         }
 
-        // let behavior_temp: Vec<_> = json_parsed["Behaviors"].as_array().unwrap().into_iter().collect();
+        let behavior_temp: Vec<_> = json_parsed["Behaviors"].as_array().unwrap().into_iter().collect();
         let mut behavior_vec = vec![];
-        // for i in behavior_temp.iter() {
-        //     behavior_vec.push(BehaviorComponent::load_from_json(*i));
-        // }
+        for i in behavior_temp.iter() {
+            behavior_vec.push(BehaviorComponent::load_from_json(*i));
+        }
         // debug!("{}", model_temp[0]["Name"]);
 
         // debug!("NAME: {}", name);
@@ -531,11 +531,24 @@ impl Command {
     }
 
     pub fn from_json(json_parsed: &serde_json::Value) -> Command {
+
         let data_temp: Vec<_> = json_parsed["data"].as_array().unwrap().into_iter().collect();
         let mut data: Vec<f64> = vec![];
         for (i, data_point) in data_temp.iter().enumerate() {
             data.push(data_point.as_f64().unwrap());
         }
+
+        // let data: Vec<_> = match json_parsed["data"].as_array() {
+        //     Some(data_temp) => {
+        //         let data_temp: Vec<_> = json_parsed["data"].as_array().unwrap().into_iter().collect();
+        //         let mut data: Vec<f64> = vec![];
+        //         for (i, data_point) in data_temp.iter().enumerate() {
+        //             data.push(data_point.as_f64().unwrap());
+        //         }
+        //         data
+        //     },
+        //     None => vec![],
+        // };
     
         let command_type: CommandType = CommandType::match_from_string(json_parsed["commandType"].as_str().unwrap());
 
@@ -590,8 +603,24 @@ impl Scene {
     }
 
     pub fn cmd_msg_str(&mut self, json_unparsed: &str) {
-        let json_parsed: Value = serde_json::from_str(json_unparsed).unwrap();
-        self.cmd_msg(&json_parsed);
+        if json_unparsed.is_empty() {
+            return
+        }
+        // let json_parsed: Value = serde_json::from_str(json_unparsed);
+        // self.cmd_msg(&json_parsed);
+
+        let json_parsed: Value = match serde_json::from_str(&json_unparsed) {
+            serde_json::Result::Ok(val) => {val},
+            serde_json::Result::Err(err) => {serde_json::Value::Null},
+            // _ => {}
+        };
+
+        if json_parsed != serde_json::Value::Null {
+            self.cmd_msg(&json_parsed);
+        } else {
+            error!("json failed to load!");
+            error!("{}", json_unparsed);
+        }
         
     }
 

@@ -330,21 +330,45 @@ impl Entity {
             scale_vec[i] = scale_comp.as_f64().unwrap();
         }
 
-        let model_temp: Vec<_> = json_parsed["Models"].as_array().unwrap().into_iter().collect();        
-        let mut model_vec = vec![];
-        for i in model_temp.iter() {
-            model_vec.push(ModelComponent::load_from_json(*i));
-        }
+        // let scale_vec: Vec<_> = match json_parsed["Scale"].as_array() {
+        //     Some(array) => {
+        //         let scale_temp: Vec<_> = array.into_iter().collect();
+        //         let mut scale_vec = na::Vector3::<f64>::new(0.0, 0.0, 0.0);
+        //         for (i, scale_comp) in scale_temp.iter().enumerate() {
+        //             scale_vec[i] = scale_comp.as_f64().unwrap();
+        //         }
+        //         scale_vec
+        //     },
+        //     None => vec![]
+        // };
 
-        let behavior_temp: Vec<_> = json_parsed["Behaviors"].as_array().unwrap().into_iter().collect();
-        let mut behavior_vec = vec![];
-        for i in behavior_temp.iter() {
-            behavior_vec.push(BehaviorComponent::load_from_json(*i));
-        }
+        // let model_temp: Vec<_> = json_parsed["Models"].as_array().unwrap().into_iter().collect();        
+        // let mut model_vec = vec![];
+        // for i in model_temp.iter() {
+        //     model_vec.push(ModelComponent::load_from_json(*i));
+        // }
+
+        let model_vec: Vec<_> = match json_parsed["Models"].as_array() {
+            Some(array) => {
+                let model_temp: Vec<_> = array.into_iter().collect();        
+                let mut model_vec = vec![];
+                for i in model_temp.iter() {
+                    model_vec.push(ModelComponent::load_from_json(*i));
+                }
+                model_vec
+            },
+            None => vec![]
+        };
+
+        // let behavior_temp: Vec<_> = json_parsed["Behaviors"].as_array().unwrap().into_iter().collect();
+        // let mut behavior_vec = vec![];
+        // for i in behavior_temp.iter() {
+        //     behavior_vec.push(BehaviorComponent::load_from_json(*i));
+        // }
 
         let behavior_vec: Vec<_> = match json_parsed["Behaviors"].as_array() {
-            Some(Vec) => {
-                let behavior_temp: Vec<_> = json_parsed["Behaviors"].as_array().unwrap().into_iter().collect();
+            Some(array) => {
+                let behavior_temp: Vec<_> = array.into_iter().collect();
                 let mut behavior_vec = vec![];
                 for i in behavior_temp.iter() {
                     behavior_vec.push(BehaviorComponent::load_from_json(*i));

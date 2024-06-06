@@ -78,7 +78,7 @@ fn main() {
     // Initialization procedures
     std::env::set_var("RUST_LOG", "trace");                                 // Initialize logger
     pretty_env_logger::init();
-    info!("Starting Program");
+    info!("Program Start!");
 
     // let test_scene = scene_composer::compose_scene_3();
     // let recv_thread = thread::spawn(move|| {
@@ -122,7 +122,6 @@ fn send_test_scene(filepath: &str, addr: SocketAddr) {
 }
 
 fn start_program(scene: scenes_and_entities::Scene) {
-
     // PI constants
     let pi32 = std::f32::consts::PI;
     let pi64 = std::f64::consts::PI;
@@ -130,6 +129,7 @@ fn start_program(scene: scenes_and_entities::Scene) {
     // Initialize glium items
     let event_loop = glutin::event_loop::EventLoop::new();                  // Create Event Loop
     let gui = dc::GuiContainer::init_opengl(&event_loop);                   // Initialize OpenGL interface
+    info!("Initialized OpenGL items");
 
     let scene_ref = Arc::new(RwLock::new(scene));
     let scene_ref_2 = scene_ref.clone();
@@ -172,14 +172,16 @@ fn start_program(scene: scenes_and_entities::Scene) {
         //     na::Point3::new(0.0, 0.0, 0.0)
         // ),
     ];
+    info!("Initialized viewports");
 
     // Framerate and clock items
     let frame_time_nanos = 16_666_667;
     let start_time = std::time::SystemTime::now();
     let mut t = (std::time::SystemTime::now().duration_since(start_time).unwrap().as_micros() as f32) / (2.0*1E6*std::f32::consts::PI);
 
-    // Listener Thread
+    // sender Thread
     let sender_thread = thread::Builder::new().name("sender thread".to_string()).spawn(move|| {
+        debug!("Started data transmission thread");
         let addr: SocketAddr = "127.0.0.1:8080".parse().unwrap();
         let mut stream = TcpStream::connect(addr).unwrap();
 
@@ -201,9 +203,10 @@ fn start_program(scene: scenes_and_entities::Scene) {
         }
     });
 
-    let addr: SocketAddr = "127.0.0.1:8080".parse().unwrap();
+    
     let listener_thread = thread::Builder::new().name("listener thread".to_string()).spawn(move || {
         info!("Opened listener thread");
+        let addr: SocketAddr = "127.0.0.1:8080".parse().unwrap();
         com::run_server(scene_ref_3, addr);
     });
 
@@ -211,6 +214,7 @@ fn start_program(scene: scenes_and_entities::Scene) {
     let (tx_gui, rx_gui) = mpsc::sync_channel(1);
     // Thread for calculations
     let calculation_thread = thread::Builder::new().name("calculation thread".to_string()).spawn(move || {
+        info!("Started calculation thread");
         loop {
             // Clock update
             t = (std::time::SystemTime::now().duration_since(start_time).unwrap().as_micros() as f32) / (2.0*1E6*std::f32::consts::PI);
@@ -220,6 +224,7 @@ fn start_program(scene: scenes_and_entities::Scene) {
     });
 
     // Draw thread
+    info!("Starting event loop...");
     (event_loop.run(move |event, _, control_flow| {
         let next_frame_time = std::time::Instant::now() + std::time::Duration::from_nanos(frame_time_nanos);
         let t = rx_gui.recv().unwrap();

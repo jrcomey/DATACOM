@@ -341,6 +341,18 @@ impl Entity {
         for i in behavior_temp.iter() {
             behavior_vec.push(BehaviorComponent::load_from_json(*i));
         }
+
+        let behavior_vec: Vec<_> = match json_parsed["Behaviors"].as_array() {
+            Some(Vec) => {
+                let behavior_temp: Vec<_> = json_parsed["Behaviors"].as_array().unwrap().into_iter().collect();
+                let mut behavior_vec = vec![];
+                for i in behavior_temp.iter() {
+                    behavior_vec.push(BehaviorComponent::load_from_json(*i));
+                }
+                behavior_vec
+            },
+            None => vec![]
+        };
         // debug!("{}", model_temp[0]["Name"]);
 
         // debug!("NAME: {}", name);

@@ -336,11 +336,11 @@ impl Entity {
             model_vec.push(ModelComponent::load_from_json(*i));
         }
 
-        let behavior_temp: Vec<_> = json_parsed["Behaviors"].as_array().unwrap().into_iter().collect();
+        // let behavior_temp: Vec<_> = json_parsed["Behaviors"].as_array().unwrap().into_iter().collect();
         let mut behavior_vec = vec![];
-        for i in behavior_temp.iter() {
-            behavior_vec.push(BehaviorComponent::load_from_json(*i));
-        }
+        // for i in behavior_temp.iter() {
+        //     behavior_vec.push(BehaviorComponent::load_from_json(*i));
+        // }
         // debug!("{}", model_temp[0]["Name"]);
 
         // debug!("NAME: {}", name);

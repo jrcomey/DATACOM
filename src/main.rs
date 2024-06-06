@@ -66,6 +66,8 @@ use crate::dc::{Draw, cyan_vec, null_content,
     Draw2, green_vec, red_vec};                                             // DATACOM item imports for functions
 use std::{thread, time::Duration, sync::{mpsc, Arc, Mutex, RwLock}};        // Multithreading lib imports
 mod scene_composer;
+use std::net::{SocketAddr, TcpListener, TcpStream};
+
 
 fn main() {
 
@@ -142,7 +144,24 @@ fn start_program(scene: scenes_and_entities::Scene) {
     // TEST CODE
     let str = std::fs::read_to_string("data/test_commands/test_command.json").unwrap();
     scene_ref_2.write().unwrap().cmd_msg_str(&str);
-    // END TEST
+    // END TEST CODE
+
+    // TEST CODE
+    let sender_thread = thread::Builder::new().name("sender thread".to_string()).spawn(move|| {
+        let addr: SocketAddr = "127.0.0.1:8080".parse().unwrap();
+        let mut stream = TcpStream::connect(addr);
+    });
+    // END TEST CODE
+
+    // TEST CODE
+    let addr: SocketAddr = "127.0.0.1:8080".parse().unwrap();
+    let listener_thread = thread::Builder::new().name("listener thread".to_string()).spawn(move || {
+        loop {
+            ;
+        }
+    });
+
+    // END TEST CODE
 
     // Multithreading TRx
     let (tx_gui, rx_gui) = mpsc::sync_channel(1);
@@ -402,6 +421,10 @@ fn start_program(scene: scenes_and_entities::Scene) {
 
 #[cfg(test)]
 mod tests {
+    use std::{io::Read, net::{SocketAddr, TcpListener, TcpStream}, sync::mpsc, thread};
+
+    use tokio::time;
+
     use crate::{scene_composer, scenes_and_entities::{self, ModelComponent}};
 
 
@@ -463,6 +486,57 @@ mod tests {
             scenes_and_entities::CommandType::ModifyBehavior, 
             vec![0.0, ]
         );
+    }
+
+    #[test]
+    fn socket_test() {
+
+        let (tx, rx) = mpsc::channel();
+
+        
+        let listener = thread::spawn(move|| {
+            let addr: SocketAddr = "127.0.0.1:8080".parse().unwrap();
+            let listener = TcpListener::bind(addr).unwrap();
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut buffer = [0; 1024];
+            let bytes_read = stream.read(&mut buffer).unwrap();
+            let packet = String::from_utf8_lossy(&buffer[..bytes_read]).to_string();
+            tx.send(packet).unwrap();
+        });
+        
+        thread::spawn(move|| {
+            let addr: SocketAddr = "127.0.0.1:8080".parse().unwrap();
+            let stream = TcpStream::connect(addr).unwrap();
+            let packet = format!("
+                {{
+                    \"targetEntityID\": 0,
+                    \"commandType\": \"ComponentChangeColor\",
+                    \"data\": [0.0,{},{},{},1.0]
+                }}
+            ", 
+            1.0,
+            1.0,
+            1.0
+        );
+        });
+
+        listener.join().unwrap();
+
+        let packet_original = format!("
+                {{
+                    \"targetEntityID\": 0,
+                    \"commandType\": \"ComponentChangeColor\",
+                    \"data\": [0.0,{},{},{},1.0]
+                }}
+            ", 
+            1.0,
+            1.0,
+            1.0
+        );
+        let packet_transmitted = rx.recv().unwrap();
+
+        assert_eq!(packet_transmitted, packet_original);
+
     }
 
 

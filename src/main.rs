@@ -54,7 +54,7 @@ extern crate nalgebra as na;                                                // L
 extern crate glium;                                                         // OpenGL Bindings
 use glium::{buffer, debug, glutin::{self, event::{ElementState, ModifiersState, VirtualKeyCode}, window}, Surface};
 use num_traits::ops::bytes;
-use scene_composer::test_scene;                                                              // OpenGL imports
+use scene_composer::test_scene;                                             // OpenGL imports
 use core::time;
 use std::{cell::RefCell, io::Write, rc::Rc, thread::scope, time::Instant, vec};        // Multithreading standard library items
 mod scenes_and_entities;
@@ -63,10 +63,10 @@ extern crate rand;                                                          // R
 extern crate pretty_env_logger;                                             // Logger
 #[macro_use] extern crate log;                                              // Logging crate
 mod dc;                                                                     // DATACOM interface module
-mod isoviewer;                                                              // Isometric viewer struct 
-mod wf;                                                                     // Wireframe struct
+// mod isoviewer;                                                              // Isometric viewer struct 
+// mod wf;                                                                     // Wireframe struct
 mod plt;                                                                    // Plotter
-use crate::dc::{Draw, cyan_vec, null_content, 
+use crate::dc::{cyan_vec, null_content, 
     Draw2, green_vec, red_vec};                                             // DATACOM item imports for functions
 use std::{thread, time::Duration, sync::{mpsc, Arc, Mutex, RwLock}};        // Multithreading lib imports
 mod scene_composer;
@@ -210,7 +210,7 @@ fn start_program(scene: scenes_and_entities::Scene) {
         com::run_server(scene_ref_3, addr);
     });
 
-    // Multithreading TRx
+    // Multithreading TRx 
     let (tx_gui, rx_gui) = mpsc::sync_channel(1);
     // Thread for calculations
     let calculation_thread = thread::Builder::new().name("calculation thread".to_string()).spawn(move || {

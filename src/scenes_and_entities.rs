@@ -1,6 +1,6 @@
 // SCENES AND ENTITIES
 
-use crate::{dc::{self, green_vec}, wf::Wireframe};
+use crate::{dc::{self, green_vec}};
 use glium::debug;
 use nalgebra as na;
 use num_traits::ToPrimitive;

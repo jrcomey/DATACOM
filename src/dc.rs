@@ -22,7 +22,7 @@ pub struct Twoport {
     pub root: na::Point2<f64>,                          // Upper left window coordinate
     pub height: f64,                                    // Height of window from top -> down side   (RANGE 0 -> 2)
     pub width: f64,                                     // Width of window from left -> right side  (RANGE 0 -> 2)
-    pub content: Arc<RwLock<dyn Draw2>>,                        // Pointer to content to be drawn           
+    pub content: Arc<RwLock<dyn Draw2>>,                // Pointer to content to be drawn           
     pub context: RenderContext,                         // Local Viewport Render Context
     pub camera_position: na::Point3<f64>,               // Camera position
     pub camera_target: na::Point3<f64>,                 // Position of the target the camera is looking at
@@ -455,18 +455,6 @@ impl null_content {
     }
 }
 
-/* NULL DRAW TRAIT */
-impl Draw for null_content {
-    fn draw(&self, gui: &GuiContainer, mvp: &MVPetal, target: &mut glium::Frame) {
-        ;
-        // println!("Drawing null content...");
-    }
-
-    fn draw_absolute(&self, gui: &GuiContainer, mvp: &MVPetal, target: &mut glium::Frame) {
-        error!("Not implemented!");
-    }
-}
-
 impl Draw2 for null_content {
     fn draw(&self, gui: &GuiContainer, context: &RenderContext, target: &mut glium::Frame){
         ;
@@ -556,74 +544,6 @@ impl GuiContainer {
         return GuiContainer::new(display, program);
     }
 }
-
-// Draw trait for drawing to the interface
-pub trait Draw {
-    fn draw(&self, gui: &GuiContainer, mvp: &MVPetal, target: &mut glium::Frame);
-    fn draw_absolute(&self, gui: &GuiContainer, mvp: &MVPetal, target: &mut glium::Frame);
-}
-
-// Container struct to reduce draw arguements. MVP matricies and others.
-pub struct MVPetal {
-    pub model: na::Matrix4<f32>,                        // Model Matrix                     (Position of the object in world)
-    pub view: na::Matrix4<f32>,                         // View Matrix                      (Camera position)
-    pub perspective: na::Matrix4<f32>,                  // Perspective Matrix               (Adds perspective)
-    pub vp: na::Matrix4<f32>,                           // Viewport position transform      (Shifts final image into viewport)
-    pub bounds: na::Vector4<f32>,                       // Left/Right/Bottom/Top bounds     (Each ranging from 0 -> 2, basically the roots with the heights)
-    pub color: na::Vector4<f32>,                        // Object Color
-    pub pixel_box: glium::Rect,                         // Scissors the view so the image remains inside the pixel box
-}
-
-// Functionality for MVPetal data struct.
-impl MVPetal {
-    pub fn new(model: na::Matrix4<f32>, view: na::Matrix4<f32>, perspective: na::Matrix4<f32>, vp: na::Matrix4<f32>, bounds: na::base::Vector4<f32>, color: na::Vector4<f32>) -> MVPetal {
-        MVPetal { 
-            model: model, 
-            view: view, 
-            perspective: perspective, 
-            vp: vp, 
-            bounds: bounds, 
-            color: color, 
-            pixel_box: glium::Rect{
-                left: 0, 
-                bottom: 0, 
-                width: 0, 
-                height: 0
-            } }
-    }
-
-    pub fn null() -> MVPetal {
-        MVPetal { model: eye4(), view: eye4(), perspective: eye4(), vp: eye4(), bounds: full_range_vec(), color: na::base::Vector4::<f32>::new(0.0, 1.0, 0.0, 1.0), pixel_box: glium::Rect{left: 0,bottom: 0, width: 0, height: 0} }}
-
-    pub fn update_view(&mut self, new_view: na::Matrix4<f32>) {
-        self.view = new_view;
-    }
-
-    pub fn update_perspective(&mut self, new_perspective: na::Matrix4<f32>) {
-        self. perspective = new_perspective;
-    }
-
-    pub fn update_viewport_pixel_bounds(&mut self, new_bounds: glium::Rect) {
-        self.pixel_box = new_bounds;
-    }
-
-    pub fn null_from_view(view: na::Matrix4<f32>) -> MVPetal {
-        MVPetal { 
-            model: eye4(), 
-            view: view, 
-            perspective: eye4(), 
-            vp:eye4(), 
-            bounds: full_range_vec(), 
-            color: na::base::Vector4::<f32>::new(0.0, 0.0, 1.0, 1.0), 
-            pixel_box: glium::Rect{
-                left: 0,
-                bottom: 0, 
-                width: 0, 
-                height: 0}
-         }
-    }
-}
-
 // ################################################################################################
 
 /* UTILITY FUNCTIONS */

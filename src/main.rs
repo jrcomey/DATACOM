@@ -38,6 +38,11 @@
         // - Commands are receivable over TCP connection
         - Multiple commands can be sent in the same json
         - Load Scene from network
+    - Scene Playback
+        - Load playback scene from file
+            - Play scene in real time
+            - Play scene at half, double speed
+            - Play scene frame-by-frame, with ability to advance frame
 */
 
 #![allow(non_snake_case)]
@@ -207,10 +212,10 @@ fn start_program(scene: scenes_and_entities::Scene) {
     let listener_thread = thread::Builder::new().name("listener thread".to_string()).spawn(move || {
         info!("Opened listener thread");
         let addr: SocketAddr = "127.0.0.1:8080".parse().unwrap();
-        com::run_server(scene_ref_3, addr);
+        com::run_server(scene_ref.clone(), addr);
     });
 
-    // Multithreading TRx 
+    // Multithreading TRx
     let (tx_gui, rx_gui) = mpsc::sync_channel(1);
     // Thread for calculations
     let calculation_thread = thread::Builder::new().name("calculation thread".to_string()).spawn(move || {

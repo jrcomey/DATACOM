@@ -312,18 +312,22 @@ impl Entity {
 
     pub fn load_from_json(json_parsed: &serde_json::Value) -> Entity{
         let name = json_parsed["Name"].as_str().unwrap();
+
+        // Position
         let mut position_vec = na::Point3::<f64>::new(0.0,0.0,0.0);
         let position_temp: Vec<_> = json_parsed["Position"].as_array().unwrap().into_iter().collect();
         for (i, position) in position_temp.iter().enumerate() {
             position_vec[i] = position.as_f64().unwrap();
         }
 
+        // Rotation
         let rotation_temp: Vec<_> = json_parsed["Rotation"].as_array().unwrap().into_iter().collect();
         let mut rotation_vec = na::Vector3::<f64>::new(0.0, 0.0, 0.0);
         for (i, rotation_comp) in rotation_temp.iter().enumerate() {
             rotation_vec[i] = rotation_comp.as_f64().unwrap();
         }
 
+        // Scale
         let scale_temp: Vec<_> = json_parsed["Scale"].as_array().unwrap().into_iter().collect();
         let mut scale_vec = na::Vector3::<f64>::new(0.0, 0.0, 0.0);
         for (i, scale_comp) in scale_temp.iter().enumerate() {

@@ -1,6 +1,9 @@
 extern crate glium;
 use std::{rc::Rc, sync::{Arc, RwLock}, time::Instant};
+use crate::scenes_and_entities;
 use glium::{glutin::{self, window, event::MouseScrollDelta}, Surface, debug};
+
+use crate::scenes_and_entities::Scene;
 
 // #####################
 
@@ -22,16 +25,15 @@ pub struct Twoport {
     pub root: na::Point2<f64>,                          // Upper left window coordinate
     pub height: f64,                                    // Height of window from top -> down side   (RANGE 0 -> 2)
     pub width: f64,                                     // Width of window from left -> right side  (RANGE 0 -> 2)
-    pub content: Arc<RwLock<dyn Draw2>>,                // Pointer to content to be drawn           
+    pub content: Arc<RwLock<Scene>>,                    // Pointer to content to be drawn           
     pub context: RenderContext,                         // Local Viewport Render Context
-    pub camera_position: na::Point3<f64>,               // Camera position
-    pub camera_target: na::Point3<f64>,                 // Position of the target the camera is looking at
+    pub camera: Camera                                  // Camera struct
 }
 
 impl Twoport {
 
     // Creates a new viewport on the screen, initialized with an included camera. 
-    pub fn new_with_camera(root: na::Point2<f64>, height: f64, width: f64, content: Arc<RwLock<dyn Draw2>>, camera_position: na::Point3<f64>, camera_target: na::Point3<f64>) -> Twoport {
+    pub fn new_with_camera(root: na::Point2<f64>, height: f64, width: f64, content: Arc<RwLock<Scene>>, camera_position: na::Point3<f64>, camera_target: na::Point3<f64>) -> Twoport {
         Twoport {
             color: cyan_vec(),
             is_active: false, 
@@ -54,8 +56,7 @@ impl Twoport {
                     height: 0
                 }
             ),
-            camera_position: camera_position,
-            camera_target: camera_target
+            camera: Camera::new(camera_position, camera_target, CameraMode::Tracking)
         }
     }
 
@@ -84,26 +85,8 @@ impl Twoport {
             width: ((bounds[1]-bounds[0])/2.0*width as f32) as u32,
             height: ((bounds[3]-bounds[2])/2.0*height as f32) as u32};
         self.context.update_render_context(width, height, boxxy);
-    }
-
-    pub fn move_camera(&mut self, delta_camera: na::Vector3<f64>){
-        self.camera_position = self.camera_position + delta_camera;
-        self.context.update_view(na::Matrix4::look_at_rh(                // Camera Position
-            &na::convert(self.camera_position),   
-            &na::convert(self.camera_target), 
-            &na::Vector3::z_axis()
-            )
-        )
-    }
-
-    pub fn change_camera_position(&mut self, new_camera_position: na::Point3<f64>) {
-        self.camera_position = new_camera_position;
-        self.context.update_view(na::Matrix4::look_at_rh(                // Camera Position
-            &na::convert(self.camera_position),   
-            &na::convert(self.camera_target), 
-            &na::Vector3::z_axis()
-            )
-        )
+        self.camera.update_camera(self.content.clone());
+        self.context.update_view(self.camera.get_camera_mat());
     }
 
     pub fn set_active(&mut self) {
@@ -142,92 +125,27 @@ impl Twoport {
         }
     }
 
-    /// Zooms in by a perscribed magnitude
-    pub fn zoom(&mut self, mouse_delta: MouseScrollDelta) {
+    
+}
 
-        let zoom_magnitude = match mouse_delta {
-            MouseScrollDelta::LineDelta(_, mouse_main) => {
-                mouse_main as f64
-            },
-            _ => {0.0}
-        };
-
-        debug!("ZOOM FACTOR: {}", zoom_magnitude);
-
-        let r_bar = self.camera_position - self.camera_target;
-        let r_hat = r_bar / r_bar.magnitude();
-        self.camera_position = self.camera_position - zoom_magnitude * r_hat;
-        self.context.update_view(na::Matrix4::look_at_rh(
-            &na::convert(self.camera_position),   
-            &na::convert(self.camera_target), 
-            &na::Vector3::z_axis()
-            )
-        )
-    }
-
-    fn get_camera_radius_vector(&self) -> na::Vector3<f64> {
-        self.camera_position - self.camera_target
-    }
-
-    pub fn orbit(&mut self,rotation_theta_degree: f64, rotation_phi_degree: f64, up_direction: na::Vector3<f64>) {
-
-        // Convert orbit command to radians and structure as a vector
-        let theta = rotation_theta_degree * std::f64::consts::PI / 180.0;
-        let phi = rotation_phi_degree * std::f64::consts::PI / 180.0;
-        let delta_vector_spherical = na::base::Vector3::new(
-            0.0,
-            theta,
-            phi
-        );
-
-        // Normalize camera position relative to target and convert to spherical coordinates
-        let spherical_transform = na::base::Matrix3::new(
-            theta.sin()*phi.cos(), theta.cos()*phi.sin(), -phi.sin(),
-            theta.sin()*phi.sin(), theta.cos()*phi.sin(), phi.cos(),
-            theta.cos(), -theta.sin(), 0.0,
-        );
-
-        let normalized_camera_position = self.camera_position - self.camera_target;
-
-        // Convert to spherical:
-        // rho:     sqrt(x^2 + y^2 + z^2)
-        // theta:   atan(y/x)
-        // phi:     arccos(z / sqrt(x^2 + y^2 + z^2))
-        let mut normalized_spherical_camera_position = na::Vector3::new(
-            (normalized_camera_position.x.powf(2.0)+normalized_camera_position.y.powf(2.0)+normalized_camera_position.z.powf(2.0)).sqrt(), 
-            normalized_camera_position.y.atan2(normalized_camera_position.x), 
-            (normalized_camera_position.z / (normalized_camera_position.x.powf(2.0)+normalized_camera_position.y.powf(2.0)+normalized_camera_position.z.powf(2.0)).sqrt()).acos()
-        );
-
-        // Add delta vector
-        normalized_spherical_camera_position += delta_vector_spherical;
-
-
-        // Convert new camera position back to cartesian coordinates and de-normalize
-        // x = rho * sin(theta) * cos(phi)
-        self.camera_position[0] = normalized_spherical_camera_position[0]*normalized_spherical_camera_position[1].cos()*normalized_spherical_camera_position[2].sin() + self.camera_target[0];
-        // y = rho * sin(theta) * sin(theta)
-        self.camera_position[1] = normalized_spherical_camera_position[0]*normalized_spherical_camera_position[1].sin()*normalized_spherical_camera_position[2].sin() + self.camera_target[1];
-        // z = rho * cos(phi)
-        self.camera_position[2] = normalized_spherical_camera_position[0] * normalized_spherical_camera_position[2].cos() + self.camera_target[2];
-        
-
-
-        // let r_bar = self.get_camera_radius_vector();
-        // self.camera_position = self.camera_target + r_bar + spherical_transform*delta_vector_spherical;
-        self.context.update_view(na::Matrix4::look_at_rh(
-            &na::convert(self.camera_position),   
-            &na::convert(self.camera_target), 
-            &na::Vector3::z_axis()
-            )
-        );
+impl Default for Twoport {
+    fn default() -> Self {
+        Twoport {
+            color: cyan_vec(),
+            is_active: false, 
+            root: na::OPoint::origin(),
+            height: 0.0,
+            width: 0.0,
+            content: Arc::new(RwLock::new(Scene::new())),
+            context:RenderContext::new(na::Matrix4::zeros(), na::Matrix4::zeros(), na::Matrix4::zeros(), glium::Rect { left: 0, bottom: 0, width: 0, height: 0 }), 
+            camera: Camera { ..Default::default() }
+        }
     }
 }
 
 impl Draw2 for Twoport {
     fn draw(&self, gui: &GuiContainer, context: &RenderContext, target: &mut glium::Frame) {
-        // println!("Drawing window...");
-
+        
         // Create uniforms
         let uniforms = glium::uniform! {
             model: uniformifyMat4(eye4()),              // Identity matrix for M, not moving anywhere
@@ -279,6 +197,45 @@ impl Draw2 for Twoport {
     }
 }
 
+pub trait CameraControl {
+    fn move_camera(&mut self, delta_camera: na::Vector3<f64>);
+    fn change_camera_position(&mut self, new_camera_position: na::Point3<f64>);
+    fn zoom(&mut self, mouse_delta: MouseScrollDelta);
+    fn get_camera_radius_vector(&self) -> na::Vector3<f64>;
+    fn orbit(&mut self,rotation_theta_degree: f64, rotation_phi_degree: f64, up_direction: na::Vector3<f64>);
+    fn update_camera(&mut self, scene: Arc<RwLock<Scene>>);
+}
+
+impl CameraControl for Twoport {
+        
+    fn move_camera(&mut self, delta_camera: na::Vector3<f64>){
+        self.camera.move_camera(delta_camera);
+    }
+
+    fn change_camera_position(&mut self, new_camera_position: na::Point3<f64>) {
+        self.camera.change_camera_position(new_camera_position);
+    }
+
+    /// Zooms in by a perscribed magnitude
+    fn zoom(&mut self, mouse_delta: MouseScrollDelta) {
+        self.camera.zoom(mouse_delta);
+    }
+
+    fn get_camera_radius_vector(&self) -> na::Vector3<f64> {
+        todo!()
+    }
+
+    fn orbit(&mut self,rotation_theta_degree: f64, rotation_phi_degree: f64, up_direction: na::Vector3<f64>) {
+        self.camera.orbit(rotation_theta_degree, rotation_phi_degree, up_direction);
+    }
+
+    fn update_camera(&mut self, scene: Arc<RwLock<Scene>>) {
+        self.camera.update_camera(scene);
+    }
+
+
+}
+
 
 // #####################
 
@@ -324,42 +281,161 @@ impl RenderContext {
 
 pub enum CameraMode {
     Static,
-
+    Following,
+    Tracking,
+    Orbit,
 }
 
 pub struct Camera {
     pub camera_position: na::Point3<f64>,               // Camera position
     pub camera_target: na::Point3<f64>,                 // Position of the target the camera is looking at
     camera_mode: CameraMode,                            // Enum describing camera mode
+    relative_up_direction: na::Vector3<f64>,            // Relative up direction (Z-Axis default)
+    target_id: Option<u64>
 }
 
 impl Camera {
 
-    pub fn new(camera_position: na::Point3<f64>, camera_target: na::Point3<f64>) {
-
+    pub fn new(camera_position: na::Point3<f64>, camera_target: na::Point3<f64>, mode: CameraMode) -> Self{
+        Camera {
+            camera_position: camera_position,
+            camera_target: camera_target,
+            camera_mode: mode,
+            ..Default::default()
+        }
     }
 
-    // pub fn move_camera(&mut self, delta_camera: na::Vector3<f64>){
-    //     self.camera_position = self.camera_position + delta_camera;
-    //     self.context.update_view(na::Matrix4::look_at_rh(                // Camera Position
-    //         &na::convert(self.camera_position),   
-    //         &na::convert(self.camera_target), 
-    //         &na::Vector3::z_axis()
-    //         )
-    //     )
-    // }
+    pub fn get_camera_mat(&self) -> na::Matrix4<f32> {
+        na::Matrix4::<f32>::look_at_rh(
+            &na::convert(self.camera_position),
+            &na::convert(self.camera_target), 
+            &na::Vector3::z_axis()
+        )
+    }
+
+    pub fn set_new_target(&mut self, new_target: na::Point3<f64>) {
+        self.camera_target = new_target;
+    }
+
+    pub fn set_new_position(&mut self, new_position: na::Point3<f64>) {
+        self.camera_position = new_position;
+    }
+
+    pub fn update_camera2(&mut self, scene: Arc<RwLock<scenes_and_entities::Scene>>) {
+        match &self.camera_mode {
+            CameraMode::Static => {
+                ;
+            },
+            CameraMode::Following => {
+                let delta_pos = scene.write().unwrap().get_entity(0).get_position() - self.camera_target;
+                self.set_new_target(self.camera_target+delta_pos);      // This solves a borrow
+                self.move_camera(delta_pos);
+            }
+            CameraMode::Tracking => {
+                let delta_pos = scene.write().unwrap().get_entity(0).get_position() - self.camera_target;
+                self.set_new_target(self.camera_target+delta_pos);
+            }
+            _ => {
+                ;
+            }
+        }
+    }
+}
+
+impl CameraControl for Camera {
+    fn move_camera(&mut self, delta_camera: na::Vector3<f64>) {
+        self.camera_position = self.camera_position + delta_camera;
+    }
+
+    fn zoom(&mut self, mouse_delta: MouseScrollDelta) {
+        let zoom_magnitude = match mouse_delta {
+            MouseScrollDelta::LineDelta(_, mouse_main) => {
+                mouse_main as f64
+            },
+            _ => {
+                0.0
+            }
+        };
+
+        debug!("ZOOM FACTOR: {}", zoom_magnitude);
+
+        let r_bar = self.camera_position - self.camera_target;
+        let r_hat = r_bar / r_bar.magnitude();
+        self.camera_position = self.camera_position - zoom_magnitude * r_hat;
+    }
+
+    fn change_camera_position(&mut self, new_camera_position: na::Point3<f64>) {
+        self.camera_position = new_camera_position;
+    }
+
+    fn get_camera_radius_vector(&self) -> na::Vector3<f64> {
+        self.camera_position - self.camera_target
+    }
+
+    fn orbit(&mut self,rotation_theta_degree: f64, rotation_phi_degree: f64, up_direction: na::Vector3<f64>) {
+        
+        // Convert orbit command to radians and structure as a vector
+        let theta = rotation_theta_degree * std::f64::consts::PI / 180.0;
+        let phi = rotation_phi_degree * std::f64::consts::PI / 180.0;
+        let delta_vector_spherical = na::base::Vector3::new(
+            0.0,
+            theta,
+            phi
+        );
+
+        // Normalize camera position relative to target and convert to spherical coordinates
+        let spherical_transform = na::base::Matrix3::new(
+            theta.sin()*phi.cos(), theta.cos()*phi.sin(), -phi.sin(),
+            theta.sin()*phi.sin(), theta.cos()*phi.sin(), phi.cos(),
+            theta.cos(), -theta.sin(), 0.0,
+        );
+
+        let normalized_camera_position = self.camera_position - self.camera_target;
+
+        // Convert to spherical:
+        // rho:     sqrt(x^2 + y^2 + z^2)
+        // theta:   atan(y/x)
+        // phi:     arccos(z / sqrt(x^2 + y^2 + z^2))
+        let mut normalized_spherical_camera_position = na::Vector3::new(
+            (normalized_camera_position.x.powf(2.0)+normalized_camera_position.y.powf(2.0)+normalized_camera_position.z.powf(2.0)).sqrt(), 
+            normalized_camera_position.y.atan2(normalized_camera_position.x), 
+            (normalized_camera_position.z / (normalized_camera_position.x.powf(2.0)+normalized_camera_position.y.powf(2.0)+normalized_camera_position.z.powf(2.0)).sqrt()).acos()
+        );
+
+        // Add delta vector
+        normalized_spherical_camera_position += delta_vector_spherical;
+
+
+        // Convert new camera position back to cartesian coordinates and de-normalize
+        // x = rho * sin(theta) * cos(phi)
+        self.camera_position[0] = normalized_spherical_camera_position[0]*normalized_spherical_camera_position[1].cos()*normalized_spherical_camera_position[2].sin() + self.camera_target[0];
+        // y = rho * sin(theta) * sin(theta)
+        self.camera_position[1] = normalized_spherical_camera_position[0]*normalized_spherical_camera_position[1].sin()*normalized_spherical_camera_position[2].sin() + self.camera_target[1];
+        // z = rho * cos(phi)
+        self.camera_position[2] = normalized_spherical_camera_position[0] * normalized_spherical_camera_position[2].cos() + self.camera_target[2];
+        
+    }
+
+    fn update_camera(&mut self, scene: Arc<RwLock<Scene>>) {
+        self.update_camera2(scene);
+    }
+}
+
+impl Default for Camera {
+    fn default() -> Self {
+        Camera {
+            camera_position: na::Point3::<f64>::new(10.0, 10.0, 10.0),
+            camera_target: na::Point3::origin(),
+            camera_mode: CameraMode::Following,
+            relative_up_direction: na::Vector3::z(),
+            target_id: Some(0),
+        }
+    }
 }
 
 pub trait Draw2 {
     fn draw(&self, gui: &GuiContainer, context: &RenderContext, target: &mut glium::Frame);
 }
-
-pub fn event_handling() {
-
-}
-
-
-
 
 
 

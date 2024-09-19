@@ -1,17 +1,17 @@
 // SCENES AND ENTITIES
 
-use crate::dc::{self, green_vec};
+use crate::{com, dc::{self, green_vec}};
 use glium::debug;
 use nalgebra as na;
 use num_traits::ToPrimitive;
 // use rand::Error;
 use serde_json::Value;
 use std::{
-    ops::DerefMut,
-    sync::atomic::{AtomicU64, Ordering},
-    vec,
+    ops::DerefMut, sync::atomic::{AtomicU64, Ordering}, time::Duration, vec
 };
 use tobj::Model;
+use std::net::TcpListener;
+use std::fmt::Error;
 
 // Define the wireframe or model representation
 pub struct WireframeObject {
@@ -709,8 +709,13 @@ impl Scene {
             // _ => {}
         };
 
+        debug!("Parsed JSON Packet: {}", json_parsed.to_string());
+
         if json_parsed != serde_json::Value::Null {
-            self.cmd_msg(&json_parsed);
+            for cmd in json_parsed.as_array().expect("").into_iter() {
+                self.cmd_msg(&cmd);
+            }
+            // self.cmd_msg(&json_parsed);
         } else {
             error!("json failed to load!");
             error!("{}", json_unparsed);
@@ -718,6 +723,8 @@ impl Scene {
     }
 
     pub fn cmd_msg(&mut self, json_parsed: &serde_json::Value) {
+
+        debug!("Target ID: {}", json_parsed["targetEntityID"]);
         let target_entity_id = json_parsed["targetEntityID"].as_u64().unwrap() as usize;
 
         let cmd = Command::from_json(json_parsed);
@@ -731,6 +738,7 @@ impl Scene {
     }
 
     pub fn load_from_json_str(json_unparsed: &str) -> Scene {
+        debug!("{}", json_unparsed);
         let json_parsed: Value = serde_json::from_str(json_unparsed).unwrap();
         Scene::load_from_json(&json_parsed)
     }
@@ -750,9 +758,57 @@ impl Scene {
             entities: entity_vec,
         }
     }
+
     pub fn get_entity(&mut self, entity_id: usize) -> &mut Entity {
         &mut self.entities[entity_id]
     }
+
+    pub fn load_from_network(addr: &str) -> Result<Scene, Error> {
+        // Open port
+        let listener = TcpListener::bind(addr).unwrap();
+        let mut num_attempt = 0;
+        
+        // Attempt to recieve initialization packet and parse when successful.
+        let initialization_packet = loop {
+            match listener.accept() {
+                Ok((stream, _)) => {
+                    // debug!("{}", com::from_network(&stream));
+                    break com::from_network(&stream)
+                },
+                _ => {
+                    num_attempt += 1;
+                    debug!("No packet recieved. Trying attempt {}...", num_attempt);
+                    std::thread::sleep(Duration::from_millis(100));
+                },
+            }
+        };
+        info!("Received initialization file");
+        debug!("Initialization file: {}", initialization_packet);
+
+        // Receive and save model files
+        for stream in listener.incoming() {
+
+            let mut local_stream = stream.unwrap();
+            match com::from_network_with_protocol(&mut local_stream) {
+                Ok(_) => {},
+                Err("END") => {
+                    debug!("Finished recieving files!");
+                }
+                _ => {break}
+            }
+        }
+
+        info!("All files recieved.");
+
+        //
+        
+        // Load Scene from initialization packet
+
+        Ok(Scene::load_from_json_str(&initialization_packet))
+        
+    }
+
+    // pub fn 
 }
 
 impl dc::Draw2 for Scene {

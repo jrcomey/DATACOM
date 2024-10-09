@@ -12,6 +12,7 @@ use std::{
 use tobj::Model;
 use std::net::TcpListener;
 use std::fmt::Error;
+// const SCALE_FACTOR: f32 = 1E0;
 
 // Define the wireframe or model representation
 pub struct WireframeObject {
@@ -137,6 +138,8 @@ impl DrawInScene for WireframeObject {
             depth: glium::Depth {
                 test: glium::draw_parameters::DepthTest::IfLess,
                 write: true,
+                // range: (0.0, 1.0),
+                clamp: glium::draw_parameters::DepthClamp::Clamp,
                 ..Default::default()
             },
             line_width: std::option::Option::Some(1E-5),
@@ -440,7 +443,7 @@ impl Entity {
         // debug!("NAME: {}", name);
         // debug!("POSITION: {}", position_vec);
         // debug!("ROTATION: {}", rotation_vec);
-        // debug!("SCALE: {}", scale_vec);
+        debug!("SCALE: {}", scale_vec);
 
         Entity {
             id: ENTITY_COUNTER.fetch_add(1, Ordering::Relaxed),
@@ -546,8 +549,8 @@ impl Entity {
         }
     }
 
-    pub fn get_position(&mut self) -> na::Point3<f64> {
-        self.position
+    pub fn get_position(&mut self) -> &na::Point3<f64> {
+        &self.position
     }
 }
 
@@ -557,9 +560,9 @@ impl dc::Draw2 for Entity {
         let parent_model_mat =
             na::Isometry3::from_parts(na::convert(translate), na::convert(self.rotation));
         let scale_vec = na::Vector3::new(
-            self.scale.x as f32,
-            self.scale.y as f32,
-            self.scale.z as f32,
+            self.scale.x as f32 ,
+            self.scale.y as f32 ,
+            self.scale.z as f32 ,
         );
         for model in &self.models {
             model.draw_at_position(
@@ -709,7 +712,7 @@ impl Scene {
             // _ => {}
         };
 
-        debug!("Parsed JSON Packet: {}", json_parsed.to_string());
+        // debug!("Parsed JSON Packet: {}", json_parsed.to_string());
 
         if json_parsed != serde_json::Value::Null {
             for cmd in json_parsed.as_array().expect("").into_iter() {
@@ -724,7 +727,7 @@ impl Scene {
 
     pub fn cmd_msg(&mut self, json_parsed: &serde_json::Value) {
 
-        debug!("Target ID: {}", json_parsed["targetEntityID"]);
+        // debug!("Target ID: {}", json_parsed["targetEntityID"]);
         let target_entity_id = json_parsed["targetEntityID"].as_u64().unwrap() as usize;
 
         let cmd = Command::from_json(json_parsed);
@@ -738,7 +741,7 @@ impl Scene {
     }
 
     pub fn load_from_json_str(json_unparsed: &str) -> Scene {
-        debug!("{}", json_unparsed);
+        // debug!("{}", json_unparsed);
         let json_parsed: Value = serde_json::from_str(json_unparsed).unwrap();
         Scene::load_from_json(&json_parsed)
     }

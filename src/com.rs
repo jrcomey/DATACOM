@@ -29,7 +29,7 @@ pub fn from_network_with_protocol(stream: &mut TcpStream) -> Result<(), &str> {
     let mut name_buffer = [0; 400];
     let name_bytes_read = stream.read(&mut name_buffer).unwrap();
     let name = String::from_utf8_lossy(&name_buffer[..name_bytes_read]).to_string();
-    debug!("Name: {}", name);
+    // debug!("Name: {}", name);
     if name == "END" {
         return Err("Done");
     }
@@ -42,7 +42,7 @@ pub fn from_network_with_protocol(stream: &mut TcpStream) -> Result<(), &str> {
         stream.read_exact(&mut file_size_buffer);
         let mut bytes_received = 0;
         let file_size = u64::from_be_bytes(file_size_buffer);
-        debug!("Anticipated file size: {} bytes", file_size);
+        // debug!("Anticipated file size: {} bytes", file_size);
 
         
 
@@ -55,7 +55,7 @@ pub fn from_network_with_protocol(stream: &mut TcpStream) -> Result<(), &str> {
             }
             file.write_all(&buffer[..bytes_read]).unwrap();
             bytes_received += bytes_read as u64;
-            debug!("Received packet #{}", num_packets_recieved);
+            // debug!("Received packet #{}", num_packets_recieved);
             num_packets_recieved += 1;
         }
         
@@ -74,7 +74,7 @@ pub fn run_server(scene_reference: Arc<RwLock<Scene>>, addr: std::net::SocketAdd
         match stream {
             Ok(stream) => {
                 let packet = from_network(&stream);
-                debug!("Packet: {}", packet.as_str());
+                // debug!("Packet: {}", packet.as_str());
                 scene_reference.write().unwrap().cmd_msg_str(&packet.as_str());
             },
             Err(_) => {;}

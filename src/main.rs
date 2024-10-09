@@ -72,7 +72,7 @@ mod dc;                                                                     // D
 // mod wf;                                                                     // Wireframe struct
 mod plt;                                                                    // Plotter
 use crate::dc::{cyan_vec, null_content, 
-    Draw2, green_vec, red_vec};                                             // DATACOM item imports for functions
+    Draw2, CameraControl, green_vec, red_vec};                                             // DATACOM item imports for functions
 use std::{thread, time::Duration, sync::{mpsc, Arc, Mutex, RwLock}};        // Multithreading lib imports
 mod scene_composer;
 use std::net::{SocketAddr, TcpListener, TcpStream};
@@ -101,30 +101,31 @@ fn main() {
     // send_thread.join().unwrap();
     // recv_thread.join().unwrap();
 
-    let test_scene = scenes_and_entities::Scene::load_from_json_file("data/scene_loading/test_scene.json");
+    // let test_scene = scenes_and_entities::Scene::load_from_json_file("data/scene_loading/test_scene.json");
+    let test_scene = scenes_and_entities::Scene::load_from_network("127.0.0.1:8080").unwrap();
 
     start_program(test_scene);
 }
 
-fn load_scene_from_network(addr: SocketAddr) -> scenes_and_entities::Scene {
-    let listener = TcpListener::bind(addr).unwrap();
-    match listener.accept() {
-        Ok((stream, _)) => {
-                let packet = com::from_network(&stream);
-                scenes_and_entities::Scene::load_from_json_str(&packet)
-        }
-        _ => {scene_composer::test_scene()},
-    }
-}
+// fn load_scene_from_network(addr: SocketAddr) -> scenes_and_entities::Scene {
+//     let listener = TcpListener::bind(addr).unwrap();
+//     match listener.accept() {
+//         Ok((stream, _)) => {
+//                 let packet = com::from_network(&stream);
+//                 scenes_and_entities::Scene::load_from_json_str(&packet)
+//         }
+//         _ => {scene_composer::test_scene()},
+//     }
+// }
 
-fn send_test_scene(filepath: &str, addr: SocketAddr) {
-    let scene_packet = std::fs::read_to_string(filepath).unwrap();
-    println!("{}", scene_packet);
-    let mut stream = TcpStream::connect(addr).unwrap();
-    thread::sleep(Duration::from_millis(10));
-    stream.write_all(scene_packet.as_bytes()).unwrap();
+// fn send_test_scene(filepath: &str, addr: SocketAddr) {
+//     let scene_packet = std::fs::read_to_string(filepath).unwrap();
+//     println!("{}", scene_packet);
+//     let mut stream = TcpStream::connect(addr).unwrap();
+//     thread::sleep(Duration::from_millis(10));
+//     stream.write_all(scene_packet.as_bytes()).unwrap();
     
-}
+// }
 
 fn start_program(scene: scenes_and_entities::Scene) {
     // PI constants
@@ -143,6 +144,7 @@ fn start_program(scene: scenes_and_entities::Scene) {
 
     // Viewport Refactor Test
 
+    // let scale_factor = 50.0;
     let mut viewport_refactor = vec![
         dc::Twoport::new_with_camera(
             na::Point2::new(-0.98, 0.98), 
@@ -165,7 +167,7 @@ fn start_program(scene: scenes_and_entities::Scene) {
             2.0*(0.98-0.4), 
             0.35*2.0, 
             scene_ref.clone(), 
-            na::Point3::new(0.0, 10.0, 1.0), 
+            na::Point3::new(0.0, 10.0, 2.0), 
             na::Point3::new(0.0, 0.0, 0.0),
         ),
         // dc::Twoport::new_with_camera(
@@ -185,33 +187,33 @@ fn start_program(scene: scenes_and_entities::Scene) {
     let mut t = (std::time::SystemTime::now().duration_since(start_time).unwrap().as_micros() as f32) / (2.0*1E6*std::f32::consts::PI);
 
     // sender Thread
-    let sender_thread = thread::Builder::new().name("sender thread".to_string()).spawn(move|| {
-        debug!("Started data transmission thread");
-        let addr: SocketAddr = "127.0.0.1:8080".parse().unwrap();
-        let mut stream = TcpStream::connect(addr).unwrap();
+    // let sender_thread = thread::Builder::new().name("sender thread".to_string()).spawn(move|| {
+    //     debug!("Started data transmission thread");
+    //     let addr: SocketAddr = "127.0.0.1:8080".parse().unwrap();
+    //     let mut stream = TcpStream::connect(addr).unwrap();
 
-        loop {
-            t = (std::time::SystemTime::now().duration_since(start_time).unwrap().as_micros() as f32) / (2.0*1E6*std::f32::consts::PI);
-            let test_command_data = format!("
-                {{
-                    \"targetEntityID\": 0,
-                    \"commandType\": \"ComponentChangeColor\",
-                    \"data\": [0.0,{},{},{},1.0]
-                }}", 
-                t.sin().abs(),
-                t.cos().abs(),
-                t.tan().abs()
-            );
-            thread::sleep(Duration::from_millis(10));
-            stream.write_all(test_command_data.as_bytes()).unwrap();
-            stream.flush().unwrap();
-        }
-    });
+    //     loop {
+    //         t = (std::time::SystemTime::now().duration_since(start_time).unwrap().as_micros() as f32) / (2.0*1E6*std::f32::consts::PI);
+    //         let test_command_data = format!("
+    //             {{
+    //                 \"targetEntityID\": 0,
+    //                 \"commandType\": \"ComponentChangeColor\",
+    //                 \"data\": [0.0,{},{},{},1.0]
+    //             }}", 
+    //             t.sin().abs(),
+    //             t.cos().abs(),
+    //             t.tan().abs()
+    //         );
+    //         thread::sleep(Duration::from_millis(10));
+    //         stream.write_all(test_command_data.as_bytes()).unwrap();
+    //         stream.flush().unwrap();
+    //     }
+    // });
 
     
     let listener_thread = thread::Builder::new().name("listener thread".to_string()).spawn(move || {
         info!("Opened listener thread");
-        let addr: SocketAddr = "127.0.0.1:8080".parse().unwrap();
+        let addr: SocketAddr = "127.0.0.1:8081".parse().unwrap();
         com::run_server(scene_ref.clone(), addr);
     });
 
@@ -286,7 +288,7 @@ fn start_program(scene: scenes_and_entities::Scene) {
                     for viewport in &mut viewport_refactor {
                         if viewport.is_active {
                             viewport.move_camera(na::Vector3::<f64>::new(0.0, -1.0, 0.0));
-                            debug!("{}", viewport.camera_position);
+                            debug!("{}", viewport.camera.camera_position);
                         }
                     }
                 },
@@ -304,7 +306,7 @@ fn start_program(scene: scenes_and_entities::Scene) {
                     for viewport in &mut viewport_refactor {
                         if viewport.is_active {
                             viewport.move_camera(na::Vector3::<f64>::new(0.0, 1.0, 0.0));
-                            debug!("{}", viewport.camera_position);
+                            debug!("{}", viewport.camera.camera_position);
                         }
                     }
                 }
@@ -324,7 +326,7 @@ fn start_program(scene: scenes_and_entities::Scene) {
                     for viewport in &mut viewport_refactor {
                         if viewport.is_active {
                             viewport.move_camera(na::Vector3::<f64>::new(0.0, 0.0, 1.0));
-                            debug!("{}", viewport.camera_position);
+                            debug!("{}", viewport.camera.camera_position);
                         }
                     }
                 },
@@ -342,7 +344,7 @@ fn start_program(scene: scenes_and_entities::Scene) {
                     for viewport in &mut viewport_refactor {
                         if viewport.is_active {
                             viewport.move_camera(na::Vector3::<f64>::new(0.0, 0.0, -1.0));
-                            debug!("{}", viewport.camera_position);
+                            debug!("{}", viewport.camera.camera_position);
                         }
                     }
                 },
@@ -359,7 +361,7 @@ fn start_program(scene: scenes_and_entities::Scene) {
                     for viewport in &mut viewport_refactor {
                         if viewport.is_active {
                             viewport.orbit(-5.0, 0.0, na::base::Vector3::new(0.0, 0.0, 1.0));
-                            debug!("{}", viewport.camera_position);
+                            debug!("{}", viewport.camera.camera_position);
                         }
                     }
                 },
@@ -376,7 +378,7 @@ fn start_program(scene: scenes_and_entities::Scene) {
                     for viewport in &mut viewport_refactor {
                         if viewport.is_active {
                             viewport.orbit(5.0, 0.0,  na::base::Vector3::new(0.0, 0.0, 1.0));
-                            debug!("{}", viewport.camera_position);
+                            debug!("{}", viewport.camera.camera_position);
                         }
                     }
                 },
@@ -393,7 +395,7 @@ fn start_program(scene: scenes_and_entities::Scene) {
                     for viewport in &mut viewport_refactor {
                         if viewport.is_active {
                             viewport.orbit(0.0, -5.0,  na::base::Vector3::new(0.0, 0.0, 1.0));
-                            debug!("{}", viewport.camera_position);
+                            debug!("{}", viewport.camera.camera_position);
                         }
                     }
                 },
@@ -410,7 +412,7 @@ fn start_program(scene: scenes_and_entities::Scene) {
                     for viewport in &mut viewport_refactor {
                         if viewport.is_active {
                             viewport.orbit(0.0, 5.0,  na::base::Vector3::new(0.0, 0.0, 1.0));
-                            debug!("{}", viewport.camera_position);
+                            debug!("{}", viewport.camera.camera_position);
                         }
                     }
                 },
@@ -503,13 +505,13 @@ mod tests {
         );
         assert_eq!(
             test_scene.get_entity(0).get_position(),
-            na::Point3::<f64>::origin(),
+            &na::Point3::<f64>::origin(),
             "Initial Position is Origin"
         );
         test_scene.get_entity(0).command(pos_cmd);
         assert_eq!(
             test_scene.get_entity(0).get_position(),
-            na::Point3::<f64>::new(1.0, 1.0, 1.0),
+            &na::Point3::<f64>::new(1.0, 1.0, 1.0),
             "Position commanded successfully"
         );
     }

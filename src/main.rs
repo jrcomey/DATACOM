@@ -218,14 +218,14 @@ fn start_program(scene: scenes_and_entities::Scene) {
     });
 
     // Multithreading TRx
-    let (tx_gui, rx_gui) = mpsc::sync_channel(1);
+    // let (tx_gui, rx_gui) = mpsc::sync_channel(1);
     // Thread for calculations
     let calculation_thread = thread::Builder::new().name("calculation thread".to_string()).spawn(move || {
         info!("Started calculation thread");
         loop {
             // Clock update
-            t = (std::time::SystemTime::now().duration_since(start_time).unwrap().as_micros() as f32) / (2.0*1E6*std::f32::consts::PI);
-            tx_gui.send(t).unwrap();
+            // t = (std::time::SystemTime::now().duration_since(start_time).unwrap().as_micros() as f32) / (2.0*1E6*std::f32::consts::PI);
+            // tx_gui.send(t).unwrap();
             scene_ref_2.write().unwrap().update();
         }
     });
@@ -234,7 +234,7 @@ fn start_program(scene: scenes_and_entities::Scene) {
     info!("Starting event loop...");
     (event_loop.run(move |event, _, control_flow| {
         let next_frame_time = std::time::Instant::now() + std::time::Duration::from_nanos(frame_time_nanos);
-        let t = rx_gui.recv().unwrap();
+        // let t = rx_gui.recv().unwrap();
         // let t = (std::time::SystemTime::now().duration_since(start_time).unwrap().as_micros() as f32) / (2.0*1E6*std::f32::consts::PI);
 
         // Event Handling (Key presses, mouse movement)

@@ -443,7 +443,7 @@ impl Entity {
         // debug!("NAME: {}", name);
         // debug!("POSITION: {}", position_vec);
         // debug!("ROTATION: {}", rotation_vec);
-        debug!("SCALE: {}", scale_vec);
+        // debug!("SCALE: {}", scale_vec);
 
         Entity {
             id: ENTITY_COUNTER.fetch_add(1, Ordering::Relaxed),
@@ -786,7 +786,7 @@ impl Scene {
             }
         };
         info!("Received initialization file");
-        debug!("Initialization file: {}", initialization_packet);
+        // debug!("Initialization file: {}", initialization_packet);
 
         // Receive and save model files
         for stream in listener.incoming() {

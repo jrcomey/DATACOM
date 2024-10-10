@@ -34,7 +34,7 @@
         // - Entities commandable from JSON
         // - All entities in scene can be commanded over JSON
     - Networking
-        // - Commands sendable over TCP connection
+        // - Commands sendable over TCP connectio/n
         // - Commands are receivable over TCP connection
         - Multiple commands can be sent in the same json
         - Load Scene from network
@@ -87,22 +87,22 @@ fn main() {
 
     // let test_scene = scene_composer::compose_scene_3();
     // let recv_thread = thread::spawn(move|| {
-    //     // let test_scene = load_scene_from_network("127.0.0.1:8080".parse().unwrap());
+    //     // let test_scene = load_scene_from_network("10.0.0.107:8080".parse().unwrap());
     //     ;
     // });
 
     // let send_thread = thread::spawn(move|| {
-    //     send_test_scene("data/scene_loading/test_scene.json", "127.0.0.1:8080".parse().unwrap());
+    //     send_test_scene("data/scene_loading/test_scene.json", "10.0.0.107:8080".parse().unwrap());
     // });
 
-    // let test_scene = load_scene_from_network("127.0.0.1:8080".parse().unwrap());
+    // let test_scene = load_scene_from_network("10.0.0.107:8080".parse().unwrap());
 
 
     // send_thread.join().unwrap();
     // recv_thread.join().unwrap();
 
     // let test_scene = scenes_and_entities::Scene::load_from_json_file("data/scene_loading/test_scene.json");
-    let test_scene = scenes_and_entities::Scene::load_from_network("127.0.0.1:8080").unwrap();
+    let test_scene = scenes_and_entities::Scene::load_from_network("10.0.0.107:8080").unwrap();
 
     start_program(test_scene);
 }
@@ -189,7 +189,7 @@ fn start_program(scene: scenes_and_entities::Scene) {
     // sender Thread
     // let sender_thread = thread::Builder::new().name("sender thread".to_string()).spawn(move|| {
     //     debug!("Started data transmission thread");
-    //     let addr: SocketAddr = "127.0.0.1:8080".parse().unwrap();
+    //     let addr: SocketAddr = "10.0.0.107:8080".parse().unwrap();
     //     let mut stream = TcpStream::connect(addr).unwrap();
 
     //     loop {
@@ -213,7 +213,7 @@ fn start_program(scene: scenes_and_entities::Scene) {
     
     let listener_thread = thread::Builder::new().name("listener thread".to_string()).spawn(move || {
         info!("Opened listener thread");
-        let addr: SocketAddr = "127.0.0.1:8081".parse().unwrap();
+        let addr: SocketAddr = "10.0.0.107:8081".parse().unwrap();
         com::run_server(scene_ref.clone(), addr);
     });
 

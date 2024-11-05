@@ -1,20 +1,9 @@
 # DATACOM
 
-Robotics. All in one. The way it should have always been.
+#### Source-Agnostic Data Visualization Program
 
-DATACOM is a comprehensive telemetry visualization and C&C platform designed to make life easier for operation of higher level robotics.
+I wrote a general-purpose 3D visualization engine using OpenGL and Rust to serve as a visual terminal interface for a multitude of projects I have been developing. DATACOM is a source-agnostic program (meaning it can take data from any source, provided correct formatting) and can recieve and display multiple incoming datastreams.
 
-### ATC/VFR STYLE VISUALIZATION
+Originally intended to serve as a command-and-control interface for UAV swarm behavior, DATACOM has evolved into a more general-purpose interface.
 
-DATACOM is designed to allow for tracking and control of hundreds of vehicles, presented in a familiar ATC/VFR style. 
-
-### PRECISION TRAJECTORY PLANNING
-
-### GLOBAL SCALE
-
-Global means global. Zoom out to view not only a higher level view of your operational vehicles, but view your space-based assets as well.
-
-### AUTONOMOUS OPERATIONS
-
-### MULTI-VEHICLE SIMULATION
-
+Not intended for public use. Repository has been temporarily made publically available for graduate school applications.

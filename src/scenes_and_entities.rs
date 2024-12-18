@@ -108,6 +108,7 @@ impl DrawInScene for WireframeObject {
         // info!("Drawing Wireframe");
         use glium::Surface;
 
+        let scalar = na::Matrix4::<f32>::new_scaling(1.0);
         let uniforms = glium::uniform! {
             model: dc::uniformifyMat4(model),
             view: dc::uniformifyMat4(context.view),
@@ -126,11 +127,12 @@ impl DrawInScene for WireframeObject {
         .unwrap();
 
         let poly_off = glium::draw_parameters::PolygonOffset {
-            factor: 1.0,
+            factor: 0.0,
             units: 1.0,
-            point: true,
-            line: true,
-            fill: true,
+            ..Default::default()
+            // point: true,
+            // line: true,
+            // fill: true,
         };
 
         let params = glium::DrawParameters {
@@ -149,6 +151,49 @@ impl DrawInScene for WireframeObject {
             ..Default::default()
         };
 
+
+        let poly_off_solid = glium::draw_parameters::PolygonOffset {
+            factor: 1.00,
+            units: 1.0,
+            point: true,
+            line: true,
+            fill: true,
+        };
+
+        let uniforms_solid = glium::uniform! {
+            model: dc::uniformifyMat4(model*scalar),
+            view: dc::uniformifyMat4(context.view),
+            perspective: dc::uniformifyMat4(context.perspective),
+            color_obj: dc::uniformifyVec4(dc::rgba(0.0, 0.0, 0.0, 0.2)),
+            vp: dc::uniformifyMat4(context.viewport_shift),
+        };
+
+        let params_solid = glium::DrawParameters {
+            polygon_mode: glium::draw_parameters::PolygonMode::Fill,
+            depth: glium::Depth {
+                test: glium::draw_parameters::DepthTest::IfLess,
+                write: true,
+                // range: (0.0, 1.0),
+                clamp: glium::draw_parameters::DepthClamp::Clamp,
+                ..Default::default()
+            },
+            line_width: std::option::Option::Some(1E-5),
+            scissor: std::option::Option::Some(context.pixel_bounds),
+            backface_culling: glium::draw_parameters::BackfaceCullingMode::CullClockwise,
+            polygon_offset: poly_off_solid,
+            ..Default::default()
+        };
+
+        target
+            .draw(
+                (&positions, &normals),
+                &indices,
+                &gui.program,
+                &uniforms_solid,
+                &params_solid,
+            )
+            .unwrap();
+
         target
             .draw(
                 (&positions, &normals),
@@ -158,6 +203,8 @@ impl DrawInScene for WireframeObject {
                 &params,
             )
             .unwrap();
+
+        
     }
 }
 

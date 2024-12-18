@@ -101,9 +101,10 @@ fn main() {
     // send_thread.join().unwrap();
     // recv_thread.join().unwrap();
 
-    // let test_scene = scenes_and_entities::Scene::load_from_json_file("data/scene_loading/test_scene.json");
+    let test_scene = scenes_and_entities::Scene::load_from_json_file("data/scene_loading/test_scene.json");
 
     loop {
+        // let test_scene = scenes_and_entities::Scene::load_from_json_file("data/scene_loading/test_scene.json");
         let test_scene = scenes_and_entities::Scene::load_from_network("10.0.0.107:8080").unwrap();
         start_program(test_scene);
     }
@@ -152,23 +153,23 @@ fn start_program(scene: scenes_and_entities::Scene) {
         dc::Twoport::new_with_camera(
             na::Point2::new(-1.0, 1.0), 
             2.0, 
-            0.6*2.0, 
+            0.8*2.0, 
             scene_ref.clone(),
             na::Point3::new(-7.0, 3.0, 5.0),
             na::Point3::new(0.0, 0.0, 0.0)
         ),
         dc::Twoport::new_with_camera(
-            na::Point2::new(0.22, 0.98), 
+            na::Point2::new(0.6, 1.0), 
             0.4*2.0, 
-            0.35*2.0, 
+            0.2*2.0, 
             scene_ref.clone(), 
             na::Point3::new(10.0, 0.0, 0.0),
             na::Point3::new(0.0, 0.0, 0.0)
         ),
         dc::Twoport::new_with_camera(
-            na::Point2::new(0.22, 0.98-0.8), 
-            2.0*(0.98-0.4), 
-            0.35*2.0, 
+            na::Point2::new(0.6, 1.0-0.8), 
+            2.0*(1.0-0.4), 
+            0.2*2.0, 
             scene_ref.clone(), 
             na::Point3::new(0.0, 10.0, 2.0), 
             na::Point3::new(0.0, 0.0, 0.0),
@@ -518,11 +519,11 @@ fn start_program(scene: scenes_and_entities::Scene) {
         
         let seconds_per_rotation: f64 = 5.0;
 
-        viewport_refactor[0].change_camera_position(na::Point3::<f64>::new(
-            7.0*(t/1.0).cos() as f64,
-            7.0*(t/1.0).sin() as f64,
-            0.0,
-        ));
+        // viewport_refactor[0].change_camera_position(na::Point3::<f64>::new(
+        //     7.0*(t/1.0).cos() as f64,
+        //     7.0*(t/1.0).sin() as f64,
+        //     0.0,
+        // ));
         
 
         for i in &mut viewport_refactor {

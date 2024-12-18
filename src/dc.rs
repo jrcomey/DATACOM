@@ -400,7 +400,7 @@ impl CameraControl for Camera {
 
         let r_bar = self.camera_position - self.camera_target;
         let r_hat = r_bar / r_bar.magnitude();
-        self.camera_position = self.camera_position - zoom_magnitude * r_hat;
+        self.camera_position = self.camera_position - zoom_magnitude * r_hat * r_bar.magnitude()/100.0;
     }
 
     fn change_camera_position(&mut self, new_camera_position: na::Point3<f64>) {

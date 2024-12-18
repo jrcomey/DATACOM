@@ -2,6 +2,7 @@ extern crate glium;
 use std::{rc::Rc, sync::{Arc, RwLock}, time::Instant};
 use crate::scenes_and_entities;
 use glium::{glutin::{self, window, event::MouseScrollDelta}, Surface, debug};
+use std::fmt::Error;
 
 use crate::scenes_and_entities::Scene;
 
@@ -47,7 +48,7 @@ impl Twoport {
                     &na::convert(camera_target), 
                     &na::Vector3::z_axis()
                 ), 
-                na::Matrix4::new_perspective((3.0/2.0) as f32, 3.141592 / 3.0, 0.1, 1024.0),
+                na::Matrix4::new_perspective((3.0/2.0) as f32, 3.141592 / 3.0, 0.1, 1024.0E6),
                 xy_translation((root[0]+width/2.0) as f32, (root[1]-height/2.0) as f32),
                 glium::Rect{
                     left: 0, 
@@ -204,6 +205,10 @@ pub trait CameraControl {
     fn get_camera_radius_vector(&self) -> na::Vector3<f64>;
     fn orbit(&mut self,rotation_theta_degree: f64, rotation_phi_degree: f64, up_direction: na::Vector3<f64>);
     fn update_camera(&mut self, scene: Arc<RwLock<Scene>>);
+    fn get_target_id(&self)->Result<u64, Error>;
+    fn set_target_id(&mut self, new_target_id: u64);
+    fn switch_mode(&mut self, new_mode: CameraMode);
+    fn advance_mode(&mut self);
 }
 
 impl CameraControl for Twoport {
@@ -233,6 +238,21 @@ impl CameraControl for Twoport {
         self.camera.update_camera(scene);
     }
 
+    fn get_target_id(&self)->Result<u64, Error> {
+        Ok(self.camera.get_target_id()?)
+    }
+
+    fn set_target_id(&mut self, new_target_id: u64) {
+        self.camera.set_target_id(new_target_id);
+    }
+
+    fn switch_mode(&mut self, new_mode: CameraMode) {
+        self.camera.switch_mode(new_mode);
+    }
+
+    fn advance_mode(&mut self) {
+        self.camera.advance_mode();
+    }
 
 }
 
@@ -258,7 +278,7 @@ impl RenderContext {
     }
 
     pub fn update_render_context(&mut self, new_pixel_width: u32, new_pixel_height: u32, new_box: glium::Rect) {
-        self.update_perspective(na::base::Matrix4::new_perspective(new_pixel_width as f32/new_pixel_height as f32, 3.141592 / 3.0, 0.1 , 1024.0));
+        self.update_perspective(na::base::Matrix4::new_perspective(new_pixel_width as f32/new_pixel_height as f32, 3.141592 / 3.0, 0.1 , 1024.0E6));
         // self.update_perspective(na::base::Matrix4::new_orthographic((((self.mvp.bounds[0]+1.0)/2.0) * width as f32), right, bottom, top, znear, zfar))
         self.update_viewport_pixel_bounds(new_box);
     }
@@ -284,6 +304,25 @@ pub enum CameraMode {
     Following,
     Tracking,
     Orbit,
+}
+
+impl CameraMode {
+    pub fn advance_mode(&mut self) -> CameraMode {
+        match &self {
+            &CameraMode::Static => {
+                debug!("NOW FOLLOWING");
+                CameraMode::Following
+            },
+            &CameraMode::Following => {
+                debug!("NOW TRACKING");
+                CameraMode::Tracking},
+            &CameraMode::Tracking => {debug!("NOW ORBIT");
+                CameraMode::Orbit},
+            &CameraMode::Orbit => {
+                debug!("NOW STATIC");
+                CameraMode::Static}
+        }
+    }
 }
 
 pub struct Camera {
@@ -327,12 +366,12 @@ impl Camera {
                 ;
             },
             CameraMode::Following => {
-                let delta_pos = scene.write().unwrap().get_entity(0).get_position() - self.camera_target;
+                let delta_pos = scene.write().unwrap().get_entity(self.target_id.unwrap() as usize).get_position() - self.camera_target;
                 self.set_new_target(self.camera_target+delta_pos);      // This solves a borrow
                 self.move_camera(delta_pos);
             }
             CameraMode::Tracking => {
-                let delta_pos = scene.write().unwrap().get_entity(0).get_position() - self.camera_target;
+                let delta_pos = scene.write().unwrap().get_entity(self.target_id.unwrap() as usize).get_position() - self.camera_target;
                 self.set_new_target(self.camera_target+delta_pos);
             }
             _ => {
@@ -419,6 +458,26 @@ impl CameraControl for Camera {
     fn update_camera(&mut self, scene: Arc<RwLock<Scene>>) {
         self.update_camera2(scene);
     }
+
+    fn get_target_id(&self)->Result<u64, Error> {
+        match self.target_id {
+            Some(id) => Ok(id),
+            None => Err(Error)
+        }
+    }
+
+    fn set_target_id(&mut self, new_target_id: u64) {
+        self.target_id = Some(new_target_id);
+    }
+
+    fn switch_mode(&mut self, new_mode: CameraMode) {
+        self.camera_mode = new_mode;
+    }
+
+    fn advance_mode(&mut self) {
+        self.camera_mode = self.camera_mode.advance_mode();
+    }
+    
 }
 
 impl Default for Camera {

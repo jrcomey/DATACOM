@@ -35,6 +35,7 @@ pub fn from_network_with_protocol(stream: &mut TcpStream) -> Result<(), &str> {
     }
     else {
         // Open the file
+        // debug!("Name: {}", name);
         let mut file = File::create(&name).unwrap();
         
         // Get file size next

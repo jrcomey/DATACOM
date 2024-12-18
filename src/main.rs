@@ -61,7 +61,7 @@ use glium::{buffer, debug, glutin::{self, event::{ElementState, ModifiersState, 
 use num_traits::ops::bytes;
 use scene_composer::test_scene;                                             // OpenGL imports
 use core::time;
-use std::{cell::RefCell, io::Write, rc::Rc, thread::scope, time::Instant, vec};        // Multithreading standard library items
+use std::{cell::RefCell, collections::HashMap, io::Write, rc::Rc, thread::scope, time::Instant, vec};        // Multithreading standard library items
 mod scenes_and_entities;
 extern crate tobj;                                                          // .obj file loader
 extern crate rand;                                                          // Random number generator
@@ -102,9 +102,12 @@ fn main() {
     // recv_thread.join().unwrap();
 
     // let test_scene = scenes_and_entities::Scene::load_from_json_file("data/scene_loading/test_scene.json");
-    let test_scene = scenes_and_entities::Scene::load_from_network("10.0.0.107:8080").unwrap();
 
-    start_program(test_scene);
+    loop {
+        let test_scene = scenes_and_entities::Scene::load_from_network("10.0.0.107:8080").unwrap();
+        start_program(test_scene);
+    }
+    
 }
 
 // fn load_scene_from_network(addr: SocketAddr) -> scenes_and_entities::Scene {
@@ -147,8 +150,8 @@ fn start_program(scene: scenes_and_entities::Scene) {
     // let scale_factor = 50.0;
     let mut viewport_refactor = vec![
         dc::Twoport::new_with_camera(
-            na::Point2::new(-0.98, 0.98), 
-            0.98*2.0, 
+            na::Point2::new(-1.0, 1.0), 
+            2.0, 
             0.6*2.0, 
             scene_ref.clone(),
             na::Point3::new(-7.0, 3.0, 5.0),
@@ -179,6 +182,7 @@ fn start_program(scene: scenes_and_entities::Scene) {
         //     na::Point3::new(0.0, 0.0, 0.0)
         // ),
     ];
+    // viewport_refactor[1].camera.
     info!("Initialized viewports");
 
     // Framerate and clock items
@@ -232,6 +236,8 @@ fn start_program(scene: scenes_and_entities::Scene) {
 
     // Draw thread
     info!("Starting event loop...");
+    let mut last_key = "";
+    let mut key_tracker = KeyTracker::new();
     (event_loop.run(move |event, _, control_flow| {
         let next_frame_time = std::time::Instant::now() + std::time::Duration::from_nanos(frame_time_nanos);
         // let t = rx_gui.recv().unwrap();
@@ -416,9 +422,87 @@ fn start_program(scene: scenes_and_entities::Scene) {
                         }
                     }
                 },
-                
 
-                _ => return,
+                glutin::event::WindowEvent::KeyboardInput {
+                    input:
+                    glutin::event::KeyboardInput {
+                        virtual_keycode: Some(VirtualKeyCode::Equals),
+                        ..
+                    },
+                    ..
+                } => {
+                    debug!("Last key: {}", last_key);
+                    debug!("=");
+                    for viewport in &mut viewport_refactor {
+                        let max = viewport.content.read().unwrap().entities.len() as u64;
+                        if viewport.is_active && last_key != "=" {
+                            match viewport.get_target_id() {
+                                Ok(id) => {
+                                    
+                                    if id >= max-1 {
+                                        viewport.set_target_id(max-1);
+                                    }
+                                    else {
+                                        viewport.set_target_id(id+1);
+                                    }
+                                    
+                                },
+                                _=>{}
+                            }
+                        }
+                    }
+                    last_key = "=";
+                },
+
+                glutin::event::WindowEvent::KeyboardInput {
+                    input:
+                    glutin::event::KeyboardInput {
+                        virtual_keycode: Some(VirtualKeyCode::Minus),
+                        ..
+                    },
+                    ..
+                } => {
+                    debug!("-");
+                    
+                    for viewport in &mut viewport_refactor {
+                        if viewport.is_active && key_tracker.should_process_key(VirtualKeyCode::V, ElementState::Pressed) {
+                            match viewport.get_target_id() {
+                                Ok(id) => {
+                                        if id == 0 {
+                                            viewport.set_target_id(0);
+                                        }
+                                        else {
+                                            viewport.set_target_id(id-1);
+                                        }
+                                    },
+                                _=>{}
+                            }
+                        }
+                    }
+                    last_key = "-";
+                },
+
+                glutin::event::WindowEvent::KeyboardInput {
+                    input:
+                    glutin::event::KeyboardInput {
+                        virtual_keycode: Some(VirtualKeyCode::V),
+                        ..
+                    },
+                    ..
+                } => {
+                    if key_tracker.should_process_key(VirtualKeyCode::V, ElementState::Pressed){
+                        debug!("V");
+                        for viewport in &mut viewport_refactor {
+                            if viewport.is_active && last_key != "v"{
+                                viewport.advance_mode();
+                            }
+                        }
+                        last_key = "v";
+                    }
+
+                    
+                }, 
+                _ => {last_key=""; return},
             },
             glutin::event::Event::NewEvents(cause) => match cause {
                 glutin::event::StartCause::ResumeTimeReached { .. } => (),
@@ -525,3 +609,79 @@ mod tests {
         );
     }
 }
+
+struct KeyTracker {
+    last_press_times: HashMap<VirtualKeyCode, Instant>,
+    debounce_duration: Duration,
+}
+
+impl KeyTracker {
+    fn new() -> Self {
+        KeyTracker {
+            last_press_times: HashMap::new(),
+            debounce_duration: Duration::from_millis(300),
+        }
+    }
+
+    fn should_process_key(&mut self, key: VirtualKeyCode, state: ElementState) -> bool {
+        if state == ElementState::Pressed {
+            let now = Instant::now();
+            let should_process = self.last_press_times
+                .get(&key)
+                .map_or(true, |&last_time| 
+                    now.duration_since(last_time) >= self.debounce_duration
+                );
+
+            if should_process {
+                self.last_press_times.insert(key, now);
+                true
+            } else {
+                false
+            }
+        } else {
+            false
+        }
+    }
+}
+
+
+
+
+
+
+// struct KeyState {
+//     last_state: KeyAction,
+//     last_processed_time: Instant,
+// }
+
+// impl KeyState {
+//     fn new() -> Self {
+//         KeyState {
+//             last_state: KeyAction::Release,
+//             last_processed_time: Instant::now(),
+//         }
+//     }
+// }
+
+// struct KeyHandler {
+//     key_states: HashMap<VirtualKeyCode, KeyState>,
+//     debounce_duration: Duration
+// }
+
+// impl KeyHandler {
+//     fn new() -> Self {
+//         KeyHandler {
+//             key_states: HashMap::new(),
+//             debounce_duration: Duration::from_millis(10)
+//         }
+//     }
+
+//     fn should_process_key(&mut self, key: VirtualKeyCode, current_action: KeyAction) -> bool {
+//         let entry = self.key_states.entry(key).or_insert(KeyState::new());
+
+//     }
+// }
+// enum KeyAction {
+//     Press,
+//     Release
+// }

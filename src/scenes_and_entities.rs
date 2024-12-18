@@ -716,6 +716,9 @@ impl Scene {
 
         if json_parsed != serde_json::Value::Null {
             for cmd in json_parsed.as_array().expect("").into_iter() {
+                // debug!("Target ID: {}", cmd["targetEntityID"]);
+                // debug!("Cmd Type: {}", cmd["commandType"]);
+                // debug!("Data: {}", cmd["data"]);
                 self.cmd_msg(&cmd);
             }
             // self.cmd_msg(&json_parsed);

@@ -1,7 +1,7 @@
 extern crate glium;
 use std::{rc::Rc, sync::{Arc, RwLock}, time::Instant};
 use crate::scenes_and_entities;
-use glium::{glutin::{self, window, event::MouseScrollDelta}, Surface, debug};
+use glium::{debug::DebugCallbackBehavior, glutin::{self, event::MouseScrollDelta, window, WindowedContext}, Display, Surface};
 use std::fmt::Error;
 
 use crate::scenes_and_entities::Scene;
@@ -149,12 +149,12 @@ impl Draw2 for Twoport {
         
         // Create uniforms
         let uniforms = glium::uniform! {
-            model: uniformifyMat4(eye4()),              // Identity matrix for M, not moving anywhere
-            view: uniformifyMat4(eye4()),               // Identity matrix for V, should be viewed dead on
-            perspective: uniformifyMat4(eye4()),        // Identity matrix for P, should not have perspective
-            color_obj: uniformifyVec4(self.color),      // Use set color
-            vp: uniformifyMat4(eye4()),                 // Identity matrix for post processing move. Viewport is stationary relative to itself!
-            bounds: uniformifyVec4(full_range_vec()),   // Viewports should be able to take up the whole screen
+            model: uniformify_mat4(eye4()),              // Identity matrix for M, not moving anywhere
+            view: uniformify_mat4(eye4()),               // Identity matrix for V, should be viewed dead on
+            perspective: uniformify_mat4(eye4()),        // Identity matrix for P, should not have perspective
+            color_obj: uniformify_vec4(self.color),      // Use set color
+            vp: uniformify_mat4(eye4()),                 // Identity matrix for post processing move. Viewport is stationary relative to itself!
+            bounds: uniformify_vec4(full_range_vec()),   // Viewports should be able to take up the whole screen
         };
 
         // Define Positions, if necessary
@@ -277,6 +277,15 @@ impl RenderContext {
         }
     }
 
+    pub fn new_null() -> Self {
+        RenderContext { 
+            view: na::Matrix4::<f32>::zeros(), 
+            perspective: na::Matrix4::<f32>::zeros(), 
+            viewport_shift: na::Matrix4::<f32>::zeros(), 
+            pixel_bounds: glium::Rect { left: 0, bottom: 0, width: 0, height: 0 } 
+        }
+    }
+
     pub fn update_render_context(&mut self, new_pixel_width: u32, new_pixel_height: u32, new_box: glium::Rect) {
         self.update_perspective(na::base::Matrix4::new_perspective(new_pixel_width as f32/new_pixel_height as f32, 3.141592 / 3.0, 0.1 , 1024.0E6));
         // self.update_perspective(na::base::Matrix4::new_orthographic((((self.mvp.bounds[0]+1.0)/2.0) * width as f32), right, bottom, top, znear, zfar))
@@ -362,9 +371,7 @@ impl Camera {
 
     pub fn update_camera2(&mut self, scene: Arc<RwLock<scenes_and_entities::Scene>>) {
         match &self.camera_mode {
-            CameraMode::Static => {
-                ;
-            },
+            CameraMode::Static => {},
             CameraMode::Following => {
                 let delta_pos = scene.write().unwrap().get_entity(self.target_id.unwrap() as usize).get_position() - self.camera_target;
                 self.set_new_target(self.camera_target+delta_pos);      // This solves a borrow
@@ -374,9 +381,7 @@ impl Camera {
                 let delta_pos = scene.write().unwrap().get_entity(self.target_id.unwrap() as usize).get_position() - self.camera_target;
                 self.set_new_target(self.camera_target+delta_pos);
             }
-            _ => {
-                ;
-            }
+            _ => {}
         }
     }
 }
@@ -496,9 +501,17 @@ pub trait Draw2 {
     fn draw(&self, gui: &GuiContainer, context: &RenderContext, target: &mut glium::Frame);
 }
 
+pub struct Text {
+    content: String,
+    font_size: u8,
+    
+}
 
-
-
+pub enum TextJustification {
+    Left,
+    Center,
+    Right,
+}
 
 
 
@@ -592,7 +605,7 @@ impl null_content {
 
 impl Draw2 for null_content {
     fn draw(&self, gui: &GuiContainer, context: &RenderContext, target: &mut glium::Frame){
-        ;
+
     }
 }
 // ################################################################################################
@@ -631,13 +644,14 @@ glium::implement_vertex!(Normal, normal);
 // Struct for information containing program-level OpenGL elements
 pub struct GuiContainer {
     pub display: glium::Display,
-    pub program: glium::Program
+    pub program: glium::Program,
+    pub text_shaders: glium::Program,
 }
 
 // Functionality for OpenGL struct
 impl GuiContainer {
-    fn new(display: glium::Display, program: glium::Program) -> GuiContainer {
-        GuiContainer { display: display, program: program,}
+    fn new(display: glium::Display, program: glium::Program, text_shaders: glium::Program) -> GuiContainer {
+        GuiContainer { display: display, program: program, text_shaders: text_shaders}
     }
 
     pub fn init_opengl(event_loop: &glutin::event_loop::EventLoop<()>) -> GuiContainer {
@@ -645,8 +659,22 @@ impl GuiContainer {
 
         // let event_loop = glutin::event_loop::EventLoop::new();
         let window_builder = glutin::window::WindowBuilder::new();
-        let context_builder = glutin::ContextBuilder::new().with_depth_buffer(24);
-        let display = glium::Display::new(window_builder, context_builder, &event_loop).unwrap();
+        let context_builder = glutin::ContextBuilder::new().with_gl(glutin::GlRequest::GlThenGles {
+            opengl_version: (3, 0),
+            opengles_version: (2, 0),
+        }).with_depth_buffer(24);
+        // let context_builder = glutin::ContextBuilder::new().with_gl(glutin::GlRequest::Specific(glutin::Api::OpenGlEs, (2, 0))).with_depth_buffer(24);
+        // let display = glium::Display::new(
+        //     window_builder, 
+        //     context_builder, 
+        //     &event_loop).unwrap();
+
+        // DEBUG
+            let windowed_context = glutin::ContextBuilder::new().build_windowed(window_builder, event_loop).unwrap();
+            let windowed_context = unsafe { windowed_context.make_current().unwrap() };
+            let display = Display::with_debug(windowed_context, DebugCallbackBehavior::PrintAll).unwrap();
+
+        
 
         // Vertex Shader
         let vertex_shader_src = r#"
@@ -674,9 +702,44 @@ impl GuiContainer {
             }
         "#;
 
-        let program = glium::Program::from_source(&display, vertex_shader_src, fragment_shader_src, None).unwrap();
+        let text_vertex_shader_src = r#"
+            #version 140
+            in vec3 position;
+            in vec2 tex_coords;
+            out vec2 v_uv;
 
-        return GuiContainer::new(display, program);
+            uniform vec2 screen_size; 
+
+            void main() {
+                vec2 ndc_pos = (position.xy / screen_size) * 2.0 - 1.0;
+                // ndc_pos.y *= -1.0; // OpenGL's Y-axis is flipped
+
+                gl_Position = vec4(ndc_pos, 0.0, 1.0);
+                v_uv = tex_coords;
+            }
+        "#;
+
+        let text_fragment_shader_src = r#"
+            #version 140
+            in vec2 v_uv;
+            out vec4 color;
+
+            uniform sampler2D tex;  // Texture for font
+            uniform vec4 color_obj; // Font color
+
+            void main() {
+                // Extract alpha from the texture's alpha channel
+                float alpha = texture(tex, v_uv).a;
+                
+                // Apply the font color with the sampled alpha
+                color = vec4(color_obj.rgb, alpha);
+            }
+        "#;
+
+        let program = glium::Program::from_source(&display, vertex_shader_src, fragment_shader_src, None).unwrap();
+        let text_shader = glium::Program::from_source(&display, &text_vertex_shader_src, &text_fragment_shader_src, None).unwrap();
+
+        return GuiContainer::new(display, program, text_shader);
     }
 }
 // ################################################################################################
@@ -718,12 +781,12 @@ pub fn null3() -> na::base::Vector3<f64> {
 }
 
 // Data type conversion function to make it usable for OpenGL
-pub fn uniformifyMat4 (target: na::base::Matrix4<f32>) -> [[f32; 4]; 4] {
+pub fn uniformify_mat4 (target: na::base::Matrix4<f32>) -> [[f32; 4]; 4] {
     *target.as_ref()
 }
 
 // Data type conversion function to make it usable for OpenGL
-pub fn uniformifyVec4 (target: na::base::Vector4<f32>) -> [f32; 4] {
+pub fn uniformify_vec4 (target: na::base::Vector4<f32>) -> [f32; 4] {
     *target.as_ref()
 }
 

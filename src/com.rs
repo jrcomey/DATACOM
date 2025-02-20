@@ -40,7 +40,7 @@ pub fn from_network_with_protocol(stream: &mut TcpStream) -> Result<(), &str> {
         
         // Get file size next
         let mut file_size_buffer = [0; 8];
-        stream.read_exact(&mut file_size_buffer);
+        stream.read_exact(&mut file_size_buffer).expect("Failed to read buffer");
         let mut bytes_received = 0;
         let file_size = u64::from_be_bytes(file_size_buffer);
         // debug!("Anticipated file size: {} bytes", file_size);
@@ -78,7 +78,7 @@ pub fn run_server(scene_reference: Arc<RwLock<Scene>>, addr: std::net::SocketAdd
                 // debug!("Packet: {}", packet.as_str());
                 scene_reference.write().unwrap().cmd_msg_str(&packet.as_str());
             },
-            Err(_) => {;}
+            Err(_) => {}
         }
     }
         // match listener.accept() {

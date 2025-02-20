@@ -60,63 +60,63 @@ fn create_entity_blizzard() -> scenes_and_entities::Entity {
     // FRONT LEFT TOP
 
     let prop_wf = scenes_and_entities::WireframeObject::load_wireframe_from_obj("data/prop.obj", dc::red_vec());
-    let mut prop_FLT = scenes_and_entities::ModelComponent::new(prop_wf);
-    prop_FLT.update_local_position(na::Point3::<f32>::new(
+    let mut prop_flt = scenes_and_entities::ModelComponent::new(prop_wf);
+    prop_flt.update_local_position(na::Point3::<f32>::new(
         -0.72, 
         -2.928, 
         1.041+0.15
     ));
-    blizzard_entity.add_model(prop_FLT);
+    blizzard_entity.add_model(prop_flt);
     
 
     // FRONT LEFT BOT
 
     let prop_wf = scenes_and_entities::WireframeObject::load_wireframe_from_obj("data/prop.obj", dc::blue_vec());
-    let mut prop_FLB = scenes_and_entities::ModelComponent::new(prop_wf);
-    prop_FLB.update_local_position(na::Point3::<f32>::new(
+    let mut prop_flb = scenes_and_entities::ModelComponent::new(prop_wf);
+    prop_flb.update_local_position(na::Point3::<f32>::new(
         -0.72, 
         -2.928, 
         1.041-0.15
     ));
-    blizzard_entity.add_model(prop_FLB);
+    blizzard_entity.add_model(prop_flb);
 
     // FRONT RIGHT TOP
 
     let prop_wf = scenes_and_entities::WireframeObject::load_wireframe_from_obj("data/prop.obj", dc::blue_vec());
-    let mut prop_FRT = scenes_and_entities::ModelComponent::new(prop_wf);
-    prop_FRT.update_local_position(na::Point3::<f32>::new(-0.72, 2.928, 1.041+0.15));
-    blizzard_entity.add_model(prop_FRT);
+    let mut prop_frt = scenes_and_entities::ModelComponent::new(prop_wf);
+    prop_frt.update_local_position(na::Point3::<f32>::new(-0.72, 2.928, 1.041+0.15));
+    blizzard_entity.add_model(prop_frt);
     
     // FRONT RIGHT BOT
 
     let prop_wf = scenes_and_entities::WireframeObject::load_wireframe_from_obj("data/prop.obj", dc::red_vec());
-    let mut prop_FRB = scenes_and_entities::ModelComponent::new(prop_wf);
-    prop_FRB.update_local_position(na::Point3::<f32>::new(-0.72, 2.928, 1.041-0.15));
-    blizzard_entity.add_model(prop_FRB);
+    let mut prop_frb = scenes_and_entities::ModelComponent::new(prop_wf);
+    prop_frb.update_local_position(na::Point3::<f32>::new(-0.72, 2.928, 1.041-0.15));
+    blizzard_entity.add_model(prop_frb);
 
     // REAR LEFT TOP
     let prop_wf = scenes_and_entities::WireframeObject::load_wireframe_from_obj("data/prop.obj", dc::blue_vec());
-    let mut prop_RLT = scenes_and_entities::ModelComponent::new(prop_wf);
-    prop_RLT.update_local_position(na::Point3::<f32>::new(4.220, -2.928, 1.041+0.15));
-    blizzard_entity.add_model(prop_RLT);
+    let mut prop_rlt = scenes_and_entities::ModelComponent::new(prop_wf);
+    prop_rlt.update_local_position(na::Point3::<f32>::new(4.220, -2.928, 1.041+0.15));
+    blizzard_entity.add_model(prop_rlt);
 
     // REAR LEFT BOT
     let prop_wf = scenes_and_entities::WireframeObject::load_wireframe_from_obj("data/prop.obj", dc::red_vec());
-    let mut prop_RLB = scenes_and_entities::ModelComponent::new(prop_wf);
-    prop_RLB.update_local_position(na::Point3::<f32>::new(4.220, -2.928, 1.041-0.15));
-    blizzard_entity.add_model(prop_RLB);
+    let mut prop_rlb = scenes_and_entities::ModelComponent::new(prop_wf);
+    prop_rlb.update_local_position(na::Point3::<f32>::new(4.220, -2.928, 1.041-0.15));
+    blizzard_entity.add_model(prop_rlb);
 
     // REAR RIGHT TOP
     let prop_wf = scenes_and_entities::WireframeObject::load_wireframe_from_obj("data/prop.obj", dc::red_vec());
-    let mut prop_RRT = scenes_and_entities::ModelComponent::new(prop_wf);
-    prop_RRT.update_local_position(na::Point3::<f32>::new(4.220, 2.928, 1.041+0.15));
-    blizzard_entity.add_model(prop_RRT);
+    let mut prop_rrt = scenes_and_entities::ModelComponent::new(prop_wf);
+    prop_rrt.update_local_position(na::Point3::<f32>::new(4.220, 2.928, 1.041+0.15));
+    blizzard_entity.add_model(prop_rrt);
 
     // REAR RIGHT BOT
     let prop_wf = scenes_and_entities::WireframeObject::load_wireframe_from_obj("data/prop.obj", dc::blue_vec());
-    let mut prop_RRB = scenes_and_entities::ModelComponent::new(prop_wf);
-    prop_RRB.update_local_position(na::Point3::<f32>::new(4.220, 2.928, 1.041-0.15));
-    blizzard_entity.add_model(prop_RRB);
+    let mut prop_rrb = scenes_and_entities::ModelComponent::new(prop_wf);
+    prop_rrb.update_local_position(na::Point3::<f32>::new(4.220, 2.928, 1.041-0.15));
+    blizzard_entity.add_model(prop_rrb);
     return blizzard_entity;
 }
 
@@ -129,13 +129,12 @@ fn create_entity_blizzard_from_file() -> scenes_and_entities::Entity {
 
     for (i, id) in (1..=8).enumerate() {
 
-        let mut sign = 0.0;
-        if i % 2 == 1 {
-            sign = 1.0;
+        let mut sign: f64 = if i % 2 == 1 {
+             1.0
         } 
         else {
-            sign = -1.0;
-        }
+            -1.0
+        };
         
         let cmd = scenes_and_entities::Command::new(
             scenes_and_entities::CommandType::ComponentRotateConstantSpeed,

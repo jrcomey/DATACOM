@@ -28,7 +28,6 @@
     - JSON parsing and loading
         // - Make models loadable from JSON
         // - Make entities loadable from JSON
-        - Make wireframe loadable from JSON
         // - Make behaviors loadable from JSON
         // - Make scenes loadable from JSON
         // - Entities commandable from JSON
@@ -36,30 +35,38 @@
     - Networking
         // - Commands sendable over TCP connectio/n
         // - Commands are receivable over TCP connection
-        - Multiple commands can be sent in the same json
-        - Load Scene from network
+        // - Multiple commands can be sent in the same json
+        // - Load Scene from network
     - Scene Playback
         - Load playback scene from file
             - Play scene in real time
             - Play scene at half, double speed
             - Play scene frame-by-frame, with ability to advance frame
+    - Text Rendering
+        -
 */
 
-#![allow(non_snake_case)]
+// #![allow(non_snake_case)]
 #![allow(dead_code)]
 #![allow(unused_imports)]
 #![allow(non_camel_case_types)]
 #![allow(unused_variables)]
-#![allow(redundant_semicolons)]
+// #![allow(redundant_semicolons)]
 #![allow(unused_assignments)]
-#![allow(unreachable_patterns)]
+// #![allow(unreachable_patterns)]
 #![allow(unused_mut)]
 // Imports
 extern crate nalgebra as na;                                                // Linear Algebra 
-extern crate glium;                                                         // OpenGL Bindings
-use glium::{buffer, debug, glutin::{self, event::{ElementState, ModifiersState, VirtualKeyCode}, window}, Surface};
+extern crate glium;                                                         use dc::{RenderContext, Text};
+// OpenGL Bindings
+use glium::{buffer, debug, texture::RawImage2d, Texture2d, glutin::{self, event::{ElementState, ModifiersState, VirtualKeyCode}, window}, Surface};
 use num_traits::ops::bytes;
 use scene_composer::test_scene;                                             // OpenGL imports
+// use glium:;
+use glium::debug::DebugCallbackBehavior;
+use rusttype;
+use image;
+use text::{create_texture_atlas, TextDisplay};
 use core::time;
 use std::{cell::RefCell, collections::HashMap, io::Write, rc::Rc, thread::scope, time::Instant, vec};        // Multithreading standard library items
 mod scenes_and_entities;
@@ -68,8 +75,6 @@ extern crate rand;                                                          // R
 extern crate pretty_env_logger;                                             // Logger
 #[macro_use] extern crate log;                                              // Logging crate
 mod dc;                                                                     // DATACOM interface module
-// mod isoviewer;                                                              // Isometric viewer struct 
-// mod wf;                                                                     // Wireframe struct
 mod plt;                                                                    // Plotter
 use crate::dc::{cyan_vec, null_content, 
     Draw2, CameraControl, green_vec, red_vec};                                             // DATACOM item imports for functions
@@ -77,6 +82,7 @@ use std::{thread, time::Duration, sync::{mpsc, Arc, Mutex, RwLock}};        // M
 mod scene_composer;
 use std::net::{SocketAddr, TcpListener, TcpStream};
 mod com;
+mod text;
 
 fn main() {
 
@@ -87,15 +93,15 @@ fn main() {
 
     // let test_scene = scene_composer::compose_scene_3();
     // let recv_thread = thread::spawn(move|| {
-    //     // let test_scene = load_scene_from_network("10.0.0.107:8080".parse().unwrap());
+    //     // let test_scene = load_scene_from_network("localhost:8080".parse().unwrap());
     //     ;
     // });
 
     // let send_thread = thread::spawn(move|| {
-    //     send_test_scene("data/scene_loading/test_scene.json", "10.0.0.107:8080".parse().unwrap());
+    //     send_test_scene("data/scene_loading/test_scene.json", "localhost:8080".parse().unwrap());
     // });
 
-    // let test_scene = load_scene_from_network("10.0.0.107:8080".parse().unwrap());
+    // let test_scene = load_scene_from_network("localhost:8080".parse().unwrap());
 
 
     // send_thread.join().unwrap();
@@ -104,8 +110,8 @@ fn main() {
     let test_scene = scenes_and_entities::Scene::load_from_json_file("data/scene_loading/test_scene.json");
 
     loop {
-        // let test_scene = scenes_and_entities::Scene::load_from_json_file("data/scene_loading/test_scene.json");
-        let test_scene = scenes_and_entities::Scene::load_from_network("10.0.0.107:8080").unwrap();
+        let test_scene = scenes_and_entities::Scene::load_from_json_file("data/scene_loading/test_scene.json");
+        // let test_scene = scenes_and_entities::Scene::load_from_network("localhost:8080").unwrap();
         start_program(test_scene);
     }
     
@@ -144,6 +150,19 @@ fn start_program(scene: scenes_and_entities::Scene) {
     let scene_ref = Arc::new(RwLock::new(scene));
     let scene_ref_2 = scene_ref.clone();
     let scene_ref_3 = scene_ref.clone();
+
+    // Create Texture Atlas
+    let (image_atlas, glyph_map) = text::load_font_atlas("/usr/share/fonts/truetype/futura/JetBrainsMono-Bold.ttf", 100.0);
+    let glyph_map = Arc::new(glyph_map);
+    let texture_atlas = Arc::new(create_texture_atlas(&gui.display, image_atlas));
+
+    let text_objects: Vec<TextDisplay> = vec![
+        TextDisplay::new("Hello world!".to_string(), glyph_map.clone(), texture_atlas.clone(), 0.0, 100.0),
+        TextDisplay::new("DATACOM VER 0.1.0".to_string(), glyph_map.clone(), texture_atlas.clone(), 0.0, 200.0),
+        TextDisplay::new((' '..='~').collect(), glyph_map.clone(), texture_atlas.clone(), 0.0, 300.0),
+    ];
+
+
 
 
     // Viewport Refactor Test
@@ -194,7 +213,7 @@ fn start_program(scene: scenes_and_entities::Scene) {
     // sender Thread
     // let sender_thread = thread::Builder::new().name("sender thread".to_string()).spawn(move|| {
     //     debug!("Started data transmission thread");
-    //     let addr: SocketAddr = "10.0.0.107:8080".parse().unwrap();
+    //     let addr: SocketAddr = "localhost:8080".parse().unwrap();
     //     let mut stream = TcpStream::connect(addr).unwrap();
 
     //     loop {
@@ -215,12 +234,12 @@ fn start_program(scene: scenes_and_entities::Scene) {
     //     }
     // });
 
-    
-    let listener_thread = thread::Builder::new().name("listener thread".to_string()).spawn(move || {
-        info!("Opened listener thread");
-        let addr: SocketAddr = "10.0.0.107:8081".parse().unwrap();
-        com::run_server(scene_ref.clone(), addr);
-    });
+    // Uncomment me!!
+    // let listener_thread = thread::Builder::new().name("listener thread".to_string()).spawn(move || {
+    //     info!("Opened listener thread");
+    //     let addr: SocketAddr = "localhost:8081".parse().unwrap();
+    //     com::run_server(scene_ref.clone(), addr);
+    // });
 
     // Multithreading TRx
     // let (tx_gui, rx_gui) = mpsc::sync_channel(1);
@@ -308,7 +327,7 @@ fn start_program(scene: scenes_and_entities::Scene) {
                         ..
                     },
                     ..
-                } => {
+                } => {// 🔥 Pass screen dimensions from Rust
                     debug!("RIGHT");
                     for viewport in &mut viewport_refactor {
                         if viewport.is_active {
@@ -514,8 +533,8 @@ fn start_program(scene: scenes_and_entities::Scene) {
         }
         let mut current_frame = gui.display.draw();
 
-        current_frame.clear_color_and_depth((0.0, 0.0, 0.0, 1.0), 1.0);
-
+        // current_frame.clear_color_and_depth((0.0, 0.0, 0.0, 1.0), 1.0);
+        current_frame.clear_color_and_depth((1.0, 1.0, 1.0, 1.0), 1.0);
         
         let seconds_per_rotation: f64 = 5.0;
 
@@ -525,7 +544,7 @@ fn start_program(scene: scenes_and_entities::Scene) {
         //     0.0,
         // ));
         
-
+        // Uncomment me!
         for i in &mut viewport_refactor {
             i.update_all_graphical_elements(&current_frame)
         }
@@ -533,6 +552,11 @@ fn start_program(scene: scenes_and_entities::Scene) {
         for i in &viewport_refactor {
             i.draw(&gui, &i.context, &mut current_frame)
         }
+
+        for text_obj in &text_objects{
+            text_obj.draw(&gui, &RenderContext::new_null(), &mut current_frame);
+        }
+
 
         current_frame.finish().unwrap();
 
@@ -547,7 +571,7 @@ fn start_program(scene: scenes_and_entities::Scene) {
 mod tests {
     use std::{io::Read, net::{SocketAddr, TcpListener, TcpStream}, sync::mpsc, thread};
 
-    use crate::{scene_composer, scenes_and_entities::{self, ModelComponent}};
+    use crate::{dc, glutin, scene_composer, scenes_and_entities::{self, ModelComponent}};
 
 
     #[test]
@@ -608,6 +632,11 @@ mod tests {
             scenes_and_entities::CommandType::ModifyBehavior, 
             vec![0.0, ]
         );
+    }
+
+    #[test]
+    fn load_font() {
+        
     }
 }
 

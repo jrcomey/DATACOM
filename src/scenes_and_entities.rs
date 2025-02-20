@@ -110,11 +110,11 @@ impl DrawInScene for WireframeObject {
 
         let scalar = na::Matrix4::<f32>::new_scaling(1.0);
         let uniforms = glium::uniform! {
-            model: dc::uniformifyMat4(model),
-            view: dc::uniformifyMat4(context.view),
-            perspective: dc::uniformifyMat4(context.perspective),
-            color_obj: dc::uniformifyVec4(self.color),
-            vp: dc::uniformifyMat4(context.viewport_shift),
+            model: dc::uniformify_mat4(model),
+            view: dc::uniformify_mat4(context.view),
+            perspective: dc::uniformify_mat4(context.perspective),
+            color_obj: dc::uniformify_vec4(self.color),
+            vp: dc::uniformify_mat4(context.viewport_shift),
         };
 
         let positions = glium::VertexBuffer::new(&gui.display, &self.positions).unwrap();
@@ -161,11 +161,11 @@ impl DrawInScene for WireframeObject {
         };
 
         let uniforms_solid = glium::uniform! {
-            model: dc::uniformifyMat4(model*scalar),
-            view: dc::uniformifyMat4(context.view),
-            perspective: dc::uniformifyMat4(context.perspective),
-            color_obj: dc::uniformifyVec4(dc::rgba(0.0, 0.0, 0.0, 0.2)),
-            vp: dc::uniformifyMat4(context.viewport_shift),
+            model: dc::uniformify_mat4(model*scalar),
+            view: dc::uniformify_mat4(context.view),
+            perspective: dc::uniformify_mat4(context.perspective),
+            color_obj: dc::uniformify_vec4(dc::rgba(0.0, 0.0, 0.0, 0.2)),
+            vp: dc::uniformify_mat4(context.viewport_shift),
         };
 
         let params_solid = glium::DrawParameters {

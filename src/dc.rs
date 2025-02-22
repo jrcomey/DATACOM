@@ -1,9 +1,13 @@
 extern crate glium;
-use std::{rc::Rc, sync::{Arc, RwLock}, time::Instant};
+use std::{fs::read_to_string, rc::Rc, sync::{Arc, RwLock}, time::Instant};
 use crate::scenes_and_entities;
-use glium::{debug::DebugCallbackBehavior, glutin::{self, event::MouseScrollDelta, window, WindowedContext}, Display, Surface};
+use glium::{debug::DebugCallbackBehavior, glutin::{self, surface::WindowSurface}, Display, Surface};
+use glium::winit::{self, window, 
+    event::{
+        MouseScrollDelta,
+    }
+};
 use std::fmt::Error;
-
 use crate::scenes_and_entities::Scene;
 
 // #####################
@@ -643,103 +647,41 @@ glium::implement_vertex!(Normal, normal);
 
 // Struct for information containing program-level OpenGL elements
 pub struct GuiContainer {
-    pub display: glium::Display,
+    pub display: glium::Display<WindowSurface>,
     pub program: glium::Program,
     pub text_shaders: glium::Program,
+    pub window: window::Window,
 }
 
 // Functionality for OpenGL struct
 impl GuiContainer {
-    fn new(display: glium::Display, program: glium::Program, text_shaders: glium::Program) -> GuiContainer {
-        GuiContainer { display: display, program: program, text_shaders: text_shaders}
+    pub fn new(display: glium::Display<WindowSurface>, program: glium::Program, text_shaders: glium::Program, window: window::Window) -> Self {
+        GuiContainer { display: display, program: program, text_shaders: text_shaders, window: window}
     }
 
-    pub fn init_opengl(event_loop: &glutin::event_loop::EventLoop<()>) -> GuiContainer {
-        use glium::{glutin, Surface};
+    pub fn init_opengl(event_loop: &glium::winit::event_loop::EventLoop<()>) -> Self {
+        use glium::{backend::glutin, Surface};
 
-        // let event_loop = glutin::event_loop::EventLoop::new();
-        let window_builder = glutin::window::WindowBuilder::new();
-        let context_builder = glutin::ContextBuilder::new().with_gl(glutin::GlRequest::GlThenGles {
-            opengl_version: (3, 0),
-            opengles_version: (2, 0),
-        }).with_depth_buffer(24);
-        // let context_builder = glutin::ContextBuilder::new().with_gl(glutin::GlRequest::Specific(glutin::Api::OpenGlEs, (2, 0))).with_depth_buffer(24);
-        // let display = glium::Display::new(
-        //     window_builder, 
-        //     context_builder, 
-        //     &event_loop).unwrap();
 
-        // DEBUG
-            let windowed_context = glutin::ContextBuilder::new().build_windowed(window_builder, event_loop).unwrap();
-            let windowed_context = unsafe { windowed_context.make_current().unwrap() };
-            let display = Display::with_debug(windowed_context, DebugCallbackBehavior::PrintAll).unwrap();
 
-        
+        let (window, display) = glium::backend::glutin::SimpleWindowBuilder::new()
+            .with_title("DATACOM - Data Communications and Visual Terminal")
+            .build(event_loop);
+
 
         // Vertex Shader
-        let vertex_shader_src = r#"
-            #version 140
-            in vec3 position;
-            uniform mat4 model;
-            uniform mat4 view;
-            uniform mat4 perspective;
-            uniform mat4 vp;
-
-            void main() {
-                gl_Position = vp * perspective * view * model * vec4(position, 1.0);
-            }
-        "#;
+        let vertex_shader_src = read_to_string("src/shaders/vertex_shader.glsl").unwrap();
 
         // Fragment Shader
-        let fragment_shader_src = r#"
-            #version 140    
-            out vec4 color;
+        let fragment_shader_src = read_to_string("src/shaders/fragment_shader.glsl").unwrap();
 
-            uniform vec4 color_obj;
+        let text_vertex_shader_src = read_to_string("src/shaders/text_vertex_shader.glsl").unwrap();
 
-            void main() {
-                color = vec4(color_obj);
-            }
-        "#;
-
-        let text_vertex_shader_src = r#"
-            #version 140
-            in vec3 position;
-            in vec2 tex_coords;
-            out vec2 v_uv;
-
-            uniform vec2 screen_size; 
-
-            void main() {
-                vec2 ndc_pos = (position.xy / screen_size) * 2.0 - 1.0;
-                // ndc_pos.y *= -1.0; // OpenGL's Y-axis is flipped
-
-                gl_Position = vec4(ndc_pos, 0.0, 1.0);
-                v_uv = tex_coords;
-            }
-        "#;
-
-        let text_fragment_shader_src = r#"
-            #version 140
-            in vec2 v_uv;
-            out vec4 color;
-
-            uniform sampler2D tex;  // Texture for font
-            uniform vec4 color_obj; // Font color
-
-            void main() {
-                // Extract alpha from the texture's alpha channel
-                float alpha = texture(tex, v_uv).a;
-                
-                // Apply the font color with the sampled alpha
-                color = vec4(color_obj.rgb, alpha);
-            }
-        "#;
-
-        let program = glium::Program::from_source(&display, vertex_shader_src, fragment_shader_src, None).unwrap();
+        let text_fragment_shader_src = read_to_string("src/shaders/text_fragment_shader.glsl").unwrap();
+        let program = glium::Program::from_source(&display, &vertex_shader_src,& fragment_shader_src, None).unwrap();
         let text_shader = glium::Program::from_source(&display, &text_vertex_shader_src, &text_fragment_shader_src, None).unwrap();
 
-        return GuiContainer::new(display, program, text_shader);
+        return GuiContainer::new(display, program, text_shader, window);
     }
 }
 // ################################################################################################

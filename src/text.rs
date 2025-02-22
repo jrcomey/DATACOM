@@ -1,5 +1,5 @@
-use glium::{implement_vertex, Surface};
-use glium::{texture::RawImage2d, Display, Texture2d};
+use glium::{debug, implement_vertex, Surface};
+use glium::{texture::RawImage2d, Display, Texture2d, glutin::{self, surface::WindowSurface}};
 use rusttype as rt;
 use image;
 use rt::{Font, Scale, point};
@@ -8,6 +8,7 @@ use std::sync::Arc;
 
 use crate::dc::{self, uniformify_mat4, uniformify_vec4, Draw2};
 
+/// Single character in the font. Has texture coordinates, size, bearing, and an advance.
 pub struct Glyph {
     tex_coords: [f32; 4],           // tex_coords coordinates in texture atlas
     size: [f32; 2],         // Glyph width and height in pixels
@@ -15,7 +16,7 @@ pub struct Glyph {
     advance: f32,           // Horizontal advance after rendering
 }
 
-
+/// Function to load font atlas. Loads a given font. 
 pub fn load_font_atlas(path: &str, font_size: f32) -> (image::RgbaImage, HashMap<char, Glyph>) {
     let font_data = std::fs::read(path).expect("Failed to read font file");
     let font = Font::try_from_vec(font_data).expect("Failed to load font");
@@ -46,6 +47,7 @@ pub fn load_font_atlas(path: &str, font_size: f32) -> (image::RgbaImage, HashMap
 
     for (i, glyph) in glyphs.iter().enumerate() {
         if let Some(bb) = glyph.pixel_bounding_box() {
+            
             let glyph_width = bb.width();
             let glyph_height = bb.height();
 
@@ -70,12 +72,29 @@ pub fn load_font_atlas(path: &str, font_size: f32) -> (image::RgbaImage, HashMap
             });
 
             x_offset += glyph_width;
+            debug!("Glyph: {}, Width: {}", chars[i], glyph_width)
         }
     }
     atlas.save("atlas_example.png").expect("Failed to save atlas");
+    
+    for (key, glyph) in &glyph_infos {
+        debug!("{}, {:?}", key, glyph.size)
+    }
+
+    // Rust drops the space character for some reason so we're putting it back in here
+    let space_glyph = font.glyph(' ').scaled(scale);
+    let space_advance = space_glyph.h_metrics().advance_width;
+    glyph_infos.insert(' ', Glyph {
+        tex_coords: [0.0, 0.0, 0.0, 0.0], // No texture needed
+        size: [0.0, 0.0],         // No size
+        bearing: [0.0, 0.0],      // No bearing
+        advance: space_advance,   // Correct spacing
+    });
+    
     (atlas, glyph_infos)
 }
 
+/// OpenGL vertex struct, differs from main one in that it has texture coordinates
 #[derive(Debug, Copy, Clone)]
 pub struct TextureVertex {
     position: [f32; 3],
@@ -92,17 +111,12 @@ impl TextureVertex {
 }
 implement_vertex!(TextureVertex, position, tex_coords);
 
-// pub fn create_texture_atlas(display: &Display, atlas: image::RgbaImage) -> Texture2d {
-//     let image_dimensions = atlas.dimensions();
-//     let raw = RawImage2d::from_raw_rgba_reversed(&atlas.into_raw(), image_dimensions);
-//     Texture2d::new(display, raw).expect("Failed to created texture atlas")
-// }
-
-pub fn create_texture_atlas(display: &Display, atlas: image::RgbaImage) -> Texture2d {
+/// Creates texture from font atlas for OpenGL
+pub fn create_texture_atlas(display: &Display<WindowSurface>, atlas: image::RgbaImage) -> Texture2d {
     let image_dimensions = atlas.dimensions();
     let raw_data = atlas.clone().into_raw(); // Convert to Vec<u8>
 
-    // ✅ Check if the data size matches the expected size
+    // Validates data size 
     let expected_size = (image_dimensions.0 * image_dimensions.1 * 4) as usize; // 4 bytes per pixel (RGBA)
     assert_eq!(
         raw_data.len(),
@@ -112,23 +126,18 @@ pub fn create_texture_atlas(display: &Display, atlas: image::RgbaImage) -> Textu
         raw_data.len()
     );
     debug!("Texture sample: {:?}", atlas.iter().take(20).collect::<Vec<_>>());
-    // ✅ Ensure data is in correct format for Glium
+    // Checks it's in the correct format
     let raw = RawImage2d::from_raw_rgba_reversed(&raw_data, image_dimensions);
-    // let tex = Texture2D::with ; 
     let texture = Texture2d::with_format(
             display, 
             raw,
         glium::texture::UncompressedFloatFormat::U8U8U8U8,
         glium::texture::MipmapsOption::NoMipmap,
     ).expect("Failed to create texture atlas");
-    // texture.write(
-    //     glium::Rect { left: 0, bottom: 0, width: image_dimensions.0, height: image_dimensions.1},
-    //     RawImage2d::from_raw_rgba(raw_data, image_dimensions)
-    // );
     return texture;
 }
 
-
+// Struct for DATACOM to display text.
 pub struct TextDisplay {
     content: String,
     glyph_map: Arc<HashMap<char, Glyph>>,
@@ -148,6 +157,7 @@ impl TextDisplay {
         }
     }
 
+    /// Function to change text in string.
     pub fn change_text(&mut self, new_string: String) {
         self.content = new_string;
     }
@@ -157,12 +167,12 @@ impl Draw2 for TextDisplay {
     fn draw(&self, gui: &crate::dc::GuiContainer, context: &crate::dc::RenderContext, target: &mut glium::Frame) {
         let mut vertices = vec![];
         let mut indices = vec![];
-        let mut cursor_x = self.x_start;
+        let mut cursor_x = 0.0;
         // debug!("Drawing text");
         for (i, c) in (&self).content.chars().enumerate() {
             if let Some(glyph) = self.glyph_map.get(&c) {
                 let x0 = cursor_x + glyph.bearing[0];
-                let y0 = self.y_start - glyph.bearing[1];
+                let y0 = 0.0 - glyph.bearing[1];
                 let x1 = x0 + glyph.size[0];
                 let y1 = y0 - glyph.size[1];
 
@@ -208,12 +218,15 @@ impl Draw2 for TextDisplay {
         // let uniforms = glium::uniform! { tex: &*self.texture_ref, color_obj: uniformify_vec4(dc::green_vec()) };
         let screen_size = [gui.display.get_framebuffer_dimensions().0 as f32, gui.display.get_framebuffer_dimensions().1 as f32];
 
+        let model = na::Matrix4::new_translation(&na::Vector3::new(self.x_start, self.y_start, 0.0));
+        let projection = na::Matrix4::new_orthographic(0.0, screen_size[0], 0.0, screen_size[1], 0.1, 1000.0);
 
         let uniforms = glium::uniform! {
             tex: &*self.texture_ref,
-            color_obj: uniformify_vec4(dc::blue_vec()),
-            projection: uniformify_mat4(na::Matrix4::new_orthographic(0.0, screen_size[0], 0.0, screen_size[1], 0.1, 1000.0)),
-            screen_size: screen_size, // 🔥 Pass screen dimensions to shader
+            color_obj: uniformify_vec4(dc::green_vec()),
+            model: uniformify_mat4(model),
+            projection: uniformify_mat4(projection),
+            screen_size: screen_size,
         };
         
 

@@ -58,6 +58,7 @@
 // Imports
 extern crate nalgebra as na;                                                // Linear Algebra 
 extern crate glium;                                                         use dc::{GuiContainer, RenderContext, Text};
+use glium::texture::texture1d;
 // OpenGL Bindings
 use glium::{buffer, debug, winit, texture::RawImage2d, Texture2d, backend::glutin, Surface};
 use glium::winit::{event, keyboard};
@@ -156,10 +157,11 @@ fn start_program(scene: scenes_and_entities::Scene) {
     let glyph_map = Arc::new(glyph_map);
     let texture_atlas = Arc::new(create_texture_atlas(&gui.display, image_atlas));
 
-    let text_objects: Vec<TextDisplay> = vec![
-        TextDisplay::new("Hello World!".to_string(), glyph_map.clone(), texture_atlas.clone(), 0.0, 0.0),
-        TextDisplay::new("DATACOM VER 0.1.0".to_string(), glyph_map.clone(), texture_atlas.clone(), -1.0, 0.90),
-        TextDisplay::new((' '..='~').collect(), glyph_map.clone(), texture_atlas.clone(), -1.0, -1.0),
+    let mut text_objects: Vec<TextDisplay> = vec![
+        TextDisplay::new("Hello World!".to_string(), glyph_map.clone(), texture_atlas.clone(), 0.0, 0.0, green_vec()),
+        TextDisplay::new("DATACOM VER 0.1.0".to_string(), glyph_map.clone(), texture_atlas.clone(), -1.0, 0.90, green_vec()),
+        TextDisplay::new((' '..='~').collect(), glyph_map.clone(), texture_atlas.clone(), -1.0, -1.0, green_vec()),
+        TextDisplay::new("FPS Counter: 0.0".to_string(), glyph_map.clone(), texture_atlas.clone(), 0.6, 0.9, cyan_vec()),
     ];
 
 
@@ -263,6 +265,7 @@ fn start_program(scene: scenes_and_entities::Scene) {
 
     #[allow(deprecated)]
     (event_loop.run(move |event, window_target| {
+        let frame_start_time = std::time::Instant::now();
         let next_frame_time = std::time::Instant::now() + std::time::Duration::from_nanos(frame_time_nanos);
         // // let t = rx_gui.recv().unwrap();
         // // let t = (std::time::SystemTime::now().duration_since(start_time).unwrap().as_micros() as f32) / (2.0*1E6*std::f32::consts::PI);
@@ -290,6 +293,12 @@ fn start_program(scene: scenes_and_entities::Scene) {
                     }
                  },
 
+                 // Set everything inactive when the viewport closes
+                 event::WindowEvent::CursorLeft { .. } => {
+                    for viewport in &mut viewport_refactor {
+                        viewport.set_inactive();
+                    }
+                 },
 
                 // Zoom when mouse wheel moved
                 event::WindowEvent::MouseWheel { 
@@ -612,6 +621,8 @@ fn start_program(scene: scenes_and_entities::Scene) {
 
                     
                 }, 
+
+                event::WindowEvent::Resized(size) => {},
                 _ => {},
             },
             event::Event::NewEvents(cause) => match cause {
@@ -644,6 +655,7 @@ fn start_program(scene: scenes_and_entities::Scene) {
         window_target.set_control_flow(winit::event_loop::ControlFlow::WaitUntil(next_frame_time));
         // *control_flow = winit::event_loop::ControlFlow::WaitUntil(next_frame_time);
 
+        text_objects[3].change_text(format!("FPS Counter: {:.1}", frame_time_nanos as f64 / (Instant::now() - frame_start_time).as_nanos() as f64 * 60.0 ));
 
     })).expect("Event Failed");
 

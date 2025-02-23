@@ -13,6 +13,8 @@ use tobj::Model;
 use std::net::TcpListener;
 use std::fmt::Error;
 // const SCALE_FACTOR: f32 = 1E0;
+static ENTITY_COUNTER: AtomicU64 = AtomicU64::new(0);
+
 
 // Define the wireframe or model representation
 pub struct WireframeObject {
@@ -363,8 +365,6 @@ impl BehaviorComponent {
         BehaviorComponent { behavior: command }
     }
 }
-
-static ENTITY_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 // Define the entity structure
 pub struct Entity {
@@ -861,7 +861,10 @@ impl Scene {
         
     }
 
-    // pub fn 
+    /// Clear all entities 
+    pub fn clear_all(&mut self) {
+        self.entities = vec![];
+    }
 }
 
 impl dc::Draw2 for Scene {

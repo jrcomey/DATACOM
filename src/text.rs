@@ -5,6 +5,7 @@ use image;
 use rt::{Font, Scale, point};
 use std::collections::HashMap;
 use std::sync::Arc;
+use dc::Rgba;
 
 use crate::dc::{self, uniformify_mat4, uniformify_vec4, Draw2};
 
@@ -85,10 +86,10 @@ pub fn load_font_atlas(path: &str, font_size: f32) -> (image::RgbaImage, HashMap
     let space_glyph = font.glyph(' ').scaled(scale);
     let space_advance = space_glyph.h_metrics().advance_width;
     glyph_infos.insert(' ', Glyph {
-        tex_coords: [0.0, 0.0, 0.0, 0.0], // No texture needed
-        size: [0.0, 0.0],         // No size
-        bearing: [0.0, 0.0],      // No bearing
-        advance: space_advance,   // Correct spacing
+        tex_coords: [0.0, 0.0, 0.0, 0.0],   // No texture needed
+        size: [0.0, 0.0],                   // No size
+        bearing: [0.0, 0.0],                // No bearing
+        advance: space_advance,             // Correct spacing
     });
     
     (atlas, glyph_infos)
@@ -144,16 +145,18 @@ pub struct TextDisplay {
     texture_ref: Arc<Texture2d>,
     x_start: f32,
     y_start: f32,
+    color: Rgba,
 }
 
 impl TextDisplay {
-    pub fn new(content: String, glyph_map: Arc<HashMap<char, Glyph>>, texture_ref: Arc<Texture2d>, x_start: f32, y_start: f32) -> Self {
+    pub fn new(content: String, glyph_map: Arc<HashMap<char, Glyph>>, texture_ref: Arc<Texture2d>, x_start: f32, y_start: f32, color: Rgba) -> Self {
         TextDisplay {
             content: content,
             glyph_map: glyph_map,
             texture_ref: texture_ref, 
             x_start: x_start,
-            y_start: y_start
+            y_start: y_start,
+            color: color,
         }
     }
 
@@ -223,7 +226,7 @@ impl Draw2 for TextDisplay {
 
         let uniforms = glium::uniform! {
             tex: &*self.texture_ref,
-            color_obj: uniformify_vec4(dc::green_vec()),
+            color_obj: uniformify_vec4(self.color),
             model: uniformify_mat4(model),
             projection: uniformify_mat4(projection),
             screen_size: screen_size,

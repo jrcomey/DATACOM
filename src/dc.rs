@@ -10,6 +10,8 @@ use glium::winit::{self, window,
 use std::fmt::Error;
 use crate::scenes_and_entities::Scene;
 
+pub type Rgba = na::SVector<f32, 4>;
+
 // #####################
 
 /* VIEWPORT DEFINITION */
@@ -25,7 +27,7 @@ use crate::scenes_and_entities::Scene;
 /* VIEWPORT STRUCT */
 
 pub struct Twoport {
-    pub color: na::base::Vector4<f32>,                  // Color of viewport
+    pub color: Rgba,                  // Color of viewport
     pub is_active: bool,                                // Active status of viewport
     pub root: na::Point2<f64>,                          // Upper left window coordinate
     pub height: f64,                                    // Height of window from top -> down side   (RANGE 0 -> 2)
@@ -689,63 +691,64 @@ impl GuiContainer {
 /* UTILITY FUNCTIONS */
 
 // 4x1 vector for green color
-pub fn green_vec() -> na::base::Vector4<f32> {
+pub fn green_vec() -> Rgba {
     na::base::Vector4::<f32>::new(0.0, 1.0, 0.0, 1.0)
 }
 
-// Cyan
-pub fn cyan_vec() -> na::base::Vector4<f32> {
+/// Cyan
+pub fn cyan_vec() -> Rgba {
     na::base::Vector4::<f32>::new(0.0, 100.0/255.0, 100.0/255.0, 0.0)
 }
 
-// Red
-pub fn red_vec() -> na::base::Vector4<f32> {
+/// Red
+pub fn red_vec() -> Rgba {
     na::base::Vector4::<f32>::new(1.0, 0.0, 0.0, 0.0)
 }
 
-// Blue
-pub fn blue_vec() -> na::base::Vector4<f32> {
+/// Blue
+pub fn blue_vec() -> Rgba {
     na::base::Vector4::<f32>::new(0.0, 0.0, 1.0, 0.0)
 }
 
-// White
-pub fn white_vec() -> na::base::Vector4<f32> {
+/// White
+pub fn white_vec() -> Rgba {
     na::base::Vector4::<f32>::new(1.0, 1.0, 1.0, 1.0)
 }
 
-// 4x4 identity matrix
+/// 4x4 identity matrix
 pub fn eye4() -> na::base::Matrix4<f32> {
     na::base::Matrix4::identity()
 }
 
+/// 3x1 Vector of zeros
 pub fn null3() -> na::base::Vector3<f64> {
     na::base::Vector3::new(0.0, 0.0, 0.0)
 }
 
-// Data type conversion function to make it usable for OpenGL
+/// Data type conversion function to make it usable for OpenGL
 pub fn uniformify_mat4 (target: na::base::Matrix4<f32>) -> [[f32; 4]; 4] {
     *target.as_ref()
 }
 
-// Data type conversion function to make it usable for OpenGL
-pub fn uniformify_vec4 (target: na::base::Vector4<f32>) -> [f32; 4] {
+/// Data type conversion function to make it usable for OpenGL
+pub fn uniformify_vec4 (target: Rgba) -> [f32; 4] {
     *target.as_ref()
 }
 
-// translation matrix for XY plane
+/// translation matrix for XY plane
 pub fn xy_translation(x: f32, y: f32) -> na::base::Matrix4<f32> {
     na::Matrix4::new_translation(
         &na::base::Vector3::<f32>::new(x, y, 0.0)
     )
 }
 
-// bounds for full range of screen
+/// bounds for full range of screen
 pub fn full_range() -> [f32; 4] {
     [-1.0, 1.0, -1.0, 1.0]
 }
 
-// bounds for full range in vec4 format
-pub fn full_range_vec() -> na::base::Vector4<f32> {
+/// bounds for full range in vec4 format
+pub fn full_range_vec() -> Rgba {
     na::base::Vector4::new(
         -1.0,
         1.0, 
@@ -754,7 +757,8 @@ pub fn full_range_vec() -> na::base::Vector4<f32> {
     )
 }
 
-pub fn rgba(r: f32, g: f32, b: f32, a: f32) -> na::base::Vector4<f32> {
+/// Quick function for RGBA nalgebra vector
+pub fn rgba(r: f32, g: f32, b: f32, a: f32) -> Rgba {
     na::base::Vector4::new(
         r,
         g, 
@@ -763,6 +767,7 @@ pub fn rgba(r: f32, g: f32, b: f32, a: f32) -> na::base::Vector4<f32> {
     )
 }
 
+/// Enum for draw type
 pub enum DrawType {
     Full,
     RotationOnly,
@@ -770,6 +775,7 @@ pub enum DrawType {
     NoDraw,
 }
 
+/// Draw type functionality
 impl DrawType {
     pub fn change_draw_type(kind: &str) -> DrawType {
         match kind {

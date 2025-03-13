@@ -16,15 +16,13 @@
         - Basics
             - Create 2D Viewport
             - Create 2D render context
-            - Create 2D primitives (Vertex, Normals)
-            - Create 2D shape primitives
-                - Ellipse
-                - Circle
-                - Line
-                - Square
         - More Advanced
             - Flatten 3D scene and display as 2D
             - 
+        - 
+    - Shader rework
+        - Apparently it's fine to use many different shaders for different things 
+            - Refactor to add shader for viewport boxes (reduce complexity)
     - JSON parsing and loading
         // - Make models loadable from JSON
         // - Make entities loadable from JSON
@@ -37,13 +35,18 @@
         // - Commands are receivable over TCP connection
         // - Multiple commands can be sent in the same json
         // - Load Scene from network
+        - Reset models and clear scene from command over network
+        - 
     - Scene Playback
         - Load playback scene from file
             - Play scene in real time
             - Play scene at half, double speed
             - Play scene frame-by-frame, with ability to advance frame
     - Text Rendering
-        -
+        // - Render text
+        - Render characters individually to control spacing appropriately
+        - Dynamically size font depeneding on window size
+
 */
 
 // #![allow(non_snake_case)]
@@ -171,7 +174,7 @@ fn start_program(scene: scenes_and_entities::Scene) {
 
     let scale_factor = 50.0;
     let mut viewport_refactor = vec![
-        dc::Twoport::new_with_camera(
+        dc::Viewport::new_with_camera(
             na::Point2::new(-1.0, 1.0), 
             2.0, 
             0.8*2.0, 
@@ -179,7 +182,7 @@ fn start_program(scene: scenes_and_entities::Scene) {
             na::Point3::new(-7.0, 3.0, 5.0),
             na::Point3::new(0.0, 0.0, 0.0)
         ),
-        dc::Twoport::new_with_camera(
+        dc::Viewport::new_with_camera(
             na::Point2::new(0.6, 1.0), 
             0.4*2.0, 
             0.2*2.0, 
@@ -187,12 +190,12 @@ fn start_program(scene: scenes_and_entities::Scene) {
             na::Point3::new(10.0, 0.0, 0.0),
             na::Point3::new(0.0, 0.0, 0.0)
         ),
-        dc::Twoport::new_with_camera(
+        dc::Viewport::new_with_camera(
             na::Point2::new(0.6, 1.0-0.8), 
             2.0*(1.0-0.4), 
             0.2*2.0, 
             scene_ref.clone(), 
-            na::Point3::new(0.0, 10.0, 2.0), 
+            na::Point3::new(0.0, 10.0, 2.0),
             na::Point3::new(0.0, 0.0, 0.0),
         ),
         // dc::Twoport::new_with_camera(
@@ -208,7 +211,8 @@ fn start_program(scene: scenes_and_entities::Scene) {
     info!("Initialized viewports");
 
     // Framerate and clock items
-    let frame_time_nanos = 16_666_667*2;
+    let frame_time_nanos = 16_666_667;
+    // let frame_time_nanos = 16_000_000;
     let start_time = std::time::SystemTime::now();
     let mut t = (std::time::SystemTime::now().duration_since(start_time).unwrap().as_micros() as f32) / (2.0*1E6*std::f32::consts::PI);
 
@@ -261,8 +265,13 @@ fn start_program(scene: scenes_and_entities::Scene) {
     // let mut last_key = "";
     // let mut key_tracker = KeyTracker::new();
 
+    // let graphical_thread = thread::Builder::new().name("graphical thread".to_string()).spawn(move || {
+        
+    // });
+
     
 
+    let cursor_pos: Option<(f64, f64)> = None;
     #[allow(deprecated)]
     (event_loop.run(move |event, window_target| {
         let frame_start_time = std::time::Instant::now();
@@ -623,15 +632,21 @@ fn start_program(scene: scenes_and_entities::Scene) {
                 }, 
 
                 event::WindowEvent::Resized(size) => {},
+
+                event::WindowEvent::RedrawRequested => {
+                },
                 _ => {},
             },
-            event::Event::NewEvents(cause) => match cause {
-                event::StartCause::ResumeTimeReached { .. } => (),
-                event::StartCause::Init => (),
-                _ => return,
-            },
-            _ => return,
+            // event::Event::NewEvents(cause) => match cause {
+            //     event::StartCause::ResumeTimeReached { .. } => (),
+            //     event::StartCause::Init => (),
+            //     _ => return,
+            // },
+
+            // event::Event::AboutToWait => {}
+            _ => {},
         }
+
         let mut current_frame = gui.display.draw();
         // current_frame.clear_color(1.0, 1.0, 1.0, 1.0);
 
@@ -652,10 +667,13 @@ fn start_program(scene: scenes_and_entities::Scene) {
 
 
         current_frame.finish().expect("Frame finishing failed");
+        let frame_time = Instant::now().duration_since(frame_start_time).as_secs_f64();
+        text_objects[3].change_text(format!("FPS Counter: {:.1}", 1.0 / frame_time));
+
+        // text_objects[3].change_text(format!("FPS Counter: {:.1}", 1.0/((Instant::now() - frame_start_time).as_nanos() as f64 )));
         window_target.set_control_flow(winit::event_loop::ControlFlow::WaitUntil(next_frame_time));
         // *control_flow = winit::event_loop::ControlFlow::WaitUntil(next_frame_time);
 
-        text_objects[3].change_text(format!("FPS Counter: {:.1}", frame_time_nanos as f64 / (Instant::now() - frame_start_time).as_nanos() as f64 * 60.0 ));
 
     })).expect("Event Failed");
 

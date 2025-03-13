@@ -306,6 +306,7 @@ impl ModelComponent {
 
     pub fn rotate_by(&mut self, rotation_factor: na::UnitQuaternion<f32>) {
         self.local_rotation = self.local_rotation * rotation_factor;
+        self.local_rotation.renormalize_fast();
     }
 
     pub fn change_color(&mut self, new_color: na::Vector4<f32>) {
@@ -741,8 +742,8 @@ impl Scene {
         // self.entities.iter().map(|x| x.run_behaviors()).next();
 
         // This is really dumb, but this is the only way to do it without cloning the data.
-        for i in 0..self.entities.len() {
-            self.get_entity(i).run_behaviors();
+        for entity in &mut self.entities {
+            entity.run_behaviors();
         }
     }
 
@@ -782,7 +783,7 @@ impl Scene {
 
         let cmd = Command::from_json(json_parsed);
 
-        self.get_entity(target_entity_id).command(cmd);
+        self.get_entity(target_entity_id).expect("Out of bounds!").command(cmd);
     }
 
     pub fn load_from_json_file(filepath: &str) -> Scene {
@@ -812,8 +813,8 @@ impl Scene {
         }
     }
 
-    pub fn get_entity(&mut self, entity_id: usize) -> &mut Entity {
-        &mut self.entities[entity_id]
+    pub fn get_entity(&mut self, entity_id: usize) -> Option<&mut Entity> {
+        self.entities.get_mut(entity_id)
     }
 
     pub fn load_from_network(addr: &str) -> Result<Scene, Error> {

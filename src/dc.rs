@@ -26,7 +26,7 @@ pub type Rgba = na::SVector<f32, 4>;
 
 /* VIEWPORT STRUCT */
 
-pub struct Twoport {
+pub struct Viewport {
     pub color: Rgba,                  // Color of viewport
     pub is_active: bool,                                // Active status of viewport
     pub root: na::Point2<f64>,                          // Upper left window coordinate
@@ -37,11 +37,11 @@ pub struct Twoport {
     pub camera: Camera                                  // Camera struct
 }
 
-impl Twoport {
+impl Viewport {
 
     // Creates a new viewport on the screen, initialized with an included camera. 
-    pub fn new_with_camera(root: na::Point2<f64>, height: f64, width: f64, content: Arc<RwLock<Scene>>, camera_position: na::Point3<f64>, camera_target: na::Point3<f64>) -> Twoport {
-        Twoport {
+    pub fn new_with_camera(root: na::Point2<f64>, height: f64, width: f64, content: Arc<RwLock<Scene>>, camera_position: na::Point3<f64>, camera_target: na::Point3<f64>) -> Viewport {
+        Viewport {
             color: cyan_vec(),
             is_active: false, 
             root: root,
@@ -135,9 +135,9 @@ impl Twoport {
     
 }
 
-impl Default for Twoport {
+impl Default for Viewport {
     fn default() -> Self {
-        Twoport {
+        Viewport {
             color: cyan_vec(),
             is_active: false, 
             root: na::OPoint::origin(),
@@ -150,7 +150,7 @@ impl Default for Twoport {
     }
 }
 
-impl Draw2 for Twoport {
+impl Draw2 for Viewport {
     fn draw(&self, gui: &GuiContainer, context: &RenderContext, target: &mut glium::Frame) {
         
         // Create uniforms
@@ -217,7 +217,7 @@ pub trait CameraControl {
     fn advance_mode(&mut self);
 }
 
-impl CameraControl for Twoport {
+impl CameraControl for Viewport {
         
     fn move_camera(&mut self, delta_camera: na::Vector3<f64>){
         self.camera.move_camera(delta_camera);
@@ -379,12 +379,12 @@ impl Camera {
         match &self.camera_mode {
             CameraMode::Static => {},
             CameraMode::Following => {
-                let delta_pos = scene.write().unwrap().get_entity(self.target_id.unwrap() as usize).get_position() - self.camera_target;
+                let delta_pos = scene.write().unwrap().get_entity(self.target_id.unwrap() as usize).expect("Out of bounds!").get_position() - self.camera_target;
                 self.set_new_target(self.camera_target+delta_pos);      // This solves a borrow
                 self.move_camera(delta_pos);
             }
             CameraMode::Tracking => {
-                let delta_pos = scene.write().unwrap().get_entity(self.target_id.unwrap() as usize).get_position() - self.camera_target;
+                let delta_pos = scene.write().unwrap().get_entity(self.target_id.unwrap() as usize).expect("Out of bounds!").get_position() - self.camera_target;
                 self.set_new_target(self.camera_target+delta_pos);
             }
             _ => {}
@@ -518,11 +518,6 @@ pub enum TextJustification {
     Center,
     Right,
 }
-
-
-
-
-
 
 
 

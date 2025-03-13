@@ -705,13 +705,13 @@ mod tests {
             vec![0.0, 1.0, 1.0, 1.0, 1.0]
         );
         assert_eq!(
-            test_scene.get_entity(0).get_model(0).get_color(),
+            test_scene.get_entity(0).unwrap().get_model(0).get_color(),
             na::Vector4::<f32>::new(0.0, 1.0, 0.0, 1.0),
             "Base color is green"
         );
-        test_scene.get_entity(0).command(color_cmd);
+        test_scene.get_entity(0).unwrap().command(color_cmd);
         assert_eq!(
-            test_scene.get_entity(0).get_model(0).get_color(),
+            test_scene.get_entity(0).unwrap().get_model(0).get_color(),
             na::Vector4::<f32>::new(1.0, 1.0, 1.0, 1.0),
             "New color is white"
         );
@@ -725,13 +725,13 @@ mod tests {
             vec![1.0, 1.0, 1.0]
         );
         assert_eq!(
-            test_scene.get_entity(0).get_position(),
+            test_scene.get_entity(0).unwrap().get_position(),
             &na::Point3::<f64>::origin(),
             "Initial Position is Origin"
         );
-        test_scene.get_entity(0).command(pos_cmd);
+        test_scene.get_entity(0).unwrap().command(pos_cmd);
         assert_eq!(
-            test_scene.get_entity(0).get_position(),
+            test_scene.get_entity(0).unwrap().get_position(),
             &na::Point3::<f64>::new(1.0, 1.0, 1.0),
             "Position commanded successfully"
         );

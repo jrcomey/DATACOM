@@ -46,6 +46,8 @@
         // - Render text
         - Render characters individually to control spacing appropriately
         - Dynamically size font depeneding on window size
+        - Text boxes and text wrapping l
+        ];]
 
 */
 
@@ -60,7 +62,8 @@
 #![allow(unused_mut)]
 // Imports
 extern crate nalgebra as na;                                                // Linear Algebra 
-extern crate glium;                                                         use dc::{GuiContainer, RenderContext, Text};
+extern crate glium;                                                         
+use dc::{GuiContainer, RenderContext, Text};
 use glium::texture::texture1d;
 // OpenGL Bindings
 use glium::{buffer, debug, winit, texture::RawImage2d, Texture2d, backend::glutin, Surface};
@@ -82,7 +85,7 @@ extern crate pretty_env_logger;                                             // L
 mod dc;                                                                     // DATACOM interface module
 mod plt;                                                                    // Plotter
 use crate::dc::{cyan_vec, null_content, 
-    Draw2, CameraControl, green_vec, red_vec};                                             // DATACOM item imports for functions
+    Draw, CameraControl, green_vec, red_vec};                                             // DATACOM item imports for functions
 use std::{thread, time::Duration, sync::{mpsc, Arc, Mutex, RwLock}};        // Multithreading lib imports
 mod scene_composer;
 use std::net::{SocketAddr, TcpListener, TcpStream};

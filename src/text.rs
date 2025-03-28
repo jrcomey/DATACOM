@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use dc::Rgba;
 
-use crate::dc::{self, uniformify_mat4, uniformify_vec4, Draw2};
+use crate::dc::{self, uniformify_mat4, uniformify_vec4, Draw};
 
 /// Single character in the font. Has texture coordinates, size, bearing, and an advance.
 pub struct Glyph {
@@ -166,7 +166,7 @@ impl TextDisplay {
     }
 }
 
-impl Draw2 for TextDisplay {
+impl Draw for TextDisplay {
     fn draw(&self, gui: &crate::dc::GuiContainer, context: &crate::dc::RenderContext, target: &mut glium::Frame) {
         let mut vertices = vec![];
         let mut indices = vec![];
@@ -235,4 +235,37 @@ impl Draw2 for TextDisplay {
 
         target.draw(&vertex_buffer, &index_buffer, &gui.text_shaders, &uniforms, &draw_params).unwrap();
     }
+}
+
+
+pub struct Scope {
+    title: String,
+    x_label: String,
+    y_label: String, 
+    x_lim: [f32; 2],
+    y_lim: [f32; 2],
+    curves: Vec<Curve>,
+}
+
+impl Draw for Scope {
+    fn draw(&self, gui: &dc::GuiContainer, context: &dc::RenderContext, target: &mut glium::Frame) {
+        // Vector initialization and setup
+        let mut verticies: Vec<dc::Vertex> = vec![];
+        let mut indices: Vec<u32> = vec![];
+
+        // Axes should range from -1 to 1 in normalized device coordinates
+        // Axes should be moved to the center of the viewport, then scaled to the size of the viewport
+        // Text labels should be placed appropriately
+        
+    }
+}
+
+/// Curve struct for scopes
+pub struct Curve {
+    x_data: Vec<f32>,
+    y_data: Vec<f32>,
+}
+
+impl Curve {
+    
 }

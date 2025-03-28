@@ -602,7 +602,7 @@ impl Entity {
     }
 }
 
-impl dc::Draw2 for Entity {
+impl dc::Draw for Entity {
     fn draw(&self, gui: &dc::GuiContainer, context: &dc::RenderContext, target: &mut glium::Frame) {
         let translate = na::Translation3::from(self.position);
         let parent_model_mat =
@@ -868,7 +868,7 @@ impl Scene {
     }
 }
 
-impl dc::Draw2 for Scene {
+impl dc::Draw for Scene {
     fn draw(&self, gui: &dc::GuiContainer, context: &dc::RenderContext, target: &mut glium::Frame) {
         for entity in &self.entities {
             entity.draw(gui, context, target);

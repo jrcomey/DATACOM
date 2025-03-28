@@ -150,7 +150,7 @@ impl Default for Viewport {
     }
 }
 
-impl Draw2 for Viewport {
+impl Draw for Viewport {
     fn draw(&self, gui: &GuiContainer, context: &RenderContext, target: &mut glium::Frame) {
         
         // Create uniforms
@@ -503,7 +503,7 @@ impl Default for Camera {
     }
 }
 
-pub trait Draw2 {
+pub trait Draw {
     fn draw(&self, gui: &GuiContainer, context: &RenderContext, target: &mut glium::Frame);
 }
 
@@ -604,7 +604,7 @@ impl null_content {
     }
 }
 
-impl Draw2 for null_content {
+impl Draw for null_content {
     fn draw(&self, gui: &GuiContainer, context: &RenderContext, target: &mut glium::Frame){
 
     }

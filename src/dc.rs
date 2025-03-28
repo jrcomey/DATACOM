@@ -1,10 +1,16 @@
 extern crate glium;
-use std::{rc::Rc, sync::{Arc, RwLock}, time::Instant};
+use std::{fs::read_to_string, rc::Rc, sync::{Arc, RwLock}, time::Instant};
 use crate::scenes_and_entities;
-use glium::{debug::DebugCallbackBehavior, glutin::{self, event::MouseScrollDelta, window, WindowedContext}, Display, Surface};
+use glium::{debug::DebugCallbackBehavior, glutin::{self, surface::WindowSurface}, Display, Surface};
+use glium::winit::{self, window, 
+    event::{
+        MouseScrollDelta,
+    }
+};
 use std::fmt::Error;
-
 use crate::scenes_and_entities::Scene;
+
+pub type Rgba = na::SVector<f32, 4>;
 
 // #####################
 
@@ -20,8 +26,8 @@ use crate::scenes_and_entities::Scene;
 
 /* VIEWPORT STRUCT */
 
-pub struct Twoport {
-    pub color: na::base::Vector4<f32>,                  // Color of viewport
+pub struct Viewport {
+    pub color: Rgba,                  // Color of viewport
     pub is_active: bool,                                // Active status of viewport
     pub root: na::Point2<f64>,                          // Upper left window coordinate
     pub height: f64,                                    // Height of window from top -> down side   (RANGE 0 -> 2)
@@ -31,11 +37,11 @@ pub struct Twoport {
     pub camera: Camera                                  // Camera struct
 }
 
-impl Twoport {
+impl Viewport {
 
     // Creates a new viewport on the screen, initialized with an included camera. 
-    pub fn new_with_camera(root: na::Point2<f64>, height: f64, width: f64, content: Arc<RwLock<Scene>>, camera_position: na::Point3<f64>, camera_target: na::Point3<f64>) -> Twoport {
-        Twoport {
+    pub fn new_with_camera(root: na::Point2<f64>, height: f64, width: f64, content: Arc<RwLock<Scene>>, camera_position: na::Point3<f64>, camera_target: na::Point3<f64>) -> Viewport {
+        Viewport {
             color: cyan_vec(),
             is_active: false, 
             root: root,
@@ -129,9 +135,9 @@ impl Twoport {
     
 }
 
-impl Default for Twoport {
+impl Default for Viewport {
     fn default() -> Self {
-        Twoport {
+        Viewport {
             color: cyan_vec(),
             is_active: false, 
             root: na::OPoint::origin(),
@@ -144,7 +150,7 @@ impl Default for Twoport {
     }
 }
 
-impl Draw2 for Twoport {
+impl Draw for Viewport {
     fn draw(&self, gui: &GuiContainer, context: &RenderContext, target: &mut glium::Frame) {
         
         // Create uniforms
@@ -211,7 +217,7 @@ pub trait CameraControl {
     fn advance_mode(&mut self);
 }
 
-impl CameraControl for Twoport {
+impl CameraControl for Viewport {
         
     fn move_camera(&mut self, delta_camera: na::Vector3<f64>){
         self.camera.move_camera(delta_camera);
@@ -373,12 +379,12 @@ impl Camera {
         match &self.camera_mode {
             CameraMode::Static => {},
             CameraMode::Following => {
-                let delta_pos = scene.write().unwrap().get_entity(self.target_id.unwrap() as usize).get_position() - self.camera_target;
+                let delta_pos = scene.write().unwrap().get_entity(self.target_id.unwrap() as usize).expect("Out of bounds!").get_position() - self.camera_target;
                 self.set_new_target(self.camera_target+delta_pos);      // This solves a borrow
                 self.move_camera(delta_pos);
             }
             CameraMode::Tracking => {
-                let delta_pos = scene.write().unwrap().get_entity(self.target_id.unwrap() as usize).get_position() - self.camera_target;
+                let delta_pos = scene.write().unwrap().get_entity(self.target_id.unwrap() as usize).expect("Out of bounds!").get_position() - self.camera_target;
                 self.set_new_target(self.camera_target+delta_pos);
             }
             _ => {}
@@ -497,7 +503,7 @@ impl Default for Camera {
     }
 }
 
-pub trait Draw2 {
+pub trait Draw {
     fn draw(&self, gui: &GuiContainer, context: &RenderContext, target: &mut glium::Frame);
 }
 
@@ -512,11 +518,6 @@ pub enum TextJustification {
     Center,
     Right,
 }
-
-
-
-
-
 
 
 
@@ -603,7 +604,7 @@ impl null_content {
     }
 }
 
-impl Draw2 for null_content {
+impl Draw for null_content {
     fn draw(&self, gui: &GuiContainer, context: &RenderContext, target: &mut glium::Frame){
 
     }
@@ -643,103 +644,41 @@ glium::implement_vertex!(Normal, normal);
 
 // Struct for information containing program-level OpenGL elements
 pub struct GuiContainer {
-    pub display: glium::Display,
+    pub display: glium::Display<WindowSurface>,
     pub program: glium::Program,
     pub text_shaders: glium::Program,
+    pub window: window::Window,
 }
 
 // Functionality for OpenGL struct
 impl GuiContainer {
-    fn new(display: glium::Display, program: glium::Program, text_shaders: glium::Program) -> GuiContainer {
-        GuiContainer { display: display, program: program, text_shaders: text_shaders}
+    pub fn new(display: glium::Display<WindowSurface>, program: glium::Program, text_shaders: glium::Program, window: window::Window) -> Self {
+        GuiContainer { display: display, program: program, text_shaders: text_shaders, window: window}
     }
 
-    pub fn init_opengl(event_loop: &glutin::event_loop::EventLoop<()>) -> GuiContainer {
-        use glium::{glutin, Surface};
+    pub fn init_opengl(event_loop: &glium::winit::event_loop::EventLoop<()>) -> Self {
+        use glium::{backend::glutin, Surface};
 
-        // let event_loop = glutin::event_loop::EventLoop::new();
-        let window_builder = glutin::window::WindowBuilder::new();
-        let context_builder = glutin::ContextBuilder::new().with_gl(glutin::GlRequest::GlThenGles {
-            opengl_version: (3, 0),
-            opengles_version: (2, 0),
-        }).with_depth_buffer(24);
-        // let context_builder = glutin::ContextBuilder::new().with_gl(glutin::GlRequest::Specific(glutin::Api::OpenGlEs, (2, 0))).with_depth_buffer(24);
-        // let display = glium::Display::new(
-        //     window_builder, 
-        //     context_builder, 
-        //     &event_loop).unwrap();
 
-        // DEBUG
-            let windowed_context = glutin::ContextBuilder::new().build_windowed(window_builder, event_loop).unwrap();
-            let windowed_context = unsafe { windowed_context.make_current().unwrap() };
-            let display = Display::with_debug(windowed_context, DebugCallbackBehavior::PrintAll).unwrap();
 
-        
+        let (window, display) = glium::backend::glutin::SimpleWindowBuilder::new()
+            .with_title("DATACOM - Data Communications and Visual Terminal")
+            .build(event_loop);
+
 
         // Vertex Shader
-        let vertex_shader_src = r#"
-            #version 140
-            in vec3 position;
-            uniform mat4 model;
-            uniform mat4 view;
-            uniform mat4 perspective;
-            uniform mat4 vp;
-
-            void main() {
-                gl_Position = vp * perspective * view * model * vec4(position, 1.0);
-            }
-        "#;
+        let vertex_shader_src = read_to_string("src/shaders/vertex_shader.glsl").unwrap();
 
         // Fragment Shader
-        let fragment_shader_src = r#"
-            #version 140    
-            out vec4 color;
+        let fragment_shader_src = read_to_string("src/shaders/fragment_shader.glsl").unwrap();
 
-            uniform vec4 color_obj;
+        let text_vertex_shader_src = read_to_string("src/shaders/text_vertex_shader.glsl").unwrap();
 
-            void main() {
-                color = vec4(color_obj);
-            }
-        "#;
-
-        let text_vertex_shader_src = r#"
-            #version 140
-            in vec3 position;
-            in vec2 tex_coords;
-            out vec2 v_uv;
-
-            uniform vec2 screen_size; 
-
-            void main() {
-                vec2 ndc_pos = (position.xy / screen_size) * 2.0 - 1.0;
-                // ndc_pos.y *= -1.0; // OpenGL's Y-axis is flipped
-
-                gl_Position = vec4(ndc_pos, 0.0, 1.0);
-                v_uv = tex_coords;
-            }
-        "#;
-
-        let text_fragment_shader_src = r#"
-            #version 140
-            in vec2 v_uv;
-            out vec4 color;
-
-            uniform sampler2D tex;  // Texture for font
-            uniform vec4 color_obj; // Font color
-
-            void main() {
-                // Extract alpha from the texture's alpha channel
-                float alpha = texture(tex, v_uv).a;
-                
-                // Apply the font color with the sampled alpha
-                color = vec4(color_obj.rgb, alpha);
-            }
-        "#;
-
-        let program = glium::Program::from_source(&display, vertex_shader_src, fragment_shader_src, None).unwrap();
+        let text_fragment_shader_src = read_to_string("src/shaders/text_fragment_shader.glsl").unwrap();
+        let program = glium::Program::from_source(&display, &vertex_shader_src,& fragment_shader_src, None).unwrap();
         let text_shader = glium::Program::from_source(&display, &text_vertex_shader_src, &text_fragment_shader_src, None).unwrap();
 
-        return GuiContainer::new(display, program, text_shader);
+        return GuiContainer::new(display, program, text_shader, window);
     }
 }
 // ################################################################################################
@@ -747,63 +686,64 @@ impl GuiContainer {
 /* UTILITY FUNCTIONS */
 
 // 4x1 vector for green color
-pub fn green_vec() -> na::base::Vector4<f32> {
+pub fn green_vec() -> Rgba {
     na::base::Vector4::<f32>::new(0.0, 1.0, 0.0, 1.0)
 }
 
-// Cyan
-pub fn cyan_vec() -> na::base::Vector4<f32> {
+/// Cyan
+pub fn cyan_vec() -> Rgba {
     na::base::Vector4::<f32>::new(0.0, 100.0/255.0, 100.0/255.0, 0.0)
 }
 
-// Red
-pub fn red_vec() -> na::base::Vector4<f32> {
+/// Red
+pub fn red_vec() -> Rgba {
     na::base::Vector4::<f32>::new(1.0, 0.0, 0.0, 0.0)
 }
 
-// Blue
-pub fn blue_vec() -> na::base::Vector4<f32> {
+/// Blue
+pub fn blue_vec() -> Rgba {
     na::base::Vector4::<f32>::new(0.0, 0.0, 1.0, 0.0)
 }
 
-// White
-pub fn white_vec() -> na::base::Vector4<f32> {
+/// White
+pub fn white_vec() -> Rgba {
     na::base::Vector4::<f32>::new(1.0, 1.0, 1.0, 1.0)
 }
 
-// 4x4 identity matrix
+/// 4x4 identity matrix
 pub fn eye4() -> na::base::Matrix4<f32> {
     na::base::Matrix4::identity()
 }
 
+/// 3x1 Vector of zeros
 pub fn null3() -> na::base::Vector3<f64> {
     na::base::Vector3::new(0.0, 0.0, 0.0)
 }
 
-// Data type conversion function to make it usable for OpenGL
+/// Data type conversion function to make it usable for OpenGL
 pub fn uniformify_mat4 (target: na::base::Matrix4<f32>) -> [[f32; 4]; 4] {
     *target.as_ref()
 }
 
-// Data type conversion function to make it usable for OpenGL
-pub fn uniformify_vec4 (target: na::base::Vector4<f32>) -> [f32; 4] {
+/// Data type conversion function to make it usable for OpenGL
+pub fn uniformify_vec4 (target: Rgba) -> [f32; 4] {
     *target.as_ref()
 }
 
-// translation matrix for XY plane
+/// translation matrix for XY plane
 pub fn xy_translation(x: f32, y: f32) -> na::base::Matrix4<f32> {
     na::Matrix4::new_translation(
         &na::base::Vector3::<f32>::new(x, y, 0.0)
     )
 }
 
-// bounds for full range of screen
+/// bounds for full range of screen
 pub fn full_range() -> [f32; 4] {
     [-1.0, 1.0, -1.0, 1.0]
 }
 
-// bounds for full range in vec4 format
-pub fn full_range_vec() -> na::base::Vector4<f32> {
+/// bounds for full range in vec4 format
+pub fn full_range_vec() -> Rgba {
     na::base::Vector4::new(
         -1.0,
         1.0, 
@@ -812,7 +752,8 @@ pub fn full_range_vec() -> na::base::Vector4<f32> {
     )
 }
 
-pub fn rgba(r: f32, g: f32, b: f32, a: f32) -> na::base::Vector4<f32> {
+/// Quick function for RGBA nalgebra vector
+pub fn rgba(r: f32, g: f32, b: f32, a: f32) -> Rgba {
     na::base::Vector4::new(
         r,
         g, 
@@ -821,6 +762,7 @@ pub fn rgba(r: f32, g: f32, b: f32, a: f32) -> na::base::Vector4<f32> {
     )
 }
 
+/// Enum for draw type
 pub enum DrawType {
     Full,
     RotationOnly,
@@ -828,6 +770,7 @@ pub enum DrawType {
     NoDraw,
 }
 
+/// Draw type functionality
 impl DrawType {
     pub fn change_draw_type(kind: &str) -> DrawType {
         match kind {

@@ -13,6 +13,8 @@ use tobj::Model;
 use std::net::TcpListener;
 use std::fmt::Error;
 // const SCALE_FACTOR: f32 = 1E0;
+static ENTITY_COUNTER: AtomicU64 = AtomicU64::new(0);
+
 
 // Define the wireframe or model representation
 pub struct WireframeObject {
@@ -304,6 +306,7 @@ impl ModelComponent {
 
     pub fn rotate_by(&mut self, rotation_factor: na::UnitQuaternion<f32>) {
         self.local_rotation = self.local_rotation * rotation_factor;
+        self.local_rotation.renormalize_fast();
     }
 
     pub fn change_color(&mut self, new_color: na::Vector4<f32>) {
@@ -363,8 +366,6 @@ impl BehaviorComponent {
         BehaviorComponent { behavior: command }
     }
 }
-
-static ENTITY_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 // Define the entity structure
 pub struct Entity {
@@ -601,7 +602,7 @@ impl Entity {
     }
 }
 
-impl dc::Draw2 for Entity {
+impl dc::Draw for Entity {
     fn draw(&self, gui: &dc::GuiContainer, context: &dc::RenderContext, target: &mut glium::Frame) {
         let translate = na::Translation3::from(self.position);
         let parent_model_mat =
@@ -741,8 +742,8 @@ impl Scene {
         // self.entities.iter().map(|x| x.run_behaviors()).next();
 
         // This is really dumb, but this is the only way to do it without cloning the data.
-        for i in 0..self.entities.len() {
-            self.get_entity(i).run_behaviors();
+        for entity in &mut self.entities {
+            entity.run_behaviors();
         }
     }
 
@@ -782,7 +783,7 @@ impl Scene {
 
         let cmd = Command::from_json(json_parsed);
 
-        self.get_entity(target_entity_id).command(cmd);
+        self.get_entity(target_entity_id).expect("Out of bounds!").command(cmd);
     }
 
     pub fn load_from_json_file(filepath: &str) -> Scene {
@@ -812,8 +813,8 @@ impl Scene {
         }
     }
 
-    pub fn get_entity(&mut self, entity_id: usize) -> &mut Entity {
-        &mut self.entities[entity_id]
+    pub fn get_entity(&mut self, entity_id: usize) -> Option<&mut Entity> {
+        self.entities.get_mut(entity_id)
     }
 
     pub fn load_from_network(addr: &str) -> Result<Scene, Error> {
@@ -861,10 +862,13 @@ impl Scene {
         
     }
 
-    // pub fn 
+    /// Clear all entities 
+    pub fn clear_all(&mut self) {
+        self.entities = vec![];
+    }
 }
 
-impl dc::Draw2 for Scene {
+impl dc::Draw for Scene {
     fn draw(&self, gui: &dc::GuiContainer, context: &dc::RenderContext, target: &mut glium::Frame) {
         for entity in &self.entities {
             entity.draw(gui, context, target);

@@ -16,15 +16,13 @@
         - Basics
             - Create 2D Viewport
             - Create 2D render context
-            - Create 2D primitives (Vertex, Normals)
-            - Create 2D shape primitives
-                - Ellipse
-                - Circle
-                - Line
-                - Square
         - More Advanced
             - Flatten 3D scene and display as 2D
             - 
+        - 
+    - Shader rework
+        - Apparently it's fine to use many different shaders for different things 
+            - Refactor to add shader for viewport boxes (reduce complexity)
     - JSON parsing and loading
         // - Make models loadable from JSON
         // - Make entities loadable from JSON
@@ -37,13 +35,20 @@
         // - Commands are receivable over TCP connection
         // - Multiple commands can be sent in the same json
         // - Load Scene from network
+        - Reset models and clear scene from command over network
+        - 
     - Scene Playback
         - Load playback scene from file
             - Play scene in real time
             - Play scene at half, double speed
             - Play scene frame-by-frame, with ability to advance frame
     - Text Rendering
-        -
+        // - Render text
+        - Render characters individually to control spacing appropriately
+        - Dynamically size font depeneding on window size
+        - Text boxes and text wrapping l
+        ];]
+
 */
 
 // #![allow(non_snake_case)]
@@ -57,9 +62,12 @@
 #![allow(unused_mut)]
 // Imports
 extern crate nalgebra as na;                                                // Linear Algebra 
-extern crate glium;                                                         use dc::{RenderContext, Text};
+extern crate glium;                                                         
+use dc::{GuiContainer, RenderContext, Text};
+use glium::texture::texture1d;
 // OpenGL Bindings
-use glium::{buffer, debug, texture::RawImage2d, Texture2d, glutin::{self, event::{ElementState, ModifiersState, VirtualKeyCode}, window}, Surface};
+use glium::{buffer, debug, winit, texture::RawImage2d, Texture2d, backend::glutin, Surface};
+use glium::winit::{event, keyboard};
 use num_traits::ops::bytes;
 use scene_composer::test_scene;                                             // OpenGL imports
 // use glium:;
@@ -77,7 +85,7 @@ extern crate pretty_env_logger;                                             // L
 mod dc;                                                                     // DATACOM interface module
 mod plt;                                                                    // Plotter
 use crate::dc::{cyan_vec, null_content, 
-    Draw2, CameraControl, green_vec, red_vec};                                             // DATACOM item imports for functions
+    Draw, CameraControl, green_vec, red_vec};                                             // DATACOM item imports for functions
 use std::{thread, time::Duration, sync::{mpsc, Arc, Mutex, RwLock}};        // Multithreading lib imports
 mod scene_composer;
 use std::net::{SocketAddr, TcpListener, TcpStream};
@@ -87,7 +95,7 @@ mod text;
 fn main() {
 
     // Initialization procedures
-    std::env::set_var("RUST_LOG", "trace");                                 // Initialize logger
+    std::env::set_var("RUST_LOG", "DATACOM=trace, warn cargo run");                                 // Initialize logger
     pretty_env_logger::init();
     info!("Program Start!");
 
@@ -109,11 +117,11 @@ fn main() {
 
     let test_scene = scenes_and_entities::Scene::load_from_json_file("data/scene_loading/test_scene.json");
 
-    loop {
-        let test_scene = scenes_and_entities::Scene::load_from_json_file("data/scene_loading/test_scene.json");
-        // let test_scene = scenes_and_entities::Scene::load_from_network("localhost:8080").unwrap();
-        start_program(test_scene);
-    }
+    // loop {
+        // let test_scene = scenes_and_entities::Scene::load_from_json_file("data/scene_loading/test_scene.json");
+    // let test_scene = scenes_and_entities::Scene::load_from_network("localhost:8080").unwrap();
+    start_program(test_scene);
+    // }
     
 }
 
@@ -138,28 +146,28 @@ fn main() {
 // }
 
 fn start_program(scene: scenes_and_entities::Scene) {
-    // PI constants
-    let pi32 = std::f32::consts::PI;
-    let pi64 = std::f64::consts::PI;
 
     // Initialize glium items
-    let event_loop = glutin::event_loop::EventLoop::new();                  // Create Event Loop
+    let event_loop = glium::winit::event_loop::EventLoop::builder()
+        .build()
+        .expect("event loop building");                  // Create Event Loop
     let gui = dc::GuiContainer::init_opengl(&event_loop);                   // Initialize OpenGL interface
     info!("Initialized OpenGL items");
 
     let scene_ref = Arc::new(RwLock::new(scene));
     let scene_ref_2 = scene_ref.clone();
-    let scene_ref_3 = scene_ref.clone();
 
-    // Create Texture Atlas
+    // // Create Texture Atlas
     let (image_atlas, glyph_map) = text::load_font_atlas("/usr/share/fonts/truetype/futura/JetBrainsMono-Bold.ttf", 100.0);
+    // let (image_atlas, glyph_map) = text::load_font_atlas("/usr/share/fonts/truetype/futura/Futura Light BT.ttf", 100.0);
     let glyph_map = Arc::new(glyph_map);
     let texture_atlas = Arc::new(create_texture_atlas(&gui.display, image_atlas));
 
-    let text_objects: Vec<TextDisplay> = vec![
-        TextDisplay::new("Hello world!".to_string(), glyph_map.clone(), texture_atlas.clone(), 0.0, 100.0),
-        TextDisplay::new("DATACOM VER 0.1.0".to_string(), glyph_map.clone(), texture_atlas.clone(), 0.0, 200.0),
-        TextDisplay::new((' '..='~').collect(), glyph_map.clone(), texture_atlas.clone(), 0.0, 300.0),
+    let mut text_objects: Vec<TextDisplay> = vec![
+        TextDisplay::new("Hello World!".to_string(), glyph_map.clone(), texture_atlas.clone(), 0.0, 0.0, green_vec()),
+        TextDisplay::new("DATACOM VER 0.1.0".to_string(), glyph_map.clone(), texture_atlas.clone(), -1.0, 0.90, green_vec()),
+        TextDisplay::new((' '..='~').collect(), glyph_map.clone(), texture_atlas.clone(), -1.0, -1.0, green_vec()),
+        TextDisplay::new("FPS Counter: 0.0".to_string(), glyph_map.clone(), texture_atlas.clone(), 0.6, 0.9, cyan_vec()),
     ];
 
 
@@ -167,9 +175,9 @@ fn start_program(scene: scenes_and_entities::Scene) {
 
     // Viewport Refactor Test
 
-    // let scale_factor = 50.0;
+    let scale_factor = 50.0;
     let mut viewport_refactor = vec![
-        dc::Twoport::new_with_camera(
+        dc::Viewport::new_with_camera(
             na::Point2::new(-1.0, 1.0), 
             2.0, 
             0.8*2.0, 
@@ -177,7 +185,7 @@ fn start_program(scene: scenes_and_entities::Scene) {
             na::Point3::new(-7.0, 3.0, 5.0),
             na::Point3::new(0.0, 0.0, 0.0)
         ),
-        dc::Twoport::new_with_camera(
+        dc::Viewport::new_with_camera(
             na::Point2::new(0.6, 1.0), 
             0.4*2.0, 
             0.2*2.0, 
@@ -185,12 +193,12 @@ fn start_program(scene: scenes_and_entities::Scene) {
             na::Point3::new(10.0, 0.0, 0.0),
             na::Point3::new(0.0, 0.0, 0.0)
         ),
-        dc::Twoport::new_with_camera(
+        dc::Viewport::new_with_camera(
             na::Point2::new(0.6, 1.0-0.8), 
             2.0*(1.0-0.4), 
             0.2*2.0, 
             scene_ref.clone(), 
-            na::Point3::new(0.0, 10.0, 2.0), 
+            na::Point3::new(0.0, 10.0, 2.0),
             na::Point3::new(0.0, 0.0, 0.0),
         ),
         // dc::Twoport::new_with_camera(
@@ -207,6 +215,7 @@ fn start_program(scene: scenes_and_entities::Scene) {
 
     // Framerate and clock items
     let frame_time_nanos = 16_666_667;
+    // let frame_time_nanos = 16_000_000;
     let start_time = std::time::SystemTime::now();
     let mut t = (std::time::SystemTime::now().duration_since(start_time).unwrap().as_micros() as f32) / (2.0*1E6*std::f32::consts::PI);
 
@@ -235,11 +244,11 @@ fn start_program(scene: scenes_and_entities::Scene) {
     // });
 
     // Uncomment me!!
-    // let listener_thread = thread::Builder::new().name("listener thread".to_string()).spawn(move || {
-    //     info!("Opened listener thread");
-    //     let addr: SocketAddr = "localhost:8081".parse().unwrap();
-    //     com::run_server(scene_ref.clone(), addr);
-    // });
+    let listener_thread = thread::Builder::new().name("listener thread".to_string()).spawn(move || {
+        info!("Opened listener thread");
+        let addr: SocketAddr = "localhost:8081".parse().unwrap();
+        com::run_server(scene_ref.clone(), addr);
+    });
 
     // Multithreading TRx
     // let (tx_gui, rx_gui) = mpsc::sync_channel(1);
@@ -254,25 +263,35 @@ fn start_program(scene: scenes_and_entities::Scene) {
         }
     });
 
-    // Draw thread
-    info!("Starting event loop...");
-    let mut last_key = "";
-    let mut key_tracker = KeyTracker::new();
-    (event_loop.run(move |event, _, control_flow| {
+    // // Draw thread
+    // info!("Starting event loop...");
+    // let mut last_key = "";
+    // let mut key_tracker = KeyTracker::new();
+
+    // let graphical_thread = thread::Builder::new().name("graphical thread".to_string()).spawn(move || {
+        
+    // });
+
+    
+
+    let cursor_pos: Option<(f64, f64)> = None;
+    #[allow(deprecated)]
+    (event_loop.run(move |event, window_target| {
+        let frame_start_time = std::time::Instant::now();
         let next_frame_time = std::time::Instant::now() + std::time::Duration::from_nanos(frame_time_nanos);
-        // let t = rx_gui.recv().unwrap();
-        // let t = (std::time::SystemTime::now().duration_since(start_time).unwrap().as_micros() as f32) / (2.0*1E6*std::f32::consts::PI);
+        // // let t = rx_gui.recv().unwrap();
+        // // let t = (std::time::SystemTime::now().duration_since(start_time).unwrap().as_micros() as f32) / (2.0*1E6*std::f32::consts::PI);
 
         // Event Handling (Key presses, mouse movement)
         match event {
-            glutin::event::Event::WindowEvent { event, .. } => match event {
-                glutin::event::WindowEvent::CloseRequested => {
-                    *control_flow = glutin::event_loop::ControlFlow::Exit;
+            event::Event::WindowEvent { event, .. } => match event {
+                event::WindowEvent::CloseRequested => {
+                    window_target.exit();
                     return;
                 },
 
                 // Do this when the mouse moves 
-                glutin::event::WindowEvent::CursorMoved { 
+                event::WindowEvent::CursorMoved { 
                     position,
                     ..
                  } => {
@@ -286,9 +305,15 @@ fn start_program(scene: scenes_and_entities::Scene) {
                     }
                  },
 
+                 // Set everything inactive when the viewport closes
+                 event::WindowEvent::CursorLeft { .. } => {
+                    for viewport in &mut viewport_refactor {
+                        viewport.set_inactive();
+                    }
+                 },
 
                 // Zoom when mouse wheel moved
-                glutin::event::WindowEvent::MouseWheel { 
+                event::WindowEvent::MouseWheel { 
                 delta,
                 ..
                 } => {
@@ -302,12 +327,14 @@ fn start_program(scene: scenes_and_entities::Scene) {
                 },
                 
                 // Pan Left using left arrow key
-                glutin::event::WindowEvent::KeyboardInput {
-                    input:
-                    glutin::event::KeyboardInput {
-                        virtual_keycode: Some(VirtualKeyCode::Left),
-                        ..
-                    },
+                event::WindowEvent::KeyboardInput {
+                    event:
+                        event::KeyEvent {
+                            physical_key: keyboard::PhysicalKey::Code(keyboard::KeyCode::ArrowLeft),
+                            state: event::ElementState::Pressed,
+                            repeat: false,
+                            ..
+                        },
                     ..
                 } => {
                     debug!("LEFT");
@@ -320,14 +347,16 @@ fn start_program(scene: scenes_and_entities::Scene) {
                 },
 
                 // Pan Right using right arrow key
-                glutin::event::WindowEvent::KeyboardInput {
-                    input:
-                    glutin::event::KeyboardInput {
-                        virtual_keycode: Some(VirtualKeyCode::Right),
-                        ..
-                    },
+                event::WindowEvent::KeyboardInput {
+                    event:
+                        event::KeyEvent {
+                            physical_key: keyboard::PhysicalKey::Code(keyboard::KeyCode::ArrowRight),
+                            state: event::ElementState::Pressed,
+                            repeat: false,
+                            ..
+                        },
                     ..
-                } => {// 🔥 Pass screen dimensions from Rust
+                } => {
                     debug!("RIGHT");
                     for viewport in &mut viewport_refactor {
                         if viewport.is_active {
@@ -340,12 +369,14 @@ fn start_program(scene: scenes_and_entities::Scene) {
                     
 
                 // Pan Up using up arrow key
-                glutin::event::WindowEvent::KeyboardInput {
-                    input:
-                    glutin::event::KeyboardInput {
-                        virtual_keycode: Some(VirtualKeyCode::Up),
-                        ..
-                    },
+                event::WindowEvent::KeyboardInput {
+                    event:
+                        event::KeyEvent {
+                            physical_key: keyboard::PhysicalKey::Code(keyboard::KeyCode::ArrowUp),
+                            state: event::ElementState::Pressed,
+                            repeat: false,
+                            ..
+                        },
                     ..
                 } => {
                     debug!("UP");
@@ -358,12 +389,14 @@ fn start_program(scene: scenes_and_entities::Scene) {
                 },
 
                 // Pan Down using down arrow key
-                glutin::event::WindowEvent::KeyboardInput {
-                    input:
-                    glutin::event::KeyboardInput {
-                        virtual_keycode: Some(VirtualKeyCode::Down),
-                        ..
-                    },
+                event::WindowEvent::KeyboardInput {
+                    event:
+                        event::KeyEvent {
+                            physical_key: keyboard::PhysicalKey::Code(keyboard::KeyCode::ArrowDown),
+                            state: event::ElementState::Pressed,
+                            repeat: false,
+                            ..
+                        },
                     ..
                 } => {
                     debug!("DOWN");
@@ -375,12 +408,14 @@ fn start_program(scene: scenes_and_entities::Scene) {
                     }
                 },
 
-                glutin::event::WindowEvent::KeyboardInput {
-                    input:
-                    glutin::event::KeyboardInput {
-                        virtual_keycode: Some(VirtualKeyCode::A),
-                        ..
-                    },
+                event::WindowEvent::KeyboardInput {
+                    event:
+                        event::KeyEvent {
+                            physical_key: keyboard::PhysicalKey::Code(keyboard::KeyCode::KeyA),
+                            state: event::ElementState::Pressed,
+                            repeat: false,
+                            ..
+                        },
                     ..
                 } => {
                     debug!("A");
@@ -392,12 +427,33 @@ fn start_program(scene: scenes_and_entities::Scene) {
                     }
                 },
 
-                glutin::event::WindowEvent::KeyboardInput {
-                    input:
-                    glutin::event::KeyboardInput {
-                        virtual_keycode: Some(VirtualKeyCode::D),
-                        ..
-                    },
+                event::WindowEvent::KeyboardInput {
+                    event:
+                        event::KeyEvent {
+                            physical_key: keyboard::PhysicalKey::Code(keyboard::KeyCode::KeyA),
+                            state: event::ElementState::Pressed,
+                            repeat: true,
+                            ..
+                        },
+                    ..
+                } => {
+                    debug!("A");
+                    for viewport in &mut viewport_refactor {
+                        if viewport.is_active {
+                            viewport.orbit(-5.0, 0.0, na::base::Vector3::new(0.0, 0.0, 1.0));
+                            debug!("{}", viewport.camera.camera_position);
+                        }
+                    }
+                },
+
+                event::WindowEvent::KeyboardInput {
+                    event:
+                        event::KeyEvent {
+                            physical_key: keyboard::PhysicalKey::Code(keyboard::KeyCode::KeyD),
+                            state: event::ElementState::Pressed,
+                            repeat: false,
+                            ..
+                        },
                     ..
                 } => {
                     debug!("D");
@@ -409,12 +465,33 @@ fn start_program(scene: scenes_and_entities::Scene) {
                     }
                 },
 
-                glutin::event::WindowEvent::KeyboardInput {
-                    input:
-                    glutin::event::KeyboardInput {
-                        virtual_keycode: Some(VirtualKeyCode::W),
-                        ..
-                    },
+                event::WindowEvent::KeyboardInput {
+                    event:
+                        event::KeyEvent {
+                            physical_key: keyboard::PhysicalKey::Code(keyboard::KeyCode::KeyD),
+                            state: event::ElementState::Pressed,
+                            repeat: true,
+                            ..
+                        },
+                    ..
+                } => {
+                    debug!("D");
+                    for viewport in &mut viewport_refactor {
+                        if viewport.is_active {
+                            viewport.orbit(5.0, 0.0,  na::base::Vector3::new(0.0, 0.0, 1.0));
+                            debug!("{}", viewport.camera.camera_position);
+                        }
+                    }
+                },
+
+                event::WindowEvent::KeyboardInput {
+                    event:
+                        event::KeyEvent {
+                            physical_key: keyboard::PhysicalKey::Code(keyboard::KeyCode::KeyW),
+                            state: event::ElementState::Pressed,
+                            repeat: false,
+                            ..
+                        },
                     ..
                 } => {
                     debug!("W");
@@ -426,12 +503,33 @@ fn start_program(scene: scenes_and_entities::Scene) {
                     }
                 },
 
-                glutin::event::WindowEvent::KeyboardInput {
-                    input:
-                    glutin::event::KeyboardInput {
-                        virtual_keycode: Some(VirtualKeyCode::S),
-                        ..
-                    },
+                event::WindowEvent::KeyboardInput {
+                    event:
+                        event::KeyEvent {
+                            physical_key: keyboard::PhysicalKey::Code(keyboard::KeyCode::KeyW),
+                            state: event::ElementState::Pressed,
+                            repeat: true,
+                            ..
+                        },
+                    ..
+                } => {
+                    debug!("W");
+                    for viewport in &mut viewport_refactor {
+                        if viewport.is_active {
+                            viewport.orbit(0.0, -5.0,  na::base::Vector3::new(0.0, 0.0, 1.0));
+                            debug!("{}", viewport.camera.camera_position);
+                        }
+                    }
+                },
+
+                event::WindowEvent::KeyboardInput {
+                    event:
+                        event::KeyEvent {
+                            physical_key: keyboard::PhysicalKey::Code(keyboard::KeyCode::KeyS),
+                            state: event::ElementState::Pressed,
+                            repeat: false,
+                            ..
+                        },
                     ..
                 } => {
                     debug!("S");
@@ -443,19 +541,38 @@ fn start_program(scene: scenes_and_entities::Scene) {
                     }
                 },
 
-                glutin::event::WindowEvent::KeyboardInput {
-                    input:
-                    glutin::event::KeyboardInput {
-                        virtual_keycode: Some(VirtualKeyCode::Equals),
-                        ..
-                    },
+                event::WindowEvent::KeyboardInput {
+                    event:
+                        event::KeyEvent {
+                            physical_key: keyboard::PhysicalKey::Code(keyboard::KeyCode::KeyS),
+                            state: event::ElementState::Pressed,
+                            repeat: true,
+                            ..
+                        },
                     ..
                 } => {
-                    debug!("Last key: {}", last_key);
+                    debug!("S");
+                    for viewport in &mut viewport_refactor {
+                        if viewport.is_active {
+                            viewport.orbit(0.0, 5.0,  na::base::Vector3::new(0.0, 0.0, 1.0));
+                            debug!("{}", viewport.camera.camera_position);
+                        }
+                    }
+                },
+
+                event::WindowEvent::KeyboardInput {
+                    event:
+                        event::KeyEvent {
+                            physical_key: keyboard::PhysicalKey::Code(keyboard::KeyCode::Equal),
+                            state: event::ElementState::Pressed,
+                            repeat: false,
+                            ..
+                        },
+                    ..
+                } => {
                     debug!("=");
                     for viewport in &mut viewport_refactor {
                         let max = viewport.content.read().unwrap().entities.len() as u64;
-                        if viewport.is_active && last_key != "=" {
                             match viewport.get_target_id() {
                                 Ok(id) => {
                                     
@@ -468,24 +585,23 @@ fn start_program(scene: scenes_and_entities::Scene) {
                                     
                                 },
                                 _=>{}
-                            }
                         }
                     }
-                    last_key = "=";
                 },
 
-                glutin::event::WindowEvent::KeyboardInput {
-                    input:
-                    glutin::event::KeyboardInput {
-                        virtual_keycode: Some(VirtualKeyCode::Minus),
-                        ..
-                    },
+                event::WindowEvent::KeyboardInput {
+                    event:
+                        event::KeyEvent {
+                            physical_key: keyboard::PhysicalKey::Code(keyboard::KeyCode::Minus),
+                            state: event::ElementState::Pressed,
+                            repeat: false,
+                            ..
+                        },
                     ..
                 } => {
                     debug!("-");
                     
                     for viewport in &mut viewport_refactor {
-                        if viewport.is_active && key_tracker.should_process_key(VirtualKeyCode::V, ElementState::Pressed) {
                             match viewport.get_target_id() {
                                 Ok(id) => {
                                         if id == 0 {
@@ -497,52 +613,47 @@ fn start_program(scene: scenes_and_entities::Scene) {
                                     },
                                 _=>{}
                             }
-                        }
                     }
-                    last_key = "-";
                 },
 
-                glutin::event::WindowEvent::KeyboardInput {
-                    input:
-                    glutin::event::KeyboardInput {
-                        virtual_keycode: Some(VirtualKeyCode::V),
-                        ..
-                    },
+                event::WindowEvent::KeyboardInput {
+                    event:
+                        event::KeyEvent {
+                            physical_key: keyboard::PhysicalKey::Code(keyboard::KeyCode::KeyV),
+                            state: event::ElementState::Pressed,
+                            repeat: false,
+                            ..
+                        },
                     ..
                 } => {
-                    if key_tracker.should_process_key(VirtualKeyCode::V, ElementState::Pressed){
                         debug!("V");
                         for viewport in &mut viewport_refactor {
-                            if viewport.is_active && last_key != "v"{
                                 viewport.advance_mode();
-                            }
                         }
-                        last_key = "v";
-                    }
 
                     
                 }, 
-                _ => {last_key=""; return},
+
+                event::WindowEvent::Resized(size) => {},
+
+                event::WindowEvent::RedrawRequested => {
+                },
+                _ => {},
             },
-            glutin::event::Event::NewEvents(cause) => match cause {
-                glutin::event::StartCause::ResumeTimeReached { .. } => (),
-                glutin::event::StartCause::Init => (),
-                _ => return,
-            },
-            _ => return,
+            // event::Event::NewEvents(cause) => match cause {
+            //     event::StartCause::ResumeTimeReached { .. } => (),
+            //     event::StartCause::Init => (),
+            //     _ => return,
+            // },
+
+            // event::Event::AboutToWait => {}
+            _ => {},
         }
+
         let mut current_frame = gui.display.draw();
+        // current_frame.clear_color(1.0, 1.0, 1.0, 1.0);
 
-        // current_frame.clear_color_and_depth((0.0, 0.0, 0.0, 1.0), 1.0);
-        current_frame.clear_color_and_depth((1.0, 1.0, 1.0, 1.0), 1.0);
-        
-        let seconds_per_rotation: f64 = 5.0;
-
-        // viewport_refactor[0].change_camera_position(na::Point3::<f64>::new(
-        //     7.0*(t/1.0).cos() as f64,
-        //     7.0*(t/1.0).sin() as f64,
-        //     0.0,
-        // ));
+        current_frame.clear_color_and_depth((0.0, 0.0, 0.0, 1.0), 1.0);
         
         // Uncomment me!
         for i in &mut viewport_refactor {
@@ -558,12 +669,16 @@ fn start_program(scene: scenes_and_entities::Scene) {
         }
 
 
-        current_frame.finish().unwrap();
+        current_frame.finish().expect("Frame finishing failed");
+        let frame_time = Instant::now().duration_since(frame_start_time).as_secs_f64();
+        text_objects[3].change_text(format!("FPS Counter: {:.1}", 1.0 / frame_time));
 
-        *control_flow = glutin::event_loop::ControlFlow::WaitUntil(next_frame_time);
+        // text_objects[3].change_text(format!("FPS Counter: {:.1}", 1.0/((Instant::now() - frame_start_time).as_nanos() as f64 )));
+        window_target.set_control_flow(winit::event_loop::ControlFlow::WaitUntil(next_frame_time));
+        // *control_flow = winit::event_loop::ControlFlow::WaitUntil(next_frame_time);
 
 
-    }));
+    })).expect("Event Failed");
 
 }
 
@@ -593,13 +708,13 @@ mod tests {
             vec![0.0, 1.0, 1.0, 1.0, 1.0]
         );
         assert_eq!(
-            test_scene.get_entity(0).get_model(0).get_color(),
+            test_scene.get_entity(0).unwrap().get_model(0).get_color(),
             na::Vector4::<f32>::new(0.0, 1.0, 0.0, 1.0),
             "Base color is green"
         );
-        test_scene.get_entity(0).command(color_cmd);
+        test_scene.get_entity(0).unwrap().command(color_cmd);
         assert_eq!(
-            test_scene.get_entity(0).get_model(0).get_color(),
+            test_scene.get_entity(0).unwrap().get_model(0).get_color(),
             na::Vector4::<f32>::new(1.0, 1.0, 1.0, 1.0),
             "New color is white"
         );
@@ -613,13 +728,13 @@ mod tests {
             vec![1.0, 1.0, 1.0]
         );
         assert_eq!(
-            test_scene.get_entity(0).get_position(),
+            test_scene.get_entity(0).unwrap().get_position(),
             &na::Point3::<f64>::origin(),
             "Initial Position is Origin"
         );
-        test_scene.get_entity(0).command(pos_cmd);
+        test_scene.get_entity(0).unwrap().command(pos_cmd);
         assert_eq!(
-            test_scene.get_entity(0).get_position(),
+            test_scene.get_entity(0).unwrap().get_position(),
             &na::Point3::<f64>::new(1.0, 1.0, 1.0),
             "Position commanded successfully"
         );
@@ -640,76 +755,7 @@ mod tests {
     }
 }
 
-struct KeyTracker {
-    last_press_times: HashMap<VirtualKeyCode, Instant>,
-    debounce_duration: Duration,
-}
 
-impl KeyTracker {
-    fn new() -> Self {
-        KeyTracker {
-            last_press_times: HashMap::new(),
-            debounce_duration: Duration::from_millis(300),
-        }
-    }
-
-    fn should_process_key(&mut self, key: VirtualKeyCode, state: ElementState) -> bool {
-        if state == ElementState::Pressed {
-            let now = Instant::now();
-            let should_process = self.last_press_times
-                .get(&key)
-                .map_or(true, |&last_time| 
-                    now.duration_since(last_time) >= self.debounce_duration
-                );
-
-            if should_process {
-                self.last_press_times.insert(key, now);
-                true
-            } else {
-                false
-            }
-        } else {
-            false
-        }
-    }
-}
-
-
-
-
-
-
-// struct KeyState {
-//     last_state: KeyAction,
-//     last_processed_time: Instant,
-// }
-
-// impl KeyState {
-//     fn new() -> Self {
-//         KeyState {
-//             last_state: KeyAction::Release,
-//             last_processed_time: Instant::now(),
-//         }
-//     }
-// }
-
-// struct KeyHandler {
-//     key_states: HashMap<VirtualKeyCode, KeyState>,
-//     debounce_duration: Duration
-// }
-
-// impl KeyHandler {
-//     fn new() -> Self {
-//         KeyHandler {
-//             key_states: HashMap::new(),
-//             debounce_duration: Duration::from_millis(10)
-//         }
-//     }
-
-//     fn should_process_key(&mut self, key: VirtualKeyCode, current_action: KeyAction) -> bool {
-//         let entry = self.key_states.entry(key).or_insert(KeyState::new());
-
-//     }
 // }
 // enum KeyAction {
 //     Press,

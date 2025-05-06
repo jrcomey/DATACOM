@@ -78,7 +78,7 @@ use text::{create_texture_atlas, TextDisplay};
 use core::time;
 use toml::Value;
 use serde_derive::Deserialize;
-use std::{cell::RefCell, collections::HashMap, io::Write, rc::Rc, fs, thread::scope, time::Instant, vec};        // Multithreading standard library items
+use std::{cell::RefCell, collections::HashMap, io::Write, rc::Rc, fs, time::Instant, vec};        // Multithreading standard library items
 mod scenes_and_entities;
 extern crate tobj;                                                          // .obj file loader
 extern crate rand;                                                          // Random number generator
@@ -101,51 +101,11 @@ fn main() {
     pretty_env_logger::init();
     info!("Program Start!");
 
-    // let test_scene = scene_composer::compose_scene_3();
-    // let recv_thread = thread::spawn(move|| {
-    //     // let test_scene = load_scene_from_network("localhost:8080".parse().unwrap());
-    //     ;
-    // });
-
-    // let send_thread = thread::spawn(move|| {
-    //     send_test_scene("data/scene_loading/test_scene.json", "localhost:8080".parse().unwrap());
-    // });
-
-    // let test_scene = load_scene_from_network("localhost:8080".parse().unwrap());
-
-
-    // send_thread.join().unwrap();
-    // recv_thread.join().unwrap();
-
     let test_scene = scenes_and_entities::Scene::load_from_json_file("data/scene_loading/test_scene.json");
 
-    // loop {
-        // let test_scene = scenes_and_entities::Scene::load_from_json_file("data/scene_loading/test_scene.json");
-    // let test_scene = scenes_and_entities::Scene::load_from_network("localhost:8080").unwrap();
     start_program(test_scene);
-    // }
     
 }
-
-// fn load_scene_from_network(addr: SocketAddr) -> scenes_and_entities::Scene {
-//     let listener = TcpListener::bind(addr).unwrap();
-//     match listener.accept() {
-//         Ok((stream, _)) => {
-//                 let packet = com::from_network(&stream);
-//                 scenes_and_entities::Scene::load_from_json_str(&packet)
-//         }
-//         _ => {scene_composer::test_scene()},
-//     }
-// }
-
-// fn send_test_scene(filepath: &str, addr: SocketAddr) {
-//     let scene_packet = std::fs::read_to_string(filepath).unwrap();
-//     println!("{}", scene_packet);
-//     let mut stream = TcpStream::connect(addr).unwrap();
-//     thread::sleep(Duration::from_millis(10));
-//     stream.write_all(scene_packet.as_bytes()).unwrap();
-    
-// }
 
 fn get_ports(file: &str) -> Result<Vec<SocketAddr>, Box<dyn std::error::Error>>{
     let contents = fs::read_to_string(file)?;
@@ -160,9 +120,14 @@ fn get_ports(file: &str) -> Result<Vec<SocketAddr>, Box<dyn std::error::Error>>{
                 for port in port_array {
                     if let Some(port_num) = port.as_integer() {
                         // Convert the IP and port into a SocketAddr
-                        let ip_addr = ip.parse::<IpAddr>()?;
                         let port: u16 = port_num.try_into()?;
-                        let socket_addr = SocketAddr::new(ip_addr, port);
+                        let socket_addr: SocketAddr = if ip == "localhost" {
+                            let mut addrs = format!("{}:{}", ip, port).to_socket_addrs().unwrap();
+                            addrs.next().unwrap()
+                        } else {
+                            let ip_addr = ip.parse::<IpAddr>()?;
+                            SocketAddr::new(ip_addr, port)
+                        };
                         result.push(socket_addr);
                     }
                 }
@@ -171,6 +136,17 @@ fn get_ports(file: &str) -> Result<Vec<SocketAddr>, Box<dyn std::error::Error>>{
     }
 
     Ok(result)
+}
+
+fn create_listener_thread(scene_ref: Arc<RwLock<scenes_and_entities::Scene>>) -> Result<thread::JoinHandle<()>, std::io::Error>{
+    let handle = thread::Builder::new().name("listener thread".to_string()).spawn(|| {
+        info!("Opened listener thread");
+        let ports = get_ports("cargo/config.toml").unwrap();
+        let mut addrs_iter = &(ports[..]);
+        com::run_server(scene_ref, addrs_iter);
+    });
+
+    handle
 }
 
 fn start_program(scene: scenes_and_entities::Scene) {
@@ -197,9 +173,6 @@ fn start_program(scene: scenes_and_entities::Scene) {
         TextDisplay::new((' '..='~').collect(), glyph_map.clone(), texture_atlas.clone(), -1.0, -1.0, green_vec()),
         TextDisplay::new("FPS Counter: 0.0".to_string(), glyph_map.clone(), texture_atlas.clone(), 0.6, 0.9, cyan_vec()),
     ];
-
-
-
 
     // Viewport Refactor Test
 
@@ -247,37 +220,7 @@ fn start_program(scene: scenes_and_entities::Scene) {
     let start_time = std::time::SystemTime::now();
     let mut t = (std::time::SystemTime::now().duration_since(start_time).unwrap().as_micros() as f32) / (2.0*1E6*std::f32::consts::PI);
 
-    // sender Thread
-    // let sender_thread = thread::Builder::new().name("sender thread".to_string()).spawn(move|| {
-    //     debug!("Started data transmission thread");
-    //     let addr: SocketAddr = "localhost:8080".parse().unwrap();
-    //     let mut stream = TcpStream::connect(addr).unwrap();
-
-    //     loop {
-    //         t = (std::time::SystemTime::now().duration_since(start_time).unwrap().as_micros() as f32) / (2.0*1E6*std::f32::consts::PI);
-    //         let test_command_data = format!("
-    //             {{
-    //                 \"targetEntityID\": 0,
-    //                 \"commandType\": \"ComponentChangeColor\",
-    //                 \"data\": [0.0,{},{},{},1.0]
-    //             }}", 
-    //             t.sin().abs(),
-    //             t.cos().abs(),
-    //             t.tan().abs()
-    //         );
-    //         thread::sleep(Duration::from_millis(10));
-    //         stream.write_all(test_command_data.as_bytes()).unwrap();
-    //         stream.flush().unwrap();
-    //     }
-    // });
-
-    // Uncomment me!!
-    let listener_thread = thread::Builder::new().name("listener thread".to_string()).spawn(move || {
-        info!("Opened listener thread");
-        let ports = get_ports("cargo/config.toml").unwrap();
-        let mut addrs_iter = &(ports[..]);
-        com::run_server(scene_ref.clone(), addrs_iter);
-    });
+    let listener_thread = create_listener_thread(scene_ref.clone());
 
     // Multithreading TRx
     // let (tx_gui, rx_gui) = mpsc::sync_channel(1);
@@ -291,17 +234,6 @@ fn start_program(scene: scenes_and_entities::Scene) {
             scene_ref_2.write().unwrap().update();
         }
     });
-
-    // // Draw thread
-    // info!("Starting event loop...");
-    // let mut last_key = "";
-    // let mut key_tracker = KeyTracker::new();
-
-    // let graphical_thread = thread::Builder::new().name("graphical thread".to_string()).spawn(move || {
-        
-    // });
-
-    
 
     let cursor_pos: Option<(f64, f64)> = None;
     #[allow(deprecated)]
@@ -669,13 +601,6 @@ fn start_program(scene: scenes_and_entities::Scene) {
                 },
                 _ => {},
             },
-            // event::Event::NewEvents(cause) => match cause {
-            //     event::StartCause::ResumeTimeReached { .. } => (),
-            //     event::StartCause::Init => (),
-            //     _ => return,
-            // },
-
-            // event::Event::AboutToWait => {}
             _ => {},
         }
 
@@ -783,10 +708,3 @@ mod tests {
         
     }
 }
-
-
-// }
-// enum KeyAction {
-//     Press,
-//     Release
-// }

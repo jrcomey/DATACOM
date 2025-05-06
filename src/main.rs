@@ -76,19 +76,21 @@ use rusttype;
 use image;
 use text::{create_texture_atlas, TextDisplay};
 use core::time;
-use std::{cell::RefCell, collections::HashMap, io::Write, rc::Rc, thread::scope, time::Instant, vec};        // Multithreading standard library items
+use toml::Value;
+use serde_derive::Deserialize;
+use std::{cell::RefCell, any::type_name, collections::HashMap, io::Write, rc::Rc, fs, thread::scope, time::Instant, vec};        // Multithreading standard library items
 mod scenes_and_entities;
 extern crate tobj;                                                          // .obj file loader
 extern crate rand;                                                          // Random number generator
 extern crate pretty_env_logger;                                             // Logger
 #[macro_use] extern crate log;                                              // Logging crate
 mod dc;                                                                     // DATACOM interface module
-mod plt;                                                                    // Plotter
+// mod plt;                                                                    // Plotter
 use crate::dc::{cyan_vec, null_content, 
     Draw, CameraControl, green_vec, red_vec};                                             // DATACOM item imports for functions
 use std::{thread, time::Duration, sync::{mpsc, Arc, Mutex, RwLock}};        // Multithreading lib imports
 mod scene_composer;
-use std::net::{SocketAddr, TcpListener, TcpStream};
+use std::net::{ToSocketAddrs, IpAddr, SocketAddr, TcpListener, TcpStream};
 mod com;
 mod text;
 
@@ -145,6 +147,36 @@ fn main() {
     
 // }
 
+fn type_of<T>(_: T) -> &'static str {
+    type_name::<T>()
+}
+
+fn get_ports(file: &str) -> Result<Vec<SocketAddr>, Box<dyn std::error::Error>>{
+    let contents = fs::read_to_string(file)?;
+    let parsed: Value = contents.parse::<Value>()?;
+    let mut result = Vec::new();
+
+    // get server table
+    if let Some(servers) = parsed.get("servers").and_then(|v| v.as_table()) {
+        // each line contains an IP address and an array of ports
+        for (ip, ports) in servers {
+            if let Some(port_array) = ports.as_array() {
+                for port in port_array {
+                    if let Some(port_num) = port.as_integer() {
+                        // Convert the IP and port into a SocketAddr
+                        let ip_addr = ip.parse::<IpAddr>()?;
+                        let port: u16 = port_num.try_into()?;
+                        let socket_addr = SocketAddr::new(ip_addr, port);
+                        result.push(socket_addr);
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(result)
+}
+
 fn start_program(scene: scenes_and_entities::Scene) {
 
     // Initialize glium items
@@ -158,7 +190,7 @@ fn start_program(scene: scenes_and_entities::Scene) {
     let scene_ref_2 = scene_ref.clone();
 
     // // Create Texture Atlas
-    let (image_atlas, glyph_map) = text::load_font_atlas("/usr/share/fonts/truetype/futura/JetBrainsMono-Bold.ttf", 100.0);
+    let (image_atlas, glyph_map) = text::load_font_atlas("/Library/Fonts/Arial Unicode.ttf", 100.0);
     // let (image_atlas, glyph_map) = text::load_font_atlas("/usr/share/fonts/truetype/futura/Futura Light BT.ttf", 100.0);
     let glyph_map = Arc::new(glyph_map);
     let texture_atlas = Arc::new(create_texture_atlas(&gui.display, image_atlas));
@@ -246,8 +278,9 @@ fn start_program(scene: scenes_and_entities::Scene) {
     // Uncomment me!!
     let listener_thread = thread::Builder::new().name("listener thread".to_string()).spawn(move || {
         info!("Opened listener thread");
-        let addr: SocketAddr = "localhost:8081".parse().unwrap();
-        com::run_server(scene_ref.clone(), addr);
+        let ports = get_ports("cargo/config.toml").unwrap();
+        let mut addrs_iter = &(ports[..]);
+        com::run_server(scene_ref.clone(), addrs_iter);
     });
 
     // Multithreading TRx

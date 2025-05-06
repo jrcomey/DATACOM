@@ -2,7 +2,7 @@ use std::fmt::Error;
 use std::io::{Read, Write};
 // use tokio;
 // use tokio::time::sleep;
-use std::net::{SocketAddr, TcpStream, TcpListener};
+use std::net::{ToSocketAddrs, TcpStream, TcpListener};
 // use std::error::Error;
 use std::sync::{RwLock, Arc};
 use std::time::Duration;
@@ -67,7 +67,7 @@ pub fn from_network_with_protocol(stream: &mut TcpStream) -> Result<(), &str> {
     Ok(())
 }
 
-pub fn run_server(scene_reference: Arc<RwLock<Scene>>, addr: std::net::SocketAddr) {
+pub fn run_server<A: ToSocketAddrs>(scene_reference: Arc<RwLock<Scene>>, addr: A) {
     info!("Server started!");
     let listener = TcpListener::bind(addr).unwrap();
 

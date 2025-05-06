@@ -78,7 +78,7 @@ use text::{create_texture_atlas, TextDisplay};
 use core::time;
 use toml::Value;
 use serde_derive::Deserialize;
-use std::{cell::RefCell, any::type_name, collections::HashMap, io::Write, rc::Rc, fs, thread::scope, time::Instant, vec};        // Multithreading standard library items
+use std::{cell::RefCell, collections::HashMap, io::Write, rc::Rc, fs, thread::scope, time::Instant, vec};        // Multithreading standard library items
 mod scenes_and_entities;
 extern crate tobj;                                                          // .obj file loader
 extern crate rand;                                                          // Random number generator
@@ -146,10 +146,6 @@ fn main() {
 //     stream.write_all(scene_packet.as_bytes()).unwrap();
     
 // }
-
-fn type_of<T>(_: T) -> &'static str {
-    type_name::<T>()
-}
 
 fn get_ports(file: &str) -> Result<Vec<SocketAddr>, Box<dyn std::error::Error>>{
     let contents = fs::read_to_string(file)?;

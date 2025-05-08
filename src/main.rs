@@ -78,7 +78,7 @@ use text::{create_texture_atlas, TextDisplay};
 use core::time;
 use toml::Value;
 use serde_derive::Deserialize;
-use std::{cell::RefCell, collections::HashMap, io::Write, rc::Rc, fs, time::Instant, vec};        // Multithreading standard library items
+use std::{cell::RefCell, collections::HashMap, collections::HashSet, io::Write, rc::Rc, fs, time::Instant, vec};        // Multithreading standard library items
 mod scenes_and_entities;
 extern crate tobj;                                                          // .obj file loader
 extern crate rand;                                                          // Random number generator
@@ -116,6 +116,7 @@ fn get_ports(file: &str) -> Result<Vec<SocketAddr>, Box<dyn std::error::Error>>{
     if let Some(servers) = parsed.get("servers").and_then(|v| v.as_table()) {
         // each line contains an IP address and an array of ports
         for (ip, ports) in servers {
+            println!("analyzing {ip} and {ports}");
             if let Some(port_array) = ports.as_array() {
                 for port in port_array {
                     if let Some(port_num) = port.as_integer() {
@@ -128,6 +129,7 @@ fn get_ports(file: &str) -> Result<Vec<SocketAddr>, Box<dyn std::error::Error>>{
                             let ip_addr = ip.parse::<IpAddr>()?;
                             SocketAddr::new(ip_addr, port)
                         };
+                        println!("adding {ip}:{port}");
                         result.push(socket_addr);
                     }
                 }
@@ -138,10 +140,10 @@ fn get_ports(file: &str) -> Result<Vec<SocketAddr>, Box<dyn std::error::Error>>{
     Ok(result)
 }
 
-fn create_listener_thread(scene_ref: Arc<RwLock<scenes_and_entities::Scene>>) -> Result<thread::JoinHandle<()>, std::io::Error>{
-    let handle = thread::Builder::new().name("listener thread".to_string()).spawn(|| {
+fn create_listener_thread(scene_ref: Arc<RwLock<scenes_and_entities::Scene>>, file: String) -> Result<thread::JoinHandle<()>, std::io::Error>{
+    let handle = thread::Builder::new().name("listener thread".to_string()).spawn(move || {
         info!("Opened listener thread");
-        let ports = get_ports("cargo/config.toml").unwrap();
+        let ports = get_ports(file.as_str()).unwrap();
         let mut addrs_iter = &(ports[..]);
         com::run_server(scene_ref, addrs_iter);
     });
@@ -220,7 +222,7 @@ fn start_program(scene: scenes_and_entities::Scene) {
     let start_time = std::time::SystemTime::now();
     let mut t = (std::time::SystemTime::now().duration_since(start_time).unwrap().as_micros() as f32) / (2.0*1E6*std::f32::consts::PI);
 
-    let listener_thread = create_listener_thread(scene_ref.clone());
+    let listener_thread = create_listener_thread(scene_ref.clone(), "cargo/config.toml".to_string());
 
     // Multithreading TRx
     // let (tx_gui, rx_gui) = mpsc::sync_channel(1);
@@ -638,9 +640,13 @@ fn start_program(scene: scenes_and_entities::Scene) {
 
 #[cfg(test)]
 mod tests {
-    use std::{io::Read, net::{SocketAddr, TcpListener, TcpStream}, sync::mpsc, thread};
+    use std::{path::Path, net::{SocketAddr, TcpListener, TcpStream}, sync::mpsc, thread};
+    use std::io::{Write, Read};
+    use std::fs::{File, OpenOptions, remove_file};
 
     use crate::{dc, glutin, scene_composer, scenes_and_entities::{self, ModelComponent}};
+
+    use super::*;
 
 
     #[test]
@@ -707,4 +713,115 @@ mod tests {
     fn load_font() {
         
     }
+
+    fn vectors_match(v1: Result<Vec<SocketAddr>, Box<dyn std::error::Error>>, v2: Result<Vec<SocketAddr>, Box<dyn std::error::Error>>) -> bool{
+        if v1.is_err() && v2.is_err(){
+            return true;
+        }
+        if !(v1.is_ok() && v2.is_ok()){
+            println!("returning false: case 2");
+            return false;
+        }
+
+        let vec1 = v1.unwrap();
+        let vec2 = v2.unwrap();
+
+        let set1: HashSet<_> = vec1.iter().collect();
+        let set2: HashSet<_> = vec2.iter().collect();
+        set1 == set2
+    }
+
+    /*
+    no servers section on toml
+    empty servers section
+    invalid formatting
+    one IP, one port
+    one IP, multiple ports
+    multiple IP, one port each
+    multiple IPs and ports
+    localhost
+    */
+    fn get_ports_template(toml_name: &str, toml_contents: &str, expected: Result<Vec<SocketAddr>, Box<dyn std::error::Error>>){
+        let file_name_string = format!("{}{}", toml_name, ".toml");
+        let file_name = file_name_string.as_str();
+        let file_path = Path::new(file_name);
+        let mut file = File::create(&file_path).unwrap();
+        _ = writeln!(file, "{}", toml_contents);
+        let actual = get_ports(file_name);
+        assert!(vectors_match(actual, expected));
+        _ = remove_file(&file_path);
+    }
+
+    #[test]
+    fn get_ports_basic(){
+        let toml_name = "get_ports_basic";
+        let toml_contents = "[servers]
+\"10.0.0.5\" = [22]";
+        let expected: Result<Vec<SocketAddr>, _> = Ok(vec![SocketAddr::from(([10, 0, 0, 5], 22))]);
+        get_ports_template(toml_name, toml_contents, expected);
+    }
+
+    #[test]
+    fn get_ports_one_ip_multiple_ports(){
+        let toml_name = "get_ports_one_ip_multiple_ports";
+        let toml_contents = "[servers]
+\"10.0.0.5\" = [22, 8080]";
+        let s1 = SocketAddr::from(([10, 0, 0, 5], 22));
+        let s2 = SocketAddr::from(([10, 0, 0, 5], 8080));
+        let expected: Result<Vec<SocketAddr>, _> = Ok(vec![s1, s2]);
+        get_ports_template(toml_name, toml_contents, expected);
+    }
+
+    #[test]
+    fn get_ports_multiple_ip_one_port(){
+        let toml_name = "get_ports_multiple_ip_one_port";
+        let toml_contents = "[servers]
+\"192.168.0.1\" = [443]
+\"10.0.0.5\" = [22]";
+        let s1 = SocketAddr::from(([192, 168, 0, 1], 443));
+        let s2 = SocketAddr::from(([10, 0, 0, 5], 22));
+        let expected: Result<Vec<SocketAddr>, _> = Ok(vec![s1, s2]);
+        get_ports_template(toml_name, toml_contents, expected);
+    }
+
+    #[test]
+    fn get_ports_multiple_ip_multiple_ports(){
+        let toml_name = "get_ports_multiple_ip_multiple_ports";
+        let toml_contents = "[servers]
+\"192.168.0.1\" = [80, 443]
+\"10.0.0.5\" = [22]
+\"172.16.1.100\" = [21, 8080, 3000]
+\"127.0.0.1\" = [8000, 8001, 8002]
+\"203.0.113.42\" = [53]";
+        let s1 = SocketAddr::from(([192, 168, 0, 1], 80));
+        let s2 = SocketAddr::from(([192, 168, 0, 1], 443));
+        let s3 = SocketAddr::from(([10, 0, 0, 5], 22));
+        let s4 = SocketAddr::from(([172, 16, 1, 100], 21));
+        let s5 = SocketAddr::from(([172, 16, 1, 100], 8080));
+        let s6 = SocketAddr::from(([172, 16, 1, 100], 3000));
+        let s7 = SocketAddr::from(([127, 0, 0, 1], 8000));
+        let s8 = SocketAddr::from(([127, 0, 0, 1], 8001));
+        let s9 = SocketAddr::from(([127, 0, 0, 1], 8002));
+        let s10 = SocketAddr::from(([203, 0, 113, 42], 53));
+        let expected: Result<Vec<SocketAddr>, _> = Ok(vec![s1, s2, s3, s4, s5, s6, s7, s8, s9, s10]);
+        get_ports_template(toml_name, toml_contents, expected);
+    }
+
+    #[test]
+    fn get_ports_localhost(){
+        let toml_name = "get_ports_localhost";
+        let toml_contents = "[servers]
+\"localhost\" = [8081]";
+        let mut addrs = "localhost:8081".to_socket_addrs().unwrap(); 
+        let s1 = addrs.next().unwrap();
+        let expected = Ok(vec![s1]);
+        get_ports_template(toml_name, toml_contents, expected);
+    }
+
+//     #[test]
+//     fn get_ports_no_server(){
+//         let toml_contents = "[somethingelse]
+// irrelevant = content".to_string();
+//         get_ports_template(toml_contents);
+//     }
 }

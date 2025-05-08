@@ -76,7 +76,7 @@ use rusttype;
 use image;
 use text::{create_texture_atlas, TextDisplay};
 use core::time;
-use toml::Value;
+use toml::{Value, de::Error};
 use serde_derive::Deserialize;
 use std::{cell::RefCell, collections::HashMap, collections::HashSet, io::Write, rc::Rc, fs, time::Instant, vec};        // Multithreading standard library items
 mod scenes_and_entities;
@@ -137,6 +137,8 @@ fn get_ports(file: &str) -> Result<Vec<SocketAddr>, Box<dyn std::error::Error>>{
         }
     }
 
+    // we want an Err to return if no IP addresses were found
+    _ = result.get(0).ok_or("No IP address was found")?;
     Ok(result)
 }
 
@@ -715,6 +717,10 @@ mod tests {
     }
 
     fn vectors_match(v1: Result<Vec<SocketAddr>, Box<dyn std::error::Error>>, v2: Result<Vec<SocketAddr>, Box<dyn std::error::Error>>) -> bool{
+        match v1{
+            Ok(_) => {},
+            Err(ref e) => println!("Error msg: {e:?}"),
+        };
         if v1.is_err() && v2.is_err(){
             return true;
         }
@@ -818,10 +824,59 @@ mod tests {
         get_ports_template(toml_name, toml_contents, expected);
     }
 
-//     #[test]
-//     fn get_ports_no_server(){
-//         let toml_contents = "[somethingelse]
-// irrelevant = content".to_string();
-//         get_ports_template(toml_contents);
-//     }
+    #[test]
+    fn get_ports_no_server(){
+        let toml_name = "get_ports_no_server";
+        let toml_contents = "[somethingelse]
+irrelevant = content";
+
+        let err = "invalid = [".parse::<toml::Value>().unwrap_err();
+        let expected: Result<Vec<SocketAddr>, Box<dyn std::error::Error>> = Err(Box::new(err));
+
+        // let expected: Result<Vec<SocketAddr>, _> = Ok(vec![SocketAddr::from(([10, 0, 0, 5], 22))]);
+        get_ports_template(toml_name, toml_contents, expected);
+    }
+
+    #[test]
+    fn get_ports_too_high(){
+        let toml_name = "get_ports_too_high";
+        let toml_contents = "[servers]
+\"10.0.0.5\" = [999999999]";
+
+        let err = "invalid = [".parse::<toml::Value>().unwrap_err();
+        let expected: Result<Vec<SocketAddr>, Box<dyn std::error::Error>> = Err(Box::new(err));
+        get_ports_template(toml_name, toml_contents, expected);
+    }
+
+    #[test]
+    fn get_ports_negative(){
+        let toml_name = "get_ports_negative";
+        let toml_contents = "[servers]
+\"10.0.0.5\" = [-1]";
+
+        let err = "invalid = [".parse::<toml::Value>().unwrap_err();
+        let expected: Result<Vec<SocketAddr>, Box<dyn std::error::Error>> = Err(Box::new(err));
+        get_ports_template(toml_name, toml_contents, expected);
+    }
+
+    #[test]
+    fn get_ports_bad_format(){
+        let toml_name = "get_ports_bad_format";
+        let toml_contents = "[servers]
+10005 = [80]";
+
+        let err = "invalid = [".parse::<toml::Value>().unwrap_err();
+        let expected: Result<Vec<SocketAddr>, Box<dyn std::error::Error>> = Err(Box::new(err));
+        get_ports_template(toml_name, toml_contents, expected);
+    }
+
+    #[test]
+    fn get_ports_empty(){
+        let toml_name = "get_ports_empty";
+        let toml_contents = "[servers]";
+
+        let err = "invalid = [".parse::<toml::Value>().unwrap_err();
+        let expected: Result<Vec<SocketAddr>, Box<dyn std::error::Error>> = Err(Box::new(err));
+        get_ports_template(toml_name, toml_contents, expected);
+    }
 }

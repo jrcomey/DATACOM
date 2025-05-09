@@ -145,12 +145,15 @@ fn get_ports(file: &str) -> Result<Vec<SocketAddr>, Box<dyn std::error::Error>>{
 fn create_listener_thread(scene_ref: Arc<RwLock<scenes_and_entities::Scene>>, file: String) -> Result<thread::JoinHandle<()>, std::io::Error>{
     let handle = thread::Builder::new().name("listener thread".to_string()).spawn(move || {
         info!("Opened listener thread");
+        println!("about to unwrap ports vector");
         let ports = get_ports(file.as_str()).unwrap();
+        println!("successfully unwrapped ports vector");
         let mut addrs_iter = &(ports[..]);
         com::run_server(scene_ref, addrs_iter);
-    });
+    })
+    .map_err(|_| std::io::Error::new(std::io::ErrorKind::Other, "Thread spawn failed"))?;
 
-    handle
+    Ok(handle)
 }
 
 fn start_program(scene: scenes_and_entities::Scene) {
@@ -737,16 +740,6 @@ mod tests {
         set1 == set2
     }
 
-    /*
-    no servers section on toml
-    empty servers section
-    invalid formatting
-    one IP, one port
-    one IP, multiple ports
-    multiple IP, one port each
-    multiple IPs and ports
-    localhost
-    */
     fn get_ports_template(toml_name: &str, toml_contents: &str, expected: Result<Vec<SocketAddr>, Box<dyn std::error::Error>>){
         let file_name_string = format!("{}{}", toml_name, ".toml");
         let file_name = file_name_string.as_str();
@@ -878,5 +871,37 @@ irrelevant = content";
         let err = "invalid = [".parse::<toml::Value>().unwrap_err();
         let expected: Result<Vec<SocketAddr>, Box<dyn std::error::Error>> = Err(Box::new(err));
         get_ports_template(toml_name, toml_contents, expected);
+    }
+
+    fn create_listener_thread_template(toml_name: &str, toml_contents: &str){
+        let test_scene = scenes_and_entities::Scene::load_from_json_file("data/scene_loading/test_scene.json");
+        let scene_ref = Arc::new(RwLock::new(test_scene));
+        let file_name_string = format!("{}{}", toml_name, ".toml");
+        let file_name_string_clone = file_name_string.clone();
+        let file_name = file_name_string.as_str();
+        let file_path = Path::new(file_name);
+        let mut file = File::create(&file_path).unwrap();
+        _ = writeln!(file, "{}", toml_contents);
+        let handle = create_listener_thread(scene_ref, file_name_string_clone).unwrap();
+        let join_result = handle.join();
+        _ = remove_file(&file_path);
+        join_result.unwrap();
+    }
+
+    #[test]
+    fn create_listener_thread_success(){
+        let toml_name = "create_listener_thread_success";
+        let toml_contents = "[servers]
+\"127.0.0.1\" = [0]";
+        create_listener_thread_template(toml_name, toml_contents);
+    }
+
+    #[test]
+    #[should_panic]
+    fn create_listener_thread_failure(){
+        let toml_name = "create_listener_thread_failure";
+        let toml_contents = "[somethingelse]
+irrelevant = content";
+        create_listener_thread_template(toml_name, toml_contents);
     }
 }

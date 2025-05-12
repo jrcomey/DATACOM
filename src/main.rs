@@ -78,7 +78,7 @@ use text::{create_texture_atlas, TextDisplay};
 use core::time;
 use toml::{Value, de::Error};
 use serde_derive::Deserialize;
-use std::{cell::RefCell, collections::HashMap, collections::HashSet, io::Write, rc::Rc, fs, time::Instant, vec};        // Multithreading standard library items
+use std::{cell::RefCell, collections::HashMap, collections::HashSet, path::PathBuf, io::Write, rc::Rc, fs, time::Instant, vec};        // Multithreading standard library items
 mod scenes_and_entities;
 extern crate tobj;                                                          // .obj file loader
 extern crate rand;                                                          // Random number generator
@@ -107,55 +107,6 @@ fn main() {
     
 }
 
-fn get_ports(file: &str) -> Result<Vec<SocketAddr>, Box<dyn std::error::Error>>{
-    let contents = fs::read_to_string(file)?;
-    let parsed: Value = contents.parse::<Value>()?;
-    let mut result = Vec::new();
-
-    // get server table
-    if let Some(servers) = parsed.get("servers").and_then(|v| v.as_table()) {
-        // each line contains an IP address and an array of ports
-        for (ip, ports) in servers {
-            // println!("analyzing {ip} and {ports}");
-            if let Some(port_array) = ports.as_array() {
-                for port in port_array {
-                    if let Some(port_num) = port.as_integer() {
-                        // Convert the IP and port into a SocketAddr
-                        let port: u16 = port_num.try_into()?;
-                        let socket_addr: SocketAddr = if ip == "localhost" {
-                            let mut addrs = format!("{}:{}", ip, port).to_socket_addrs().unwrap();
-                            addrs.next().unwrap()
-                        } else {
-                            let ip_addr = ip.parse::<IpAddr>()?;
-                            SocketAddr::new(ip_addr, port)
-                        };
-                        // println!("adding {ip}:{port}");
-                        result.push(socket_addr);
-                    }
-                }
-            }
-        }
-    }
-
-    // we want an Err to return if no IP addresses were found
-    _ = result.get(0).ok_or("No IP address was found")?;
-    Ok(result)
-}
-
-fn create_listener_thread(scene_ref: Arc<RwLock<scenes_and_entities::Scene>>, file: String) -> Result<thread::JoinHandle<()>, std::io::Error>{
-    let handle = thread::Builder::new().name("listener thread".to_string()).spawn(move || {
-        info!("Opened listener thread");
-        println!("about to unwrap ports vector");
-        let ports = get_ports(file.as_str()).unwrap();
-        println!("successfully unwrapped ports vector");
-        let mut addrs_iter = &(ports[..]);
-        com::run_server(scene_ref, addrs_iter);
-    })
-    .map_err(|_| std::io::Error::new(std::io::ErrorKind::Other, "Thread spawn failed"))?;
-
-    Ok(handle)
-}
-
 fn start_program(scene: scenes_and_entities::Scene) {
 
     // Initialize glium items
@@ -169,7 +120,7 @@ fn start_program(scene: scenes_and_entities::Scene) {
     let scene_ref_2 = scene_ref.clone();
 
     // // Create Texture Atlas
-    let (image_atlas, glyph_map) = text::load_font_atlas("/Library/Fonts/Arial Unicode.ttf", 100.0);
+    let (image_atlas, glyph_map) = text::load_font_atlas(com::get_font().as_str(), 100.0);
     // let (image_atlas, glyph_map) = text::load_font_atlas("/usr/share/fonts/truetype/futura/Futura Light BT.ttf", 100.0);
     let glyph_map = Arc::new(glyph_map);
     let texture_atlas = Arc::new(create_texture_atlas(&gui.display, image_atlas));
@@ -227,7 +178,7 @@ fn start_program(scene: scenes_and_entities::Scene) {
     let start_time = std::time::SystemTime::now();
     let mut t = (std::time::SystemTime::now().duration_since(start_time).unwrap().as_micros() as f32) / (2.0*1E6*std::f32::consts::PI);
 
-    let listener_thread = create_listener_thread(scene_ref.clone(), "cargo/config.toml".to_string());
+    let listener_thread = com::create_listener_thread(scene_ref.clone(), "cargo/config.toml".to_string());
 
     // Multithreading TRx
     // let (tx_gui, rx_gui) = mpsc::sync_channel(1);
@@ -746,7 +697,7 @@ mod tests {
         let file_path = Path::new(file_name);
         let mut file = File::create(&file_path).unwrap();
         _ = writeln!(file, "{}", toml_contents);
-        let actual = get_ports(file_name);
+        let actual = com::get_ports(file_name);
         assert!(vectors_match(actual, expected));
         _ = remove_file(&file_path);
     }
@@ -882,7 +833,7 @@ irrelevant = content";
         let file_path = Path::new(file_name);
         let mut file = File::create(&file_path).unwrap();
         _ = writeln!(file, "{}", toml_contents);
-        let handle = create_listener_thread(scene_ref, file_name_string_clone).unwrap();
+        let handle = com::create_listener_thread(scene_ref, file_name_string_clone).unwrap();
         let join_result = handle.join();
         _ = remove_file(&file_path);
         join_result.unwrap();

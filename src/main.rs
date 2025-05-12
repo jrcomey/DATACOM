@@ -78,7 +78,7 @@ use text::{create_texture_atlas, TextDisplay};
 use core::time;
 use toml::{Value, de::Error};
 use serde_derive::Deserialize;
-use std::{cell::RefCell, collections::HashMap, collections::HashSet, io::Write, rc::Rc, fs, time::Instant, vec};        // Multithreading standard library items
+use std::{cell::RefCell, collections::HashMap, collections::HashSet, path::PathBuf, io::Write, rc::Rc, fs, time::Instant, vec};        // Multithreading standard library items
 mod scenes_and_entities;
 extern crate tobj;                                                          // .obj file loader
 extern crate rand;                                                          // Random number generator
@@ -156,6 +156,18 @@ fn create_listener_thread(scene_ref: Arc<RwLock<scenes_and_entities::Scene>>, fi
     Ok(handle)
 }
 
+fn get_font() -> String{
+    #[cfg(target_os="macos")]
+    {
+        "/Library/Fonts/Arial Unicode.ttf".to_string()
+    }
+
+    #[cfg(target_os="linux")]
+    {
+        "/usr/share/fonts/truetype/futura/JetBrainsMono-Bold.ttf".to_string()
+    }
+}
+
 fn start_program(scene: scenes_and_entities::Scene) {
 
     // Initialize glium items
@@ -169,7 +181,7 @@ fn start_program(scene: scenes_and_entities::Scene) {
     let scene_ref_2 = scene_ref.clone();
 
     // // Create Texture Atlas
-    let (image_atlas, glyph_map) = text::load_font_atlas("/Library/Fonts/Arial Unicode.ttf", 100.0);
+    let (image_atlas, glyph_map) = text::load_font_atlas(get_font().as_str(), 100.0);
     // let (image_atlas, glyph_map) = text::load_font_atlas("/usr/share/fonts/truetype/futura/Futura Light BT.ttf", 100.0);
     let glyph_map = Arc::new(glyph_map);
     let texture_atlas = Arc::new(create_texture_atlas(&gui.display, image_atlas));

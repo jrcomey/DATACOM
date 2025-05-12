@@ -70,15 +70,25 @@ pub fn from_network_with_protocol(stream: &mut TcpStream) -> Result<(), &str> {
 pub fn run_server<A: ToSocketAddrs>(scene_reference: Arc<RwLock<Scene>>, addr: A) {
     info!("Server started!");
     let listener = TcpListener::bind(addr).unwrap();
+    info!("Connection successful!");
+    listener.set_nonblocking(true).unwrap();
+    let start = std::time::Instant::now();
+    let timeout = std::time::Duration::from_secs(2);
 
     for stream in listener.incoming() {
+        // info!("received TCP stream!");
         match stream {
             Ok(stream) => {
                 let packet = from_network(&stream);
-                // debug!("Packet: {}", packet.as_str());
+                debug!("Packet: {}", packet.as_str());
                 scene_reference.write().unwrap().cmd_msg_str(&packet.as_str());
             },
-            Err(_) => {}
+            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                if start.elapsed() > timeout {
+                    break;
+                }
+            }
+            Err(_) => break,
         }
     }
         // match listener.accept() {

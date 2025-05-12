@@ -116,7 +116,7 @@ fn get_ports(file: &str) -> Result<Vec<SocketAddr>, Box<dyn std::error::Error>>{
     if let Some(servers) = parsed.get("servers").and_then(|v| v.as_table()) {
         // each line contains an IP address and an array of ports
         for (ip, ports) in servers {
-            println!("analyzing {ip} and {ports}");
+            // println!("analyzing {ip} and {ports}");
             if let Some(port_array) = ports.as_array() {
                 for port in port_array {
                     if let Some(port_num) = port.as_integer() {
@@ -129,7 +129,7 @@ fn get_ports(file: &str) -> Result<Vec<SocketAddr>, Box<dyn std::error::Error>>{
                             let ip_addr = ip.parse::<IpAddr>()?;
                             SocketAddr::new(ip_addr, port)
                         };
-                        println!("adding {ip}:{port}");
+                        // println!("adding {ip}:{port}");
                         result.push(socket_addr);
                     }
                 }

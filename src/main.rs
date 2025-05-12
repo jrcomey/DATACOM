@@ -162,6 +162,11 @@ fn get_font() -> String{
         "/Library/Fonts/Arial Unicode.ttf".to_string()
     }
 
+    #[cfg(target_os="windows")]
+    {
+        "/usr/share/fonts/truetype/futura/JetBrainsMono-Bold.ttf".to_string()
+    }
+
     #[cfg(target_os="linux")]
     {
         "/usr/share/fonts/truetype/futura/JetBrainsMono-Bold.ttf".to_string()

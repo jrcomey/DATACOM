@@ -2,11 +2,12 @@ use std::fmt::Error;
 use std::io::{Read, Write};
 // use tokio;
 // use tokio::time::sleep;
-use std::net::{ToSocketAddrs, TcpStream, TcpListener};
+use std::net::{ToSocketAddrs, TcpStream, IpAddr, TcpListener, SocketAddr};
 // use std::error::Error;
 use std::sync::{RwLock, Arc};
 use std::time::Duration;
-use std::fs::File;
+use std::{fs::File, fs, thread};
+use toml::Value;
 use glium::debug;
 
 use crate::scenes_and_entities::Scene;
@@ -100,4 +101,72 @@ pub fn run_server<A: ToSocketAddrs>(scene_reference: Arc<RwLock<Scene>>, addr: A
         //     }
         //     _ => {;},
         // }
+}
+
+
+
+pub fn get_ports(file: &str) -> Result<Vec<SocketAddr>, Box<dyn std::error::Error>>{
+    let contents = fs::read_to_string(file)?;
+    let parsed: Value = contents.parse::<Value>()?;
+    let mut result = Vec::new();
+
+    // get server table
+    if let Some(servers) = parsed.get("servers").and_then(|v| v.as_table()) {
+        // each line contains an IP address and an array of ports
+        for (ip, ports) in servers {
+            // println!("analyzing {ip} and {ports}");
+            if let Some(port_array) = ports.as_array() {
+                for port in port_array {
+                    if let Some(port_num) = port.as_integer() {
+                        // Convert the IP and port into a SocketAddr
+                        let port: u16 = port_num.try_into()?;
+                        let socket_addr: SocketAddr = if ip == "localhost" {
+                            let mut addrs = format!("{}:{}", ip, port).to_socket_addrs().unwrap();
+                            addrs.next().unwrap()
+                        } else {
+                            let ip_addr = ip.parse::<IpAddr>()?;
+                            SocketAddr::new(ip_addr, port)
+                        };
+                        // println!("adding {ip}:{port}");
+                        result.push(socket_addr);
+                    }
+                }
+            }
+        }
+    }
+
+    // we want an Err to return if no IP addresses were found
+    _ = result.get(0).ok_or("No IP address was found")?;
+    Ok(result)
+}
+
+pub fn create_listener_thread(scene_ref: Arc<RwLock<Scene>>, file: String) -> Result<thread::JoinHandle<()>, std::io::Error>{
+    let handle = thread::Builder::new().name("listener thread".to_string()).spawn(move || {
+        info!("Opened listener thread");
+        debug!("about to unwrap ports vector");
+        let ports = get_ports(file.as_str()).unwrap();
+        debug!("successfully unwrapped ports vector");
+        let mut addrs_iter = &(ports[..]);
+        run_server(scene_ref, addrs_iter);
+    })
+    .map_err(|_| std::io::Error::new(std::io::ErrorKind::Other, "Thread spawn failed"))?;
+
+    Ok(handle)
+}
+
+pub fn get_font() -> String{
+    #[cfg(target_os="macos")]
+    {
+        "/Library/Fonts/Arial Unicode.ttf".to_string()
+    }
+
+    #[cfg(target_os="windows")]
+    {
+        "/usr/share/fonts/truetype/futura/JetBrainsMono-Bold.ttf".to_string()
+    }
+
+    #[cfg(target_os="linux")]
+    {
+        "/usr/share/fonts/truetype/futura/JetBrainsMono-Bold.ttf".to_string()
+    }
 }

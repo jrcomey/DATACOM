@@ -8,7 +8,7 @@ use std::sync::{RwLock, Arc};
 use std::time::Duration;
 use std::{fs::File, fs, thread};
 use toml::Value;
-use glium::debug;
+use log::{debug, info};
 
 use crate::scenes_and_entities::Scene;
 // use tokio::io::{self, AsyncReadExt, AsyncWriteExt};

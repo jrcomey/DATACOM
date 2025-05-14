@@ -1,7 +1,7 @@
 // SCENES AND ENTITIES
 
 use crate::{com, dc::{self, green_vec}};
-use glium::debug;
+use log::{debug, info};
 use nalgebra as na;
 use num_traits::ToPrimitive;
 // use rand::Error;

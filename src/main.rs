@@ -66,12 +66,14 @@ extern crate glium;
 use dc::{GuiContainer, RenderContext, Text};
 use glium::texture::texture1d;
 // OpenGL Bindings
-use glium::{buffer, debug, winit, texture::RawImage2d, Texture2d, backend::glutin, Surface};
-use glium::winit::{event, keyboard};
+use glium::{buffer, texture::RawImage2d, Texture2d, backend::glutin, Surface};
+// use glium::winit::{event, keyboard};
+use winit::{event, keyboard};
+use log::{debug, info};
+
 use num_traits::ops::bytes;
 use scene_composer::test_scene;                                             // OpenGL imports
 // use glium:;
-use glium::debug::DebugCallbackBehavior;
 use rusttype;
 use image;
 use text::{create_texture_atlas, TextDisplay};
@@ -110,7 +112,7 @@ fn main() {
 fn start_program(scene: scenes_and_entities::Scene) {
 
     // Initialize glium items
-    let event_loop = glium::winit::event_loop::EventLoop::builder()
+    let event_loop = winit::event_loop::EventLoop::builder()
         .build()
         .expect("event loop building");                  // Create Event Loop
     let gui = dc::GuiContainer::init_opengl(&event_loop);                   // Initialize OpenGL interface

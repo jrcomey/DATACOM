@@ -1,12 +1,13 @@
 extern crate glium;
 use std::{fs::read_to_string, rc::Rc, sync::{Arc, RwLock}, time::Instant};
 use crate::scenes_and_entities;
-use glium::{debug::DebugCallbackBehavior, glutin::{self, surface::WindowSurface}, Display, Surface};
+use glium::{glutin::{self, surface::WindowSurface}, Display, Surface};
 use glium::winit::{self, window, 
     event::{
         MouseScrollDelta,
     }
 };
+use log::{debug, info};
 use std::fmt::Error;
 use crate::scenes_and_entities::Scene;
 

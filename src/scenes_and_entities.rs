@@ -12,8 +12,143 @@ use std::{
 use tobj::Model;
 use std::net::TcpListener;
 use std::fmt::Error;
+use winit::window::Window;
+use winit::event::WindowEvent;
 // const SCALE_FACTOR: f32 = 1E0;
 static ENTITY_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+struct State<'a> {
+    surface: wgpu::Surface<'a>,
+    device: wgpu::Device,
+    queue: wgpu::Queue,
+    config: wgpu::SurfaceConfiguration,
+    size: winit::dpi::PhysicalSize<u32>,
+    window: &'a Window,
+}
+
+impl<'a> State<'a> {
+    async fn new(window: &'a Window) -> State<'a> {
+        let size = window.inner_size();
+
+        // The instance is a handle to our GPU
+        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+            ..Default::default()
+        });
+
+        // surface is the part of the window to be drawn to
+        let surface = instance.create_surface(window).unwrap();
+
+        // adapter handles the graphics card
+        let adapter = instance.request_adapter(
+            &wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::default(),
+                compatible_surface: Some(&surface),
+                force_fallback_adapter: false,
+            },
+        ).await.unwrap();
+
+        let (device, queue) = adapter.request_device(
+            &wgpu::DeviceDescriptor {
+                required_features: wgpu::Features::empty(),
+                required_limits: wgpu::Limits::default(),
+                label: None,
+                memory_hints: Default::default(),
+                trace: wgpu::Trace::Off,
+            },
+        ).await.unwrap();
+        
+        // config defines how the surface creates SurfaceTextures
+        let surface_caps = surface.get_capabilities(&adapter);
+        let surface_format = surface_caps.formats.iter()
+            .find(|f| f.is_srgb())
+            .copied()
+            .unwrap_or(surface_caps.formats[0]);
+        let config = wgpu::SurfaceConfiguration {
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            format: surface_format,
+            width: size.width,
+            height: size.height,
+            present_mode: surface_caps.present_modes[0],
+            alpha_mode: surface_caps.alpha_modes[0],
+            view_formats: vec![],
+            desired_maximum_frame_latency: 2,
+        };
+
+        Self {
+            surface,
+            device,
+            queue,
+            config,
+            size,
+            window,
+        }
+    }
+
+    pub fn window(&self) -> &Window {
+        todo!()
+    }
+
+    // reconfigure the surface when the window's size changes
+    fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>){
+        if new_size.width > 0 && new_size.height > 0 {
+            self.size = new_size;
+            self.config.width = new_size.width;
+            self.config.height = new_size.height;
+            self.surface.configure(&self.device, &self.config);
+        }
+    }
+
+    fn input(&mut self, event: &WindowEvent) -> bool {
+        false
+    }
+
+    fn update(&mut self){
+        
+    }
+
+    // handles actual graphical rendering
+    fn render(&mut self) -> Result<(), wgpu::SurfaceError>{
+        // output is a new SurfaceTexture to be rendered to
+        let output = self.surface.get_current_texture()?;
+        let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+        // a CommandEncoder handles the commands sent to the GPU in the form of a buffer
+        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("Render Encoder"),
+        });
+
+        // this scope clears the screen and draws the texture
+        // it is in a separate scope because begin_render_pass() mutably borrows encoder
+        // encoder.finish() can't be called unless this mutable borrow is dropped beforehand
+        {
+            let _render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Render Pass"),
+                // color_attachments describes where the color will be drawn
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view, // which texture to save the colors to
+                    resolve_target: None, // texture that receives the output (same as view unless otherwise specified)
+                    ops: wgpu::Operations { // what to do with the colors
+                        load: wgpu::LoadOp::Clear(wgpu::Color { // how to handle colors from the previous frame
+                            r: 0.1,
+                            g: 0.2,
+                            b: 0.3,
+                            a: 1.0,
+                        }),
+                        store: wgpu::StoreOp::Store, // store the rendered results to the Texture bound to the view
+                    },
+                })],
+                depth_stencil_attachment: None,
+                occlusion_query_set: None,
+                timestamp_writes: None,
+            });
+        }
+
+        self.queue.submit(std::iter::once(encoder.finish()));
+        output.present();
+
+        Ok(())
+    }
+}
 
 
 // Define the wireframe or model representation

@@ -14,8 +14,37 @@ use std::net::TcpListener;
 use std::fmt::Error;
 use winit::window::Window;
 use winit::event::WindowEvent;
+use wgpu::util::DeviceExt;
 // const SCALE_FACTOR: f32 = 1E0;
 static ENTITY_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+struct Vertex {
+    position: [f32; 3],
+    color: [f32; 3],
+}
+
+impl Vertex {
+    fn desc() -> wgpu::VertexBufferLayout<'static> {
+        wgpu::VertexBufferLayout {
+            array_stride: std::mem::size_of::<Vertex>() as wgpu::BufferAddress, // how wide the vertex is
+            step_mode: wgpu::VertexStepMode::Vertex, // whether each buffer element is per-vertex or per-instance
+            attributes: &[
+                wgpu::VertexAttribute {
+                    offset: 0,
+                    shader_location: 0,
+                    format: wgpu::VertexFormat::Float32x3,
+                },
+                wpgu::VertexAttribute {
+                    offset: std::mem::size_of::<[f32; 3]>() as wgpu::BufferAddress,
+                    shader_location: 1,
+                    format: wgpu::VertexFormat::Float32x3,
+                }
+            ]
+        }
+    }
+}
 
 struct State<'a> {
     surface: wgpu::Surface<'a>,
@@ -25,6 +54,7 @@ struct State<'a> {
     size: winit::dpi::PhysicalSize<u32>,
     window: &'a Window,
     render_pipeline: wgpu::RenderPipeline,
+    vertex_buffer: wgpu::Buffer,
 }
 
 impl<'a> State<'a> {
@@ -93,7 +123,9 @@ impl<'a> State<'a> {
             vertex: wgpu::VertexState {
                 module: &shader,
                 entry_point: Some("vs_main"),
-                buffers: &[],
+                buffers: &[
+                    Vertex::desc(),
+                ],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             },
             fragment: Some(wgpu::FragmentState {
@@ -125,6 +157,14 @@ impl<'a> State<'a> {
             cache: None
         });
 
+        let vertex_buffer = device.create_buffer_init(
+            &wgpu::util::BufferInitDescriptor {
+                label: Some("Vertex Buffer"),
+                contents: bytemuck::cast_slice(VERTICES), // TODO: replace VERTICES with obj vertices
+                usage: wgpu::BufferUsages::VERTEX,
+            }
+        );
+
         Self {
             surface,
             device,
@@ -133,6 +173,7 @@ impl<'a> State<'a> {
             size,
             window,
             render_pipeline,
+            vertex_buffer,
         }
     }
 
@@ -173,7 +214,7 @@ impl<'a> State<'a> {
         // it is in a separate scope because begin_render_pass() mutably borrows encoder
         // encoder.finish() can't be called unless this mutable borrow is dropped beforehand
         {
-            let _render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Render Pass"),
                 // color_attachments describes where the color will be drawn
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -193,6 +234,10 @@ impl<'a> State<'a> {
                 occlusion_query_set: None,
                 timestamp_writes: None,
             });
+
+            render_pass.set_pipeline(&self.render_pipeline);
+            render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+            render_pass.draw(0..3, 0..1);
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));

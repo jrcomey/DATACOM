@@ -29,13 +29,13 @@ pub type Rgba = na::SVector<f32, 4>;
 
 pub struct Viewport {
     pub color: Rgba,                  // Color of viewport
-    pub is_active: bool,                                // Active status of viewport
-    pub root: na::Point2<f64>,                          // Upper left window coordinate
-    pub height: f64,                                    // Height of window from top -> down side   (RANGE 0 -> 2)
-    pub width: f64,                                     // Width of window from left -> right side  (RANGE 0 -> 2)
-    pub content: Arc<RwLock<Scene>>,                    // Pointer to content to be drawn           
-    pub context: RenderContext,                         // Local Viewport Render Context
-    pub camera: Camera                                  // Camera struct
+    pub is_active: bool,              // Active status of viewport
+    pub root: na::Point2<f64>,        // Upper left window coordinate
+    pub height: f64,                  // Height of window from top -> down side   (RANGE 0 -> 2)
+    pub width: f64,                   // Width of window from left -> right side  (RANGE 0 -> 2)
+    pub content: Arc<RwLock<Scene>>,  // Pointer to content to be drawn           
+    pub context: RenderContext,       // Local Viewport Render Context
+    pub camera: Camera                // Camera struct
 }
 
 impl Viewport {
@@ -614,34 +614,44 @@ impl Draw for null_content {
 
 /* Display Engine Structs & Functions */
 
-#[derive(Copy, Clone)]
-pub struct Vertex {
-    pub position: [f64; 3],
+pub trait Vertex {
+    fn desc() -> wgpu::VertexBufferLayout<'static>;
 }
-glium::implement_vertex!(Vertex, position);
 
-impl Vertex {
-    pub fn newtwo(x: f64, y: f64) -> Vertex {
-        Vertex { position: [x, y, 0.0] }
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct ModelVertex {
+    pub position: [f32; 3],
+    pub tex_coords: [f32; 2],
+    pub normal: [f32; 3],
+}
+
+impl Vertex for ModelVertex {
+    fn desc() -> wgpu::VertexBufferLayout<'static> {
+        use std::mem;
+        wgpu::VertexBufferLayout {
+            array_stride: mem::size_of::<ModelVertex>() as wgpu::BufferAddress, // how wide the vertex is
+            step_mode: wgpu::VertexStepMode::Vertex, // whether each buffer element is per-vertex or per-instance
+            attributes: &[
+                wgpu::VertexAttribute {
+                    offset: 0,
+                    shader_location: 0,
+                    format: wgpu::VertexFormat::Float32x3,
+                },
+                wgpu::VertexAttribute {
+                    offset: mem::size_of::<[f32; 3]>() as wgpu::BufferAddress,
+                    shader_location: 1,
+                    format: wgpu::VertexFormat::Float32x3,
+                },
+                wgpu::VertexAttribute {
+                    offset: mem::size_of::<[f32; 5]>() as wgpu::BufferAddress,
+                    shader_location: 2,
+                    format: wgpu::VertexFormat::Float32x3,
+                },
+            ],
+        }
     }
-
-    pub fn new(x: f64, y: f64, z: f64) -> Vertex {
-        Vertex { position: [x, y, z] }
-    }
 }
-
-
-#[derive(Copy, Clone)]
-pub struct Normal {
-    normal: [f64; 3],
-}
-
-impl Normal {
-    pub fn new(x: f64, y: f64, z: f64) -> Normal {
-        Normal { normal: [x, y, z] }
-    }
-}
-glium::implement_vertex!(Normal, normal);
 
 // Struct for information containing program-level OpenGL elements
 pub struct GuiContainer {

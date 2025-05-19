@@ -55,6 +55,9 @@ struct State<'a> {
     window: &'a Window,
     render_pipeline: wgpu::RenderPipeline,
     vertex_buffer: wgpu::Buffer,
+    index_buffer: wgpu::Buffer,
+    num_vertices: u32,
+    num_indices: u32,
 }
 
 impl<'a> State<'a> {
@@ -164,6 +167,17 @@ impl<'a> State<'a> {
                 usage: wgpu::BufferUsages::VERTEX,
             }
         );
+        
+        let index_buffer = device.create_buffer_init(
+            &wgpu::util::BufferInitDescriptor {
+                label: Some("Index Buffer"),
+                contents: bytemuck::cast_slice(INDICES),
+                usage: wgpu::BufferUsages::INDEX,
+            }
+        );
+
+        let num_vertices = VERTICES.len() as u32;
+        let num_indices = INDICES.len() as u32; // TODO: replace INDICES with obj indices
 
         Self {
             surface,
@@ -174,6 +188,9 @@ impl<'a> State<'a> {
             window,
             render_pipeline,
             vertex_buffer,
+            index_buffer,
+            num_vertices,
+            num_indices,
         }
     }
 
@@ -237,7 +254,8 @@ impl<'a> State<'a> {
 
             render_pass.set_pipeline(&self.render_pipeline);
             render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-            render_pass.draw(0..3, 0..1);
+            render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+            render_pass.draw(0..self.num_vertices, 0..1);
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));

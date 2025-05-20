@@ -131,7 +131,6 @@ where
         camera_bind_group: &'b wgpu::BindGroup,
     ) {
         for mesh in &model.meshes {
-            let material = &model.materials[mesh.material];
             self.draw_mesh_instanced(
                 mesh,
                 instances.clone(),

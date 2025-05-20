@@ -96,6 +96,9 @@ mod scene_composer;
 use std::net::{ToSocketAddrs, IpAddr, SocketAddr, TcpListener, TcpStream};
 mod com;
 mod text;
+mod model;
+mod camera;
+mod resources;
 
 pub async fn run() {
 

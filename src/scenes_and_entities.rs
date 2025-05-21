@@ -1,7 +1,7 @@
 // SCENES AND ENTITIES
 
 use crate::{com, camera, resources, dc::{self, green_vec}};
-use crate::model::{DrawModel, Vertex};
+use crate::model::{self, DrawModel, Vertex};
 use log::{debug, info};
 use nalgebra as na;
 use cgmath::prelude::*;
@@ -66,7 +66,7 @@ struct InstanceRaw {
     normal: [[f32; 3]; 3],
 }
 
-impl crate::model::Vertex for InstanceRaw {
+impl model::Vertex for InstanceRaw {
     fn desc() -> wgpu::VertexBufferLayout<'static> {
         use std::mem;
         wgpu::VertexBufferLayout {
@@ -120,7 +120,7 @@ impl crate::model::Vertex for InstanceRaw {
     }
 }
 
-pub struct State<'a> {
+pub struct Scene<'a> {
     surface: wgpu::Surface<'a>,
     device: wgpu::Device,
     queue: wgpu::Queue,
@@ -128,7 +128,7 @@ pub struct State<'a> {
     size: winit::dpi::PhysicalSize<u32>,
     window: &'a Window,
     render_pipeline: wgpu::RenderPipeline,
-    obj_model: crate::model::Model,
+    obj_models: Vec<model::Model>,
     camera: camera::Camera,
     projection: camera::Projection,
     camera_controller: camera::CameraController,
@@ -197,8 +197,8 @@ fn create_render_pipeline(
     })
 }
 
-impl<'a> State<'a> {
-    pub async fn new(window: &'a Window) -> State<'a> {
+impl<'a> Scene<'a> {
+    pub async fn new(window: &'a Window) -> Scene<'a> {
         let size = window.inner_size();
 
         // The instance is a handle to our GPU
@@ -301,10 +301,12 @@ impl<'a> State<'a> {
             label: Some("camera_bind_group"),
         });
 
+        // TODO: change this
         let obj_model =
             crate::resources::load_model("cube.obj", &device, &queue)
                 .await
                 .unwrap();
+        let obj_models = vec![obj_model];
 
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -324,7 +326,7 @@ impl<'a> State<'a> {
                 &device,
                 &render_pipeline_layout,
                 config.format,
-                &[crate::model::ModelVertex::desc(), InstanceRaw::desc()],
+                &[model::ModelVertex::desc(), InstanceRaw::desc()],
                 shader,
             )
         };
@@ -337,7 +339,7 @@ impl<'a> State<'a> {
             size,
             window,
             render_pipeline,
-            obj_model,
+            obj_models,
             camera,
             projection,
             camera_controller,
@@ -775,35 +777,91 @@ impl<'a> State<'a> {
 //     }
 // }
 
-// // Define the component for a behavior
-// pub struct BehaviorComponent {
-//     // Define the behavior-specific data and logic
-//     // This could include methods for movement, rotation, etc.
-//     // Intended to be used for constant animations: e.g. spinning rotors that
-//     // don't need to wait for external command but should perform anyway
-//     pub behavior: Command,
-// }
+// Types of command
+#[derive(Copy, Clone)]
+pub enum BehaviorType {
+    EntityRotate,
+    EntityTranslate,
+    EntityChangePosition,
+    ComponentRotate,
+    ComponentTranslate,
+    ComponentChangeColor,
+    ComponentRotateConstantSpeed,
+    ModifyBehavior,
+    Null,
+}
 
-// impl BehaviorComponent {
-//     pub fn new(behavior_vector: Command) -> BehaviorComponent {
-//         BehaviorComponent {
-//             behavior: behavior_vector,
-//         }
-//     }
+impl BehaviorType {
+    pub fn match_from_string(input_string: &str) -> BehaviorType {
+        match input_string {
+            "EntityRotate" => BehaviorType::EntityRotate,
+            "EntityTranslate" => BehaviorType::EntityTranslate,
+            "EntityChangePosition" => BehaviorType::EntityChangePosition,
+            "ComponentRotate" => BehaviorType::ComponentRotate,
+            "ComponentTranslate" => BehaviorType::ComponentTranslate,
+            "ComponentChangeColor" => BehaviorType::ComponentChangeColor,
+            "ComponentRotateConstantSpeed" => BehaviorType::ComponentRotateConstantSpeed,
+            "ModifyBehavior" => BehaviorType::ModifyBehavior,
+            _ => BehaviorType::Null,
+        }
+    }
+}
 
-//     pub fn get_behavior(&self) -> Command {
-//         self.behavior.clone()
-//     }
+// Define the component for a behavior
+pub struct Behavior {
+    // Define the behavior-specific data and logic
+    // This could include methods for movement, rotation, etc.
+    // Intended to be used for constant animations: e.g. spinning rotors that
+    // don't need to wait for external command but should perform anyway
+    pub behavior_type: BehaviorType,
+    pub data: Vec<f64>,
+}
 
-//     pub fn change_command_data(&mut self, new_data: Vec<f64>) {
-//         self.behavior.change_data(new_data);
-//     }
+impl Behavior {
+    pub fn new(behavior_type: BehaviorType, data: Vec<f64>) -> Behavior {
+        Self {
+            behavior_type: behavior_type,
+            data: data,
+        }
+    }
 
-//     pub fn load_from_json(json_parsed: &serde_json::Value) -> BehaviorComponent {
-//         let command = Command::from_json(json_parsed);
-//         BehaviorComponent { behavior: command }
-//     }
-// }
+    pub fn get_data(&self) -> &Vec<f64> {
+        &self.data
+    }
+
+    pub fn change_data(&mut self, new_data: Vec<f64>) {
+        self.data = new_data;
+    }
+
+    pub fn from_json(json_parsed: &serde_json::Value) -> Behavior {
+        let data_temp: Vec<_> = json_parsed["data"]
+            .as_array()
+            .unwrap()
+            .into_iter()
+            .collect();
+        let mut data: Vec<f64> = vec![];
+        for (i, data_point) in data_temp.iter().enumerate() {
+            data.push(data_point.as_f64().unwrap());
+        }
+
+        // let data: Vec<_> = match json_parsed["data"].as_array() {
+        //     Some(data_temp) => {
+        //         let data_temp: Vec<_> = json_parsed["data"].as_array().unwrap().into_iter().collect();
+        //         let mut data: Vec<f64> = vec![];
+        //         for (i, data_point) in data_temp.iter().enumerate() {
+        //             data.push(data_point.as_f64().unwrap());
+        //         }
+        //         data
+        //     },
+        //     None => vec![],
+        // };
+
+        let behavior_type: BehaviorType =
+            BehaviorType::match_from_string(json_parsed["commandType"].as_str().unwrap());
+
+        Behavior::new(behavior_type, data)
+    }
+}
 
 // // Define the entity structure
 // pub struct Entity {
@@ -1060,87 +1118,6 @@ impl<'a> State<'a> {
 //                     .prepend_nonuniform_scaling(&scale_vec),
 //             );
 //         }
-//     }
-// }
-
-// // Types of command
-// #[derive(Copy, Clone)]
-// pub enum CommandType {
-//     EntityRotate,
-//     EntityTranslate,
-//     EntityChangePosition,
-//     ComponentRotate,
-//     ComponentTranslate,
-//     ComponentChangeColor,
-//     ComponentRotateConstantSpeed,
-//     ModifyBehavior,
-//     Null,
-// }
-
-// impl CommandType {
-//     pub fn match_from_string(input_string: &str) -> CommandType {
-//         match input_string {
-//             "EntityRotate" => CommandType::EntityRotate,
-//             "EntityTranslate" => CommandType::EntityTranslate,
-//             "EntityChangePosition" => CommandType::EntityChangePosition,
-//             "ComponentRotate" => CommandType::ComponentRotate,
-//             "ComponentTranslate" => CommandType::ComponentTranslate,
-//             "ComponentChangeColor" => CommandType::ComponentChangeColor,
-//             "ComponentRotateConstantSpeed" => CommandType::ComponentRotateConstantSpeed,
-//             "ModifyBehavior" => CommandType::ModifyBehavior,
-//             _ => CommandType::Null,
-//         }
-//     }
-// }
-// #[derive(Clone)]
-// pub struct Command {
-//     pub cmd_type: CommandType,
-//     pub data: Vec<f64>,
-// }
-
-// impl Command {
-//     pub fn new(cmd_type: CommandType, data: Vec<f64>) -> Command {
-//         Command {
-//             cmd_type: cmd_type,
-//             data: data,
-//         }
-//     }
-
-//     pub fn change_data(&mut self, new_data: Vec<f64>) {
-//         self.data = new_data;
-//     }
-
-//     pub fn get_data(&self) -> &Vec<f64> {
-//         &self.data
-//     }
-
-//     pub fn from_json(json_parsed: &serde_json::Value) -> Command {
-//         let data_temp: Vec<_> = json_parsed["data"]
-//             .as_array()
-//             .unwrap()
-//             .into_iter()
-//             .collect();
-//         let mut data: Vec<f64> = vec![];
-//         for (i, data_point) in data_temp.iter().enumerate() {
-//             data.push(data_point.as_f64().unwrap());
-//         }
-
-//         // let data: Vec<_> = match json_parsed["data"].as_array() {
-//         //     Some(data_temp) => {
-//         //         let data_temp: Vec<_> = json_parsed["data"].as_array().unwrap().into_iter().collect();
-//         //         let mut data: Vec<f64> = vec![];
-//         //         for (i, data_point) in data_temp.iter().enumerate() {
-//         //             data.push(data_point.as_f64().unwrap());
-//         //         }
-//         //         data
-//         //     },
-//         //     None => vec![],
-//         // };
-
-//         let command_type: CommandType =
-//             CommandType::match_from_string(json_parsed["commandType"].as_str().unwrap());
-
-//         Command::new(command_type, data)
 //     }
 // }
 

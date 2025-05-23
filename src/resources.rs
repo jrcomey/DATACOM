@@ -7,7 +7,6 @@ use crate::model;
 pub async fn load_mesh(
     file_name: &str,
     device: &wgpu::Device,
-    color: 
 ) -> anyhow::Result<model::Mesh> {
     let obj_cursor = Cursor::new(file_name);
     let mut obj_reader = BufReader::new(obj_cursor);

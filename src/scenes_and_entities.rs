@@ -1,7 +1,7 @@
 // SCENES AND ENTITIES
 
 use crate::{com, camera, resources, dc::{self, green_vec}};
-use crate::model::{self, DrawModel, Vertex};
+use crate::model::{self, DrawMesh, Vertex};
 use log::{debug, info};
 use nalgebra as na;
 use cgmath::prelude::*;
@@ -15,30 +15,152 @@ use std::net::TcpListener;
 use std::fmt::Error;
 use winit::window::Window;
 use winit::event::{WindowEvent, KeyEvent, MouseButton, ElementState};
-use winit::keyboard::{PhysicalKey};
+use winit::keyboard::{PhysicalKey, KeyCode};
 use wgpu::{util::DeviceExt, SurfaceConfiguration};
 // const SCALE_FACTOR: f32 = 1E0;
 static ENTITY_COUNTER: AtomicU64 = AtomicU64::new(0);
 
+#[rustfmt::skip]
+pub const OPENGL_TO_WGPU_MATRIX: cgmath::Matrix4<f32> = cgmath::Matrix4::new(
+    1.0, 0.0, 0.0, 0.0,
+    0.0, 1.0, 0.0, 0.0,
+    0.0, 0.0, 0.5, 0.5,
+    0.0, 0.0, 0.0, 1.0,
+);
+
+#[derive(Debug)]
+struct Camera {
+    eye: cgmath::Point3<f32>,
+    target: cgmath::Point3<f32>,
+    up: cgmath::Vector3<f32>,
+    aspect: f32,
+    fovy: f32,
+    znear: f32,
+    zfar: f32,
+}
+
+impl Camera {
+    fn build_view_projection_matrix(&self) -> cgmath::Matrix4<f32> {
+        let view = cgmath::Matrix4::look_at_rh(self.eye, self.target, self.up);
+        let proj = cgmath::perspective(cgmath::Deg(self.fovy), self.aspect, self.znear, self.zfar);
+        proj * view
+    }
+}
+
 #[repr(C)]
-#[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 struct CameraUniform {
-    view_position: [f32; 4],
     view_proj: [[f32; 4]; 4],
 }
 
 impl CameraUniform {
     fn new() -> Self {
         Self {
-            view_position: [0.0; 4],
             view_proj: cgmath::Matrix4::identity().into(),
         }
     }
 
-    // UPDATED!
-    fn update_view_proj(&mut self, camera: &camera::Camera, projection: &camera::Projection) {
-        self.view_position = camera.position.to_homogeneous().into();
-        self.view_proj = (projection.calc_matrix() * camera.calc_matrix()).into()
+    fn update_view_proj(&mut self, camera: &Camera) {
+        self.view_proj = (OPENGL_TO_WGPU_MATRIX * camera.build_view_projection_matrix()).into();
+    }
+}
+
+struct CameraController {
+    speed: f32,
+    is_up_pressed: bool,
+    is_down_pressed: bool,
+    is_forward_pressed: bool,
+    is_backward_pressed: bool,
+    is_left_pressed: bool,
+    is_right_pressed: bool,
+}
+
+impl CameraController {
+    fn new(speed: f32) -> Self {
+        Self {
+            speed,
+            is_up_pressed: false,
+            is_down_pressed: false,
+            is_forward_pressed: false,
+            is_backward_pressed: false,
+            is_left_pressed: false,
+            is_right_pressed: false,
+        }
+    }
+
+    fn process_events(&mut self, event: &WindowEvent) -> bool {
+        match event {
+            WindowEvent::KeyboardInput {
+                event:
+                    KeyEvent {
+                        state,
+                        physical_key: PhysicalKey::Code(keycode),
+                        ..
+                    },
+                ..
+            } => {
+                let is_pressed = *state == ElementState::Pressed;
+                match keycode {
+                    KeyCode::Space => {
+                        self.is_up_pressed = is_pressed;
+                        true
+                    }
+                    KeyCode::ShiftLeft => {
+                        self.is_down_pressed = is_pressed;
+                        true
+                    }
+                    KeyCode::KeyW | KeyCode::ArrowUp => {
+                        self.is_forward_pressed = is_pressed;
+                        true
+                    }
+                    KeyCode::KeyA | KeyCode::ArrowLeft => {
+                        self.is_left_pressed = is_pressed;
+                        true
+                    }
+                    KeyCode::KeyS | KeyCode::ArrowDown => {
+                        self.is_backward_pressed = is_pressed;
+                        true
+                    }
+                    KeyCode::KeyD | KeyCode::ArrowRight => {
+                        self.is_right_pressed = is_pressed;
+                        true
+                    }
+                    _ => false,
+                }
+            }
+            _ => false,
+        }
+    }
+
+    fn update_camera(&self, camera: &mut Camera) {
+        let forward = camera.target - camera.eye;
+        let forward_norm = forward.normalize();
+        let forward_mag = forward.magnitude();
+
+        // Prevents glitching when camera gets too close to the
+        // center of the scene.
+        if self.is_forward_pressed && forward_mag > self.speed {
+            camera.eye += forward_norm * self.speed;
+        }
+        if self.is_backward_pressed {
+            camera.eye -= forward_norm * self.speed;
+        }
+
+        let right = forward_norm.cross(camera.up);
+
+        // Redo radius calc in case the up/ down is pressed.
+        let forward = camera.target - camera.eye;
+        let forward_mag = forward.magnitude();
+
+        if self.is_right_pressed {
+            // Rescale the distance between the target and eye so
+            // that it doesn't change. The eye therefore still
+            // lies on the circle made by the target and eye.
+            camera.eye = camera.target - (forward + right * self.speed).normalize() * forward_mag;
+        }
+        if self.is_left_pressed {
+            camera.eye = camera.target - (forward - right * self.speed).normalize() * forward_mag;
+        }
     }
 }
 
@@ -53,17 +175,54 @@ impl Instance {
             model: (cgmath::Matrix4::from_translation(self.position)
                 * cgmath::Matrix4::from(self.rotation))
             .into(),
-            normal: cgmath::Matrix3::from(self.rotation).into(),
         }
     }
 }
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-#[allow(dead_code)]
 struct InstanceRaw {
+    #[allow(dead_code)]
     model: [[f32; 4]; 4],
-    normal: [[f32; 3]; 3],
+}
+
+impl InstanceRaw {
+    fn desc() -> wgpu::VertexBufferLayout<'static> {
+        use std::mem;
+        wgpu::VertexBufferLayout {
+            array_stride: mem::size_of::<InstanceRaw>() as wgpu::BufferAddress,
+            // We need to switch from using a step mode of Vertex to Instance
+            // This means that our shaders will only change to use the next
+            // instance when the shader starts processing a new instance
+            step_mode: wgpu::VertexStepMode::Instance,
+            attributes: &[
+                wgpu::VertexAttribute {
+                    offset: 0,
+                    // While our vertex shader only uses locations 0, and 1 now, in later tutorials we'll
+                    // be using 2, 3, and 4, for Vertex. We'll start at slot 5 not conflict with them later
+                    shader_location: 5,
+                    format: wgpu::VertexFormat::Float32x4,
+                },
+                // A mat4 takes up 4 vertex slots as it is technically 4 vec4s. We need to define a slot
+                // for each vec4. We don't have to do this in code though.
+                wgpu::VertexAttribute {
+                    offset: mem::size_of::<[f32; 4]>() as wgpu::BufferAddress,
+                    shader_location: 6,
+                    format: wgpu::VertexFormat::Float32x4,
+                },
+                wgpu::VertexAttribute {
+                    offset: mem::size_of::<[f32; 8]>() as wgpu::BufferAddress,
+                    shader_location: 7,
+                    format: wgpu::VertexFormat::Float32x4,
+                },
+                wgpu::VertexAttribute {
+                    offset: mem::size_of::<[f32; 12]>() as wgpu::BufferAddress,
+                    shader_location: 8,
+                    format: wgpu::VertexFormat::Float32x4,
+                },
+            ],
+        }
+    }
 }
 
 impl model::Vertex for InstanceRaw {
@@ -128,9 +287,8 @@ pub struct Scene<'a> {
     size: winit::dpi::PhysicalSize<u32>,
     window: &'a Window,
     render_pipeline: wgpu::RenderPipeline,
-    obj_models: Vec<model::Model>,
+    obj_meshes: Vec<model::Mesh>,
     camera: camera::Camera,
-    projection: camera::Projection,
     camera_controller: camera::CameraController,
     camera_uniform: CameraUniform,
     camera_buffer: wgpu::Buffer,
@@ -164,10 +322,7 @@ fn create_render_pipeline(
             entry_point: Some("fs_main"),
             targets: &[Some(wgpu::ColorTargetState {
                 format: format,
-                blend: Some(wgpu::BlendState {
-                    alpha: wgpu::BlendComponent::REPLACE,
-                    color: wgpu::BlendComponent::REPLACE,
-                }),
+                blend: None,
                 write_mask: wgpu::ColorWrites::ALL,
             })],
             compilation_options: Default::default(),
@@ -178,7 +333,7 @@ fn create_render_pipeline(
             front_face: wgpu::FrontFace::Ccw,
             cull_mode: Some(wgpu::Face::Back),
             // Setting this to anything other than Fill requires Features::NON_FILL_POLYGON_MODE
-            polygon_mode: wgpu::PolygonMode::Fill,
+            polygon_mode: wgpu::PolygonMode::Line,
             // Requires Features::DEPTH_CLIP_CONTROL
             unclipped_depth: false,
             // Requires Features::CONSERVATIVE_RASTERIZATION
@@ -221,7 +376,7 @@ impl<'a> Scene<'a> {
 
         let (device, queue) = adapter.request_device(
             &wgpu::DeviceDescriptor {
-                required_features: wgpu::Features::empty(),
+                required_features: wgpu::Features::POLYGON_MODE_LINE,
                 required_limits: wgpu::Limits::default(),
                 label: None,
                 memory_hints: Default::default(),
@@ -247,15 +402,19 @@ impl<'a> Scene<'a> {
             desired_maximum_frame_latency: 2,
         };
 
-        // textures go here
-
-        let camera = camera::Camera::new((0.0, 5.0, 10.0), cgmath::Deg(-90.0), cgmath::Deg(-20.0));
-        let projection =
-            camera::Projection::new(config.width, config.height, cgmath::Deg(45.0), 0.1, 100.0);
-        let camera_controller = camera::CameraController::new(4.0, 0.4);
+        let camera = Camera {
+            eye: (0.0, 5.0, -10.0).into(),
+            target: (0.0, 0.0, 0.0).into(),
+            up: cgmath::Vector3::unit_y(),
+            aspect: config.width as f32 / config.height as f32,
+            fovy: 45.0,
+            znear: 0.1,
+            zfar: 100.0,
+        };
+        let camera_controller = CameraController::new(0.2);
 
         let mut camera_uniform = CameraUniform::new();
-        camera_uniform.update_view_proj(&camera, &projection);
+        camera_uniform.update_view_proj(&camera);
 
         let camera_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Camera Buffer"),
@@ -263,11 +422,23 @@ impl<'a> Scene<'a> {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
-        // TODO: change this to once instance of a blizzard
-        const SPACE_BETWEEN: f32 = 3.0;
-        let position = cgmath::Vector3 {x: 0.0, y: 0.0, z: 0.0};
-        let rotation = cgmath::Quaternion::from_axis_angle(cgmath::Vector3::unit_z(), cgmath::Deg(0.0));
-        let instance = Instance { position, rotation };
+        // // TODO: change this to once instance of a blizzard
+        // const SPACE_BETWEEN: f32 = 3.0;
+        // let position = cgmath::Vector3 {x: 0.0, y: 0.0, z: 0.0};
+        // let rotation = cgmath::Quaternion::from_axis_angle(cgmath::Vector3::unit_z(), cgmath::Deg(0.0));
+        // let instance = Instance { position, rotation };
+        // let instances = vec![instance];
+        let instance = Instance {
+            position: cgmath::Vector3 {
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
+            },
+            rotation: cgmath::Quaternion::from_axis_angle(
+                cgmath::Vector3::unit_z(),
+                cgmath::Deg(0.0),
+            ),
+        };
         let instances = vec![instance];
 
         let instance_data = instances.iter().map(Instance::to_raw).collect::<Vec<_>>();
@@ -281,7 +452,7 @@ impl<'a> Scene<'a> {
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 entries: &[wgpu::BindGroupLayoutEntry {
                     binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                    visibility: wgpu::ShaderStages::VERTEX,
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Uniform,
                         has_dynamic_offset: false,
@@ -302,11 +473,11 @@ impl<'a> Scene<'a> {
         });
 
         // TODO: change this
-        let obj_model =
-            crate::resources::load_model("cube.obj", &device, &queue)
+        let obj_mesh =
+            resources::load_mesh("blizzard.obj", &device)
                 .await
                 .unwrap();
-        let obj_models = vec![obj_model];
+        let obj_meshes = vec![obj_mesh];
 
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -339,9 +510,8 @@ impl<'a> Scene<'a> {
             size,
             window,
             render_pipeline,
-            obj_models,
+            obj_meshes,
             camera,
-            projection,
             camera_controller,
             camera_buffer,
             camera_bind_group,
@@ -396,7 +566,7 @@ impl<'a> Scene<'a> {
     fn update(&mut self, dt: std::time::Duration){
         self.camera_controller.update_camera(&mut self.camera, dt);
         self.camera_uniform
-            .update_view_proj(&self.camera, &self.projection);
+            .update_view_proj(&self.camera);
         self.queue.write_buffer(
             &self.camera_buffer,
             0,
@@ -441,9 +611,14 @@ impl<'a> Scene<'a> {
             });
 
             render_pass.set_vertex_buffer(0, self.instance_buffer.slice(..));
-            render_pass.draw_model_instanced(
-                &self.obj_model,
-                0..self.instances.len() as u32,
+            render_pass.set_pipeline(&self.render_pipeline);
+            // render_pass.draw_mesh_instanced(
+            //     &self.obj_mesh,
+            //     0..self.instances.len() as u32,
+            //     &self.camera_bind_group,
+            // );
+            render_pass.draw_mesh(
+                &self.obj_mesh,
                 &self.camera_bind_group,
             );
         }
@@ -456,326 +631,326 @@ impl<'a> Scene<'a> {
 }
 
 
-// // Define the wireframe or model representation
-// pub struct WireframeObject {
-//     // Define the structure for your wireframe representation
-//     // This could include vertex data, indices, color, etc.
-//     // ...
-//     positions: Vec<dc::ModelVertex>,
-//     normals: Vec<dc::ModelVertex>,
-//     indices: Vec<u32>,
-//     color: na::base::Vector4<f32>,
-// }
+// Define the wireframe or model representation
+pub struct WireframeObject {
+    // Define the structure for your wireframe representation
+    // This could include vertex data, indices, color, etc.
+    // ...
+    positions: Vec<dc::ModelVertex>,
+    normals: Vec<dc::ModelVertex>,
+    indices: Vec<u32>,
+    color: na::base::Vector4<f32>,
+}
 
-// impl WireframeObject {
-//     pub fn load_wireframe_from_obj(
-//         filepath: &str,
-//         colorvec: na::base::Vector4<f32>,
-//     ) -> WireframeObject {
-//         let file = tobj::load_obj(filepath, &tobj::GPU_LOAD_OPTIONS);
-//         assert!(file.is_ok());
+impl WireframeObject {
+    pub fn load_wireframe_from_obj(
+        filepath: &str,
+        colorvec: na::base::Vector4<f32>,
+    ) -> WireframeObject {
+        let file = tobj::load_obj(filepath, &tobj::GPU_LOAD_OPTIONS);
+        assert!(file.is_ok());
 
-//         let (models, _) = file.unwrap();
-//         let mesh = &models[0].mesh;
+        let (models, _) = file.unwrap();
+        let mesh = &models[0].mesh;
 
-//         WireframeObject {
-//             positions: WireframeObject::convert_to_vertex_struct(&mesh.positions),
-//             normals: WireframeObject::convert_to_normal_struct(&mesh.normals),
-//             indices: mesh.indices.clone(),
-//             color: colorvec,
-//         }
-//     }
+        WireframeObject {
+            positions: WireframeObject::convert_to_vertex_struct(&mesh.positions),
+            normals: WireframeObject::convert_to_normal_struct(&mesh.normals),
+            indices: mesh.indices.clone(),
+            color: colorvec,
+        }
+    }
 
-//     pub fn convert_to_vertex_struct(target: &Vec<f32>) -> Vec<dc::Vertex> {
-//         // Have to pass a reference (&) to the target.
-//         // Datatype does not support copying, and Rust creates a copy of the orignal function arguments.
-//         // Original copy not modified, so fine
-//         let mut vertex_array: Vec<dc::Vertex> = std::vec::Vec::new();
-//         for i in 0..target.len() / 3 {
-//             vertex_array.push(dc::Vertex::new(
-//                 target[3 * i + 0] as f64,
-//                 target[3 * i + 1] as f64,
-//                 target[3 * i + 2] as f64,
-//             ));
-//         }
-//         return vertex_array;
-//     }
+    pub fn convert_to_vertex_struct(target: &Vec<f32>) -> Vec<dc::Vertex> {
+        // Have to pass a reference (&) to the target.
+        // Datatype does not support copying, and Rust creates a copy of the orignal function arguments.
+        // Original copy not modified, so fine
+        let mut vertex_array: Vec<dc::Vertex> = std::vec::Vec::new();
+        for i in 0..target.len() / 3 {
+            vertex_array.push(dc::Vertex::new(
+                target[3 * i + 0] as f64,
+                target[3 * i + 1] as f64,
+                target[3 * i + 2] as f64,
+            ));
+        }
+        return vertex_array;
+    }
 
-//     pub fn convert_to_normal_struct(target: &Vec<f32>) -> Vec<dc::Normal> {
-//         // Have to pass a reference (&) to the target.
-//         // Datatype does not support copying, and Rust creates a copy of the orignal function arguments.
-//         // Original copy not modified, so fine
-//         let mut normal_array: Vec<dc::Normal> = std::vec::Vec::new();
-//         for i in 0..target.len() / 3 {
-//             normal_array.push(dc::Normal::new(
-//                 target[3 * i + 0] as f64,
-//                 target[3 * i + 1] as f64,
-//                 target[3 * i + 2] as f64,
-//             ));
-//         }
-//         return normal_array;
-//     }
+    pub fn convert_to_normal_struct(target: &Vec<f32>) -> Vec<dc::Normal> {
+        // Have to pass a reference (&) to the target.
+        // Datatype does not support copying, and Rust creates a copy of the orignal function arguments.
+        // Original copy not modified, so fine
+        let mut normal_array: Vec<dc::Normal> = std::vec::Vec::new();
+        for i in 0..target.len() / 3 {
+            normal_array.push(dc::Normal::new(
+                target[3 * i + 0] as f64,
+                target[3 * i + 1] as f64,
+                target[3 * i + 2] as f64,
+            ));
+        }
+        return normal_array;
+    }
 
-//     pub fn new(
-//         positions: Vec<dc::Vertex>,
-//         normals: Vec<dc::Normal>,
-//         indices: Vec<u32>,
-//         color: na::base::Vector4<f32>,
-//     ) -> WireframeObject {
-//         WireframeObject {
-//             positions: positions,
-//             normals: normals,
-//             indices: indices,
-//             color: color,
-//         }
-//     }
+    pub fn new(
+        positions: Vec<dc::Vertex>,
+        normals: Vec<dc::Normal>,
+        indices: Vec<u32>,
+        color: na::base::Vector4<f32>,
+    ) -> WireframeObject {
+        WireframeObject {
+            positions: positions,
+            normals: normals,
+            indices: indices,
+            color: color,
+        }
+    }
 
-//     pub fn change_color(&mut self, new_color: na::Vector4<f32>) {
-//         self.color = new_color;
-//     }
+    pub fn change_color(&mut self, new_color: na::Vector4<f32>) {
+        self.color = new_color;
+    }
 
-//     pub fn get_color(&mut self) -> na::Vector4<f32> {
-//         self.color
-//     }
-// }
+    pub fn get_color(&mut self) -> na::Vector4<f32> {
+        self.color
+    }
+}
 
-// impl DrawInScene for WireframeObject {
-//     fn draw_at_position(
-//         &self,
-//         gui: &dc::GuiContainer,
-//         context: &dc::RenderContext,
-//         target: &mut glium::Frame,
-//         model: na::Matrix4<f32>,
-//     ) {
-//         // info!("Drawing Wireframe");
-//         use glium::Surface;
+impl DrawInScene for WireframeObject {
+    fn draw_at_position(
+        &self,
+        gui: &dc::GuiContainer,
+        context: &dc::RenderContext,
+        target: &mut glium::Frame,
+        model: na::Matrix4<f32>,
+    ) {
+        // info!("Drawing Wireframe");
+        use glium::Surface;
 
-//         let scalar = na::Matrix4::<f32>::new_scaling(1.0);
-//         let uniforms = glium::uniform! {
-//             model: dc::uniformify_mat4(model),
-//             view: dc::uniformify_mat4(context.view),
-//             perspective: dc::uniformify_mat4(context.perspective),
-//             color_obj: dc::uniformify_vec4(self.color),
-//             vp: dc::uniformify_mat4(context.viewport_shift),
-//         };
+        let scalar = na::Matrix4::<f32>::new_scaling(1.0);
+        let uniforms = glium::uniform! {
+            model: dc::uniformify_mat4(model),
+            view: dc::uniformify_mat4(context.view),
+            perspective: dc::uniformify_mat4(context.perspective),
+            color_obj: dc::uniformify_vec4(self.color),
+            vp: dc::uniformify_mat4(context.viewport_shift),
+        };
 
-//         let positions = glium::VertexBuffer::new(&gui.display, &self.positions).unwrap();
-//         let normals = glium::VertexBuffer::new(&gui.display, &self.normals).unwrap();
-//         let indices = glium::IndexBuffer::new(
-//             &gui.display,
-//             glium::index::PrimitiveType::TrianglesList,
-//             &self.indices,
-//         )
-//         .unwrap();
+        let positions = glium::VertexBuffer::new(&gui.display, &self.positions).unwrap();
+        let normals = glium::VertexBuffer::new(&gui.display, &self.normals).unwrap();
+        let indices = glium::IndexBuffer::new(
+            &gui.display,
+            glium::index::PrimitiveType::TrianglesList,
+            &self.indices,
+        )
+        .unwrap();
 
-//         let poly_off = glium::draw_parameters::PolygonOffset {
-//             factor: 0.0,
-//             units: 1.0,
-//             ..Default::default()
-//             // point: true,
-//             // line: true,
-//             // fill: true,
-//         };
+        let poly_off = glium::draw_parameters::PolygonOffset {
+            factor: 0.0,
+            units: 1.0,
+            ..Default::default()
+            // point: true,
+            // line: true,
+            // fill: true,
+        };
 
-//         let params = glium::DrawParameters {
-//             polygon_mode: glium::draw_parameters::PolygonMode::Line,
-//             depth: glium::Depth {
-//                 test: glium::draw_parameters::DepthTest::IfLess,
-//                 write: true,
-//                 // range: (0.0, 1.0),
-//                 clamp: glium::draw_parameters::DepthClamp::Clamp,
-//                 ..Default::default()
-//             },
-//             line_width: std::option::Option::Some(1E-5),
-//             scissor: std::option::Option::Some(context.pixel_bounds),
-//             backface_culling: glium::draw_parameters::BackfaceCullingMode::CullClockwise,
-//             polygon_offset: poly_off,
-//             ..Default::default()
-//         };
+        let params = glium::DrawParameters {
+            polygon_mode: glium::draw_parameters::PolygonMode::Line,
+            depth: glium::Depth {
+                test: glium::draw_parameters::DepthTest::IfLess,
+                write: true,
+                // range: (0.0, 1.0),
+                clamp: glium::draw_parameters::DepthClamp::Clamp,
+                ..Default::default()
+            },
+            line_width: std::option::Option::Some(1E-5),
+            scissor: std::option::Option::Some(context.pixel_bounds),
+            backface_culling: glium::draw_parameters::BackfaceCullingMode::CullClockwise,
+            polygon_offset: poly_off,
+            ..Default::default()
+        };
 
 
-//         let poly_off_solid = glium::draw_parameters::PolygonOffset {
-//             factor: 1.00,
-//             units: 1.0,
-//             point: true,
-//             line: true,
-//             fill: true,
-//         };
+        let poly_off_solid = glium::draw_parameters::PolygonOffset {
+            factor: 1.00,
+            units: 1.0,
+            point: true,
+            line: true,
+            fill: true,
+        };
 
-//         let uniforms_solid = glium::uniform! {
-//             model: dc::uniformify_mat4(model*scalar),
-//             view: dc::uniformify_mat4(context.view),
-//             perspective: dc::uniformify_mat4(context.perspective),
-//             color_obj: dc::uniformify_vec4(dc::rgba(0.0, 0.0, 0.0, 0.2)),
-//             vp: dc::uniformify_mat4(context.viewport_shift),
-//         };
+        let uniforms_solid = glium::uniform! {
+            model: dc::uniformify_mat4(model*scalar),
+            view: dc::uniformify_mat4(context.view),
+            perspective: dc::uniformify_mat4(context.perspective),
+            color_obj: dc::uniformify_vec4(dc::rgba(0.0, 0.0, 0.0, 0.2)),
+            vp: dc::uniformify_mat4(context.viewport_shift),
+        };
 
-//         let params_solid = glium::DrawParameters {
-//             polygon_mode: glium::draw_parameters::PolygonMode::Fill,
-//             depth: glium::Depth {
-//                 test: glium::draw_parameters::DepthTest::IfLess,
-//                 write: true,
-//                 // range: (0.0, 1.0),
-//                 clamp: glium::draw_parameters::DepthClamp::Clamp,
-//                 ..Default::default()
-//             },
-//             line_width: std::option::Option::Some(1E-5),
-//             scissor: std::option::Option::Some(context.pixel_bounds),
-//             backface_culling: glium::draw_parameters::BackfaceCullingMode::CullClockwise,
-//             polygon_offset: poly_off_solid,
-//             ..Default::default()
-//         };
+        let params_solid = glium::DrawParameters {
+            polygon_mode: glium::draw_parameters::PolygonMode::Fill,
+            depth: glium::Depth {
+                test: glium::draw_parameters::DepthTest::IfLess,
+                write: true,
+                // range: (0.0, 1.0),
+                clamp: glium::draw_parameters::DepthClamp::Clamp,
+                ..Default::default()
+            },
+            line_width: std::option::Option::Some(1E-5),
+            scissor: std::option::Option::Some(context.pixel_bounds),
+            backface_culling: glium::draw_parameters::BackfaceCullingMode::CullClockwise,
+            polygon_offset: poly_off_solid,
+            ..Default::default()
+        };
 
-//         target
-//             .draw(
-//                 (&positions, &normals),
-//                 &indices,
-//                 &gui.program,
-//                 &uniforms_solid,
-//                 &params_solid,
-//             )
-//             .unwrap();
+        target
+            .draw(
+                (&positions, &normals),
+                &indices,
+                &gui.program,
+                &uniforms_solid,
+                &params_solid,
+            )
+            .unwrap();
 
-//         target
-//             .draw(
-//                 (&positions, &normals),
-//                 &indices,
-//                 &gui.program,
-//                 &uniforms,
-//                 &params,
-//             )
-//             .unwrap();
+        target
+            .draw(
+                (&positions, &normals),
+                &indices,
+                &gui.program,
+                &uniforms,
+                &params,
+            )
+            .unwrap();
 
         
-//     }
-// }
+    }
+}
 
-// // Define the component for a model
-// pub struct ModelComponent {
-//     wireframe: WireframeObject, // Wireframe model of the object to be displayed
-//     local_position: na::Point3<f32>, // Local **unscaled** position relative to parent body
-//     local_orientation: na::UnitQuaternion<f32>, // Primary rotation of model relative to parent body. Intended to be static but can be modified.
-//     local_rotation: na::UnitQuaternion<f32>, // Secondary rotation of model relative to parent body. Intended to be a dynamic property.
-// }
+// Define the component for a model
+pub struct ModelComponent {
+    wireframe: WireframeObject, // Wireframe model of the object to be displayed
+    local_position: na::Point3<f32>, // Local **unscaled** position relative to parent body
+    local_orientation: na::UnitQuaternion<f32>, // Primary rotation of model relative to parent body. Intended to be static but can be modified.
+    local_rotation: na::UnitQuaternion<f32>, // Secondary rotation of model relative to parent body. Intended to be a dynamic property.
+}
 
-// impl ModelComponent {
-//     pub fn new(wireframe: WireframeObject) -> ModelComponent {
-//         ModelComponent {
-//             wireframe: wireframe,
-//             local_position: na::Point3::origin(),
-//             local_orientation: na::UnitQuaternion::identity(),
-//             local_rotation: na::UnitQuaternion::identity(),
-//         }
-//     }
+impl ModelComponent {
+    pub fn new(wireframe: WireframeObject) -> ModelComponent {
+        ModelComponent {
+            wireframe: wireframe,
+            local_position: na::Point3::origin(),
+            local_orientation: na::UnitQuaternion::identity(),
+            local_rotation: na::UnitQuaternion::identity(),
+        }
+    }
 
-//     pub fn load_from_json_file(filepath: &str) -> ModelComponent {
-//         let json_unparsed = std::fs::read_to_string(filepath).unwrap();
-//         ModelComponent::load_from_json_str(&json_unparsed)
-//     }
+    pub fn load_from_json_file(filepath: &str) -> ModelComponent {
+        let json_unparsed = std::fs::read_to_string(filepath).unwrap();
+        ModelComponent::load_from_json_str(&json_unparsed)
+    }
 
-//     pub fn load_from_json_str(json_string: &str) -> ModelComponent {
-//         let json_parsed: Value = serde_json::from_str(json_string).unwrap();
-//         ModelComponent::load_from_json(&json_parsed)
-//     }
+    pub fn load_from_json_str(json_string: &str) -> ModelComponent {
+        let json_parsed: Value = serde_json::from_str(json_string).unwrap();
+        ModelComponent::load_from_json(&json_parsed)
+    }
 
-//     pub fn load_from_json(json_parsed: &serde_json::Value) -> ModelComponent {
-//         let name = json_parsed["Name"].as_str().unwrap();
-//         let filepath = json_parsed["ObjectFilePath"].as_str().unwrap();
+    pub fn load_from_json(json_parsed: &serde_json::Value) -> ModelComponent {
+        let name = json_parsed["Name"].as_str().unwrap();
+        let filepath = json_parsed["ObjectFilePath"].as_str().unwrap();
 
-//         let mut position_vec = na::Point3::<f32>::new(0.0, 0.0, 0.0);
-//         let position_temp: Vec<_> = json_parsed["Position"]
-//             .as_array()
-//             .unwrap()
-//             .into_iter()
-//             .collect();
-//         for (i, position) in position_temp.iter().enumerate() {
-//             position_vec[i] = position.as_f64().unwrap() as f32;
-//         }
+        let mut position_vec = na::Point3::<f32>::new(0.0, 0.0, 0.0);
+        let position_temp: Vec<_> = json_parsed["Position"]
+            .as_array()
+            .unwrap()
+            .into_iter()
+            .collect();
+        for (i, position) in position_temp.iter().enumerate() {
+            position_vec[i] = position.as_f64().unwrap() as f32;
+        }
 
-//         let orientation_temp: Vec<_> = json_parsed["Orientation"]
-//             .as_array()
-//             .unwrap()
-//             .into_iter()
-//             .collect();
-//         let mut orientation_vec = na::Vector3::<f32>::new(0.0, 0.0, 0.0);
-//         for (i, orientation_comp) in orientation_temp.iter().enumerate() {
-//             orientation_vec[i] = orientation_comp.as_f64().unwrap() as f32;
-//         }
+        let orientation_temp: Vec<_> = json_parsed["Orientation"]
+            .as_array()
+            .unwrap()
+            .into_iter()
+            .collect();
+        let mut orientation_vec = na::Vector3::<f32>::new(0.0, 0.0, 0.0);
+        for (i, orientation_comp) in orientation_temp.iter().enumerate() {
+            orientation_vec[i] = orientation_comp.as_f64().unwrap() as f32;
+        }
 
-//         let rotation_temp: Vec<_> = json_parsed["Rotation"]
-//             .as_array()
-//             .unwrap()
-//             .into_iter()
-//             .collect();
-//         let mut rotation_vec = na::Vector3::<f32>::new(0.0, 0.0, 0.0);
-//         for (i, rotation_comp) in rotation_temp.iter().enumerate() {
-//             rotation_vec[i] = rotation_comp.as_f64().unwrap() as f32;
-//         }
+        let rotation_temp: Vec<_> = json_parsed["Rotation"]
+            .as_array()
+            .unwrap()
+            .into_iter()
+            .collect();
+        let mut rotation_vec = na::Vector3::<f32>::new(0.0, 0.0, 0.0);
+        for (i, rotation_comp) in rotation_temp.iter().enumerate() {
+            rotation_vec[i] = rotation_comp.as_f64().unwrap() as f32;
+        }
 
-//         let color_temp: Vec<_> = json_parsed["Color"]
-//             .as_array()
-//             .unwrap()
-//             .into_iter()
-//             .collect();
-//         let mut color_vec = na::Vector4::<f32>::new(0.0, 0.0, 0.0, 0.0);
-//         for (i, color_comp) in color_temp.iter().enumerate() {
-//             color_vec[i] = color_comp.as_f64().unwrap() as f32;
-//         }
+        let color_temp: Vec<_> = json_parsed["Color"]
+            .as_array()
+            .unwrap()
+            .into_iter()
+            .collect();
+        let mut color_vec = na::Vector4::<f32>::new(0.0, 0.0, 0.0, 0.0);
+        for (i, color_comp) in color_temp.iter().enumerate() {
+            color_vec[i] = color_comp.as_f64().unwrap() as f32;
+        }
 
-//         // debug!("NAME: {}", name);
-//         // debug!("POSITION: {}", position_vec);
-//         // debug!("ORIENTATION: {}", orientation_vec);
-//         // debug!("ROTATION: {}", rotation_vec);
-//         // debug!("COLOR: {}", color_vec);
+        // debug!("NAME: {}", name);
+        // debug!("POSITION: {}", position_vec);
+        // debug!("ORIENTATION: {}", orientation_vec);
+        // debug!("ROTATION: {}", rotation_vec);
+        // debug!("COLOR: {}", color_vec);
 
-//         ModelComponent {
-//             wireframe: WireframeObject::load_wireframe_from_obj(&filepath, color_vec),
-//             local_position: position_vec,
-//             local_orientation: na::UnitQuaternion::new(orientation_vec),
-//             local_rotation: na::UnitQuaternion::new(rotation_vec),
-//         }
-//     }
+        ModelComponent {
+            wireframe: WireframeObject::load_wireframe_from_obj(&filepath, color_vec),
+            local_position: position_vec,
+            local_orientation: na::UnitQuaternion::new(orientation_vec),
+            local_rotation: na::UnitQuaternion::new(rotation_vec),
+        }
+    }
 
-//     pub fn update_local_position(&mut self, new_local_position: na::Point3<f32>) {
-//         self.local_position = new_local_position;
-//     }
+    pub fn update_local_position(&mut self, new_local_position: na::Point3<f32>) {
+        self.local_position = new_local_position;
+    }
 
-//     pub fn update_local_rotation(&mut self, new_local_rotation: na::UnitQuaternion<f32>) {
-//         self.local_rotation = new_local_rotation;
-//     }
+    pub fn update_local_rotation(&mut self, new_local_rotation: na::UnitQuaternion<f32>) {
+        self.local_rotation = new_local_rotation;
+    }
 
-//     pub fn rotate_by(&mut self, rotation_factor: na::UnitQuaternion<f32>) {
-//         self.local_rotation = self.local_rotation * rotation_factor;
-//         self.local_rotation.renormalize_fast();
-//     }
+    pub fn rotate_by(&mut self, rotation_factor: na::UnitQuaternion<f32>) {
+        self.local_rotation = self.local_rotation * rotation_factor;
+        self.local_rotation.renormalize_fast();
+    }
 
-//     pub fn change_color(&mut self, new_color: na::Vector4<f32>) {
-//         self.wireframe.change_color(new_color);
-//     }
+    pub fn change_color(&mut self, new_color: na::Vector4<f32>) {
+        self.wireframe.change_color(new_color);
+    }
 
-//     pub fn get_color(&mut self) -> na::Vector4<f32> {
-//         self.wireframe.get_color()
-//     }
-// }
+    pub fn get_color(&mut self) -> na::Vector4<f32> {
+        self.wireframe.get_color()
+    }
+}
 
-// impl DrawInScene for ModelComponent {
-//     fn draw_at_position(
-//         &self,
-//         gui: &dc::GuiContainer,
-//         context: &dc::RenderContext,
-//         target: &mut glium::Frame,
-//         model: na::Matrix4<f32>,
-//     ) {
-//         let local_model = na::Isometry3::from_parts(
-//             na::Translation3::from(self.local_position),
-//             self.local_rotation,
-//         )
-//         .to_homogeneous();
+impl DrawInScene for ModelComponent {
+    fn draw_at_position(
+        &self,
+        gui: &dc::GuiContainer,
+        context: &dc::RenderContext,
+        target: &mut glium::Frame,
+        model: na::Matrix4<f32>,
+    ) {
+        let local_model = na::Isometry3::from_parts(
+            na::Translation3::from(self.local_position),
+            self.local_rotation,
+        )
+        .to_homogeneous();
 
-//         self.wireframe
-//             .draw_at_position(gui, context, target, model * local_model);
-//     }
-// }
+        self.wireframe
+            .draw_at_position(gui, context, target, model * local_model);
+    }
+}
 
 // Types of command
 #[derive(Copy, Clone)]
@@ -863,263 +1038,263 @@ impl Behavior {
     }
 }
 
-// // Define the entity structure
-// pub struct Entity {
-//     id: u64, // Unique identifier for the entity
-//     position: na::Point3<f64>,
-//     rotation: na::UnitQuaternion<f64>,
-//     scale: na::Vector3<f64>,
-//     models: Vec<ModelComponent>,
-//     behaviors: Vec<BehaviorComponent>,
-//     // Other entity-specific data...
-// }
+// Define the entity structure
+pub struct Entity {
+    id: u64, // Unique identifier for the entity
+    position: na::Point3<f64>,
+    rotation: na::UnitQuaternion<f64>,
+    scale: na::Vector3<f64>,
+    models: Vec<model::Model>,
+    behaviors: Vec<Behavior>,
+    // Other entity-specific data...
+}
 
-// impl Entity {
-//     // Additional methods for entity management...
+impl Entity {
+    // Additional methods for entity management...
 
-//     pub fn new() -> Entity {
-//         Entity {
-//             id: ENTITY_COUNTER.fetch_add(1, Ordering::Relaxed),
-//             position: na::Point3::origin(),
-//             rotation: na::UnitQuaternion::identity(),
-//             scale: na::Vector3::new(1.0, 1.0, 1.0),
-//             models: Vec::new(),
-//             behaviors: Vec::new(),
-//             // Other entity-specific data...
-//         }
-//     }
+    pub fn new() -> Entity {
+        Entity {
+            id: ENTITY_COUNTER.fetch_add(1, Ordering::Relaxed),
+            position: na::Point3::origin(),
+            rotation: na::UnitQuaternion::identity(),
+            scale: na::Vector3::new(1.0, 1.0, 1.0),
+            models: Vec::new(),
+            behaviors: Vec::new(),
+            // Other entity-specific data...
+        }
+    }
 
-//     pub fn load_from_json_file(filepath: &str) -> Entity {
-//         let json_unparsed = std::fs::read_to_string(filepath).unwrap();
-//         Entity::load_from_json_str(&json_unparsed)
-//     }
+    pub fn load_from_json_file(filepath: &str) -> Entity {
+        let json_unparsed = std::fs::read_to_string(filepath).unwrap();
+        Entity::load_from_json_str(&json_unparsed)
+    }
 
-//     pub fn load_from_json_str(json_string: &str) -> Entity {
-//         let json_parsed: Value = serde_json::from_str(json_string).unwrap();
-//         Entity::load_from_json(&json_parsed)
-//     }
+    pub fn load_from_json_str(json_string: &str) -> Entity {
+        let json_parsed: Value = serde_json::from_str(json_string).unwrap();
+        Entity::load_from_json(&json_parsed)
+    }
 
-//     pub fn load_from_json(json_parsed: &serde_json::Value) -> Entity {
-//         let name = json_parsed["Name"].as_str().unwrap();
+    pub fn load_from_json(json_parsed: &serde_json::Value) -> Entity {
+        let name = json_parsed["Name"].as_str().unwrap();
 
-//         // Position
-//         let mut position_vec = na::Point3::<f64>::new(0.0, 0.0, 0.0);
-//         let position_temp: Vec<_> = json_parsed["Position"]
-//             .as_array()
-//             .unwrap()
-//             .into_iter()
-//             .collect();
-//         for (i, position) in position_temp.iter().enumerate() {
-//             position_vec[i] = position.as_f64().unwrap();
-//         }
+        // Position
+        let mut position_vec = na::Point3::<f64>::new(0.0, 0.0, 0.0);
+        let position_temp: Vec<_> = json_parsed["Position"]
+            .as_array()
+            .unwrap()
+            .into_iter()
+            .collect();
+        for (i, position) in position_temp.iter().enumerate() {
+            position_vec[i] = position.as_f64().unwrap();
+        }
 
-//         // Rotation
-//         let rotation_temp: Vec<_> = json_parsed["Rotation"]
-//             .as_array()
-//             .unwrap()
-//             .into_iter()
-//             .collect();
-//         let mut rotation_vec = na::Vector3::<f64>::new(0.0, 0.0, 0.0);
-//         for (i, rotation_comp) in rotation_temp.iter().enumerate() {
-//             rotation_vec[i] = rotation_comp.as_f64().unwrap();
-//         }
+        // Rotation
+        let rotation_temp: Vec<_> = json_parsed["Rotation"]
+            .as_array()
+            .unwrap()
+            .into_iter()
+            .collect();
+        let mut rotation_vec = na::Vector3::<f64>::new(0.0, 0.0, 0.0);
+        for (i, rotation_comp) in rotation_temp.iter().enumerate() {
+            rotation_vec[i] = rotation_comp.as_f64().unwrap();
+        }
 
-//         // Scale
-//         let scale_temp: Vec<_> = json_parsed["Scale"]
-//             .as_array()
-//             .unwrap()
-//             .into_iter()
-//             .collect();
-//         let mut scale_vec = na::Vector3::<f64>::new(0.0, 0.0, 0.0);
-//         for (i, scale_comp) in scale_temp.iter().enumerate() {
-//             scale_vec[i] = scale_comp.as_f64().unwrap();
-//         }
+        // Scale
+        let scale_temp: Vec<_> = json_parsed["Scale"]
+            .as_array()
+            .unwrap()
+            .into_iter()
+            .collect();
+        let mut scale_vec = na::Vector3::<f64>::new(0.0, 0.0, 0.0);
+        for (i, scale_comp) in scale_temp.iter().enumerate() {
+            scale_vec[i] = scale_comp.as_f64().unwrap();
+        }
 
-//         // let scale_vec: Vec<_> = match json_parsed["Scale"].as_array() {
-//         //     Some(array) => {
-//         //         let scale_temp: Vec<_> = array.into_iter().collect();
-//         //         let mut scale_vec = na::Vector3::<f64>::new(0.0, 0.0, 0.0);
-//         //         for (i, scale_comp) in scale_temp.iter().enumerate() {
-//         //             scale_vec[i] = scale_comp.as_f64().unwrap();
-//         //         }
-//         //         scale_vec
-//         //     },
-//         //     None => vec![]
-//         // };
+        // let scale_vec: Vec<_> = match json_parsed["Scale"].as_array() {
+        //     Some(array) => {
+        //         let scale_temp: Vec<_> = array.into_iter().collect();
+        //         let mut scale_vec = na::Vector3::<f64>::new(0.0, 0.0, 0.0);
+        //         for (i, scale_comp) in scale_temp.iter().enumerate() {
+        //             scale_vec[i] = scale_comp.as_f64().unwrap();
+        //         }
+        //         scale_vec
+        //     },
+        //     None => vec![]
+        // };
 
-//         // let model_temp: Vec<_> = json_parsed["Models"].as_array().unwrap().into_iter().collect();
-//         // let mut model_vec = vec![];
-//         // for i in model_temp.iter() {
-//         //     model_vec.push(ModelComponent::load_from_json(*i));
-//         // }
+        // let model_temp: Vec<_> = json_parsed["Models"].as_array().unwrap().into_iter().collect();
+        // let mut model_vec = vec![];
+        // for i in model_temp.iter() {
+        //     model_vec.push(ModelComponent::load_from_json(*i));
+        // }
 
-//         let model_vec: Vec<_> = match json_parsed["Models"].as_array() {
-//             Some(array) => {
-//                 let model_temp: Vec<_> = array.into_iter().collect();
-//                 let mut model_vec = vec![];
-//                 for i in model_temp.iter() {
-//                     model_vec.push(ModelComponent::load_from_json(*i));
-//                 }
-//                 model_vec
-//             }
-//             None => vec![],
-//         };
+        let model_vec: Vec<_> = match json_parsed["Models"].as_array() {
+            Some(array) => {
+                let model_temp: Vec<_> = array.into_iter().collect();
+                let mut model_vec = vec![];
+                for i in model_temp.iter() {
+                    model_vec.push(model::Model::load_from_json(*i));
+                }
+                model_vec
+            }
+            None => vec![],
+        };
 
-//         // let behavior_temp: Vec<_> = json_parsed["Behaviors"].as_array().unwrap().into_iter().collect();
-//         // let mut behavior_vec = vec![];
-//         // for i in behavior_temp.iter() {
-//         //     behavior_vec.push(BehaviorComponent::load_from_json(*i));
-//         // }
+        // let behavior_temp: Vec<_> = json_parsed["Behaviors"].as_array().unwrap().into_iter().collect();
+        // let mut behavior_vec = vec![];
+        // for i in behavior_temp.iter() {
+        //     behavior_vec.push(BehaviorComponent::load_from_json(*i));
+        // }
 
-//         let behavior_vec: Vec<_> = match json_parsed["Behaviors"].as_array() {
-//             Some(array) => {
-//                 let behavior_temp: Vec<_> = array.into_iter().collect();
-//                 let mut behavior_vec = vec![];
-//                 for i in behavior_temp.iter() {
-//                     behavior_vec.push(BehaviorComponent::load_from_json(*i));
-//                 }
-//                 behavior_vec
-//             }
-//             None => vec![],
-//         };
-//         // debug!("{}", model_temp[0]["Name"]);
+        let behavior_vec: Vec<_> = match json_parsed["Behaviors"].as_array() {
+            Some(array) => {
+                let behavior_temp: Vec<_> = array.into_iter().collect();
+                let mut behavior_vec = vec![];
+                for i in behavior_temp.iter() {
+                    behavior_vec.push(BehaviorComponent::load_from_json(*i));
+                }
+                behavior_vec
+            }
+            None => vec![],
+        };
+        // debug!("{}", model_temp[0]["Name"]);
 
-//         // debug!("NAME: {}", name);
-//         // debug!("POSITION: {}", position_vec);
-//         // debug!("ROTATION: {}", rotation_vec);
-//         // debug!("SCALE: {}", scale_vec);
+        // debug!("NAME: {}", name);
+        // debug!("POSITION: {}", position_vec);
+        // debug!("ROTATION: {}", rotation_vec);
+        // debug!("SCALE: {}", scale_vec);
 
-//         Entity {
-//             id: ENTITY_COUNTER.fetch_add(1, Ordering::Relaxed),
-//             position: position_vec,
-//             rotation: na::UnitQuaternion::new(rotation_vec),
-//             scale: scale_vec,
-//             models: model_vec,
-//             behaviors: behavior_vec,
-//             // Other entity-specific data...
-//         }
-//     }
+        Entity {
+            id: ENTITY_COUNTER.fetch_add(1, Ordering::Relaxed),
+            position: position_vec,
+            rotation: na::UnitQuaternion::new(rotation_vec),
+            scale: scale_vec,
+            models: model_vec,
+            behaviors: behavior_vec,
+            // Other entity-specific data...
+        }
+    }
 
-//     pub fn add_model(&mut self, model: ModelComponent) {
-//         self.models.push(model);
-//     }
+    pub fn add_model(&mut self, model: ModelComponent) {
+        self.models.push(model);
+    }
 
-//     pub fn add_behavior(&mut self, behavior: BehaviorComponent) {
-//         self.behaviors.push(behavior);
-//     }
+    pub fn add_behavior(&mut self, behavior: BehaviorComponent) {
+        self.behaviors.push(behavior);
+    }
 
-//     pub fn change_position(&mut self, new_position: na::Point3<f64>) {
-//         self.position = new_position;
-//     }
+    pub fn change_position(&mut self, new_position: na::Point3<f64>) {
+        self.position = new_position;
+    }
 
-//     pub fn change_scale(&mut self, new_scale: na::Vector3<f64>) {
-//         self.scale = new_scale;
-//     }
+    pub fn change_scale(&mut self, new_scale: na::Vector3<f64>) {
+        self.scale = new_scale;
+    }
 
-//     pub fn get_model(&mut self, model_component_id: u64) -> &mut ModelComponent {
-//         &mut self.models[model_component_id as usize]
-//     }
+    pub fn get_model(&mut self, model_component_id: u64) -> &mut ModelComponent {
+        &mut self.models[model_component_id as usize]
+    }
 
-//     pub fn get_behavior(&mut self, index: usize) -> Command {
-//         self.behaviors[index].get_behavior()
-//     }
+    pub fn get_behavior(&mut self, index: usize) -> Command {
+        self.behaviors[index].get_behavior()
+    }
 
-//     pub fn command(&mut self, cmd: Command) {
-//         match cmd.cmd_type {
-//             // Translate entity by vector
-//             CommandType::EntityTranslate => {
-//                 let new_position = na::Vector3::<f64>::new(cmd.data[0], cmd.data[1], cmd.data[2]);
-//                 self.change_position(self.position + new_position);
-//             }
+    pub fn command(&mut self, cmd: Command) {
+        match cmd.cmd_type {
+            // Translate entity by vector
+            CommandType::EntityTranslate => {
+                let new_position = na::Vector3::<f64>::new(cmd.data[0], cmd.data[1], cmd.data[2]);
+                self.change_position(self.position + new_position);
+            }
 
-//             // Change position to input
-//             CommandType::EntityChangePosition => {
-//                 let new_position = na::Point3::<f64>::new(cmd.data[0], cmd.data[1], cmd.data[2]);
-//                 self.change_position(new_position);
-//             }
+            // Change position to input
+            CommandType::EntityChangePosition => {
+                let new_position = na::Point3::<f64>::new(cmd.data[0], cmd.data[1], cmd.data[2]);
+                self.change_position(new_position);
+            }
 
-//             // Change color to input
-//             CommandType::ComponentChangeColor => {
-//                 let model_id = cmd.data[0] as u64;
-//                 let new_color = na::Vector4::<f32>::new(
-//                     cmd.data[1] as f32,
-//                     cmd.data[2] as f32,
-//                     cmd.data[3] as f32,
-//                     cmd.data[4] as f32,
-//                 );
-//                 self.get_model(model_id).change_color(new_color);
-//             }
+            // Change color to input
+            CommandType::ComponentChangeColor => {
+                let model_id = cmd.data[0] as u64;
+                let new_color = na::Vector4::<f32>::new(
+                    cmd.data[1] as f32,
+                    cmd.data[2] as f32,
+                    cmd.data[3] as f32,
+                    cmd.data[4] as f32,
+                );
+                self.get_model(model_id).change_color(new_color);
+            }
 
-//             // Rotate item at constant speed
-//             CommandType::ComponentRotateConstantSpeed => {
-//                 let model_id = cmd.data[0] as u64;
-//                 let rotation_factor = cmd.data[1];
-//                 let new_quaternion_vector = na::Vector3::<f32>::new(
-//                     (rotation_factor * cmd.data[2]) as f32,
-//                     (rotation_factor * cmd.data[4]) as f32,
-//                     (rotation_factor * cmd.data[3]) as f32,
-//                 );
-//                 let new_quaternion = na::UnitQuaternion::<f32>::new(new_quaternion_vector);
+            // Rotate item at constant speed
+            CommandType::ComponentRotateConstantSpeed => {
+                let model_id = cmd.data[0] as u64;
+                let rotation_factor = cmd.data[1];
+                let new_quaternion_vector = na::Vector3::<f32>::new(
+                    (rotation_factor * cmd.data[2]) as f32,
+                    (rotation_factor * cmd.data[4]) as f32,
+                    (rotation_factor * cmd.data[3]) as f32,
+                );
+                let new_quaternion = na::UnitQuaternion::<f32>::new(new_quaternion_vector);
 
-//                 self.get_model(model_id).rotate_by(new_quaternion);
-//             }
+                self.get_model(model_id).rotate_by(new_quaternion);
+            }
 
-//             // Modify Existing Behavior
-//             CommandType::ModifyBehavior => {
-//                 let behavior_id = cmd.data[0] as usize;
-//                 let new_data = cmd.data.into_iter().collect();
-//                 self.get_behavior(behavior_id).change_data(new_data);
-//             }
+            // Modify Existing Behavior
+            CommandType::ModifyBehavior => {
+                let behavior_id = cmd.data[0] as usize;
+                let new_data = cmd.data.into_iter().collect();
+                self.get_behavior(behavior_id).change_data(new_data);
+            }
 
-//             _ => return,
-//         }
-//     }
+            _ => return,
+        }
+    }
 
-//     pub fn clear_behaviors(&mut self) {
-//         self.behaviors = vec![];
-//     }
+    pub fn clear_behaviors(&mut self) {
+        self.behaviors = vec![];
+    }
 
-//     pub fn run_behaviors(&mut self) {
-//         // Gather behaviors into vector
+    pub fn run_behaviors(&mut self) {
+        // Gather behaviors into vector
 
-//         let mut cmds = vec![];
-//         for i in &mut self.behaviors {
-//             cmds.push(i.get_behavior());
-//         }
-//         //Run them all in an iterator
+        let mut cmds = vec![];
+        for i in &mut self.behaviors {
+            cmds.push(i.get_behavior());
+        }
+        //Run them all in an iterator
 
-//         for i in cmds.iter() {
-//             self.command(i.clone());
-//         }
-//     }
+        for i in cmds.iter() {
+            self.command(i.clone());
+        }
+    }
 
-//     pub fn get_position(&mut self) -> &na::Point3<f64> {
-//         &self.position
-//     }
-// }
+    pub fn get_position(&mut self) -> &na::Point3<f64> {
+        &self.position
+    }
+}
 
-// impl dc::Draw for Entity {
-//     fn draw(&self, gui: &dc::GuiContainer, context: &dc::RenderContext, target: &mut glium::Frame) {
-//         let translate = na::Translation3::from(self.position);
-//         let parent_model_mat =
-//             na::Isometry3::from_parts(na::convert(translate), na::convert(self.rotation));
-//         let scale_vec = na::Vector3::new(
-//             self.scale.x as f32 ,
-//             self.scale.y as f32 ,
-//             self.scale.z as f32 ,
-//         );
-//         for model in &self.models {
-//             model.draw_at_position(
-//                 gui,
-//                 context,
-//                 target,
-//                 parent_model_mat
-//                     .to_homogeneous()
-//                     .prepend_nonuniform_scaling(&scale_vec),
-//             );
-//         }
-//     }
-// }
+impl dc::Draw for Entity {
+    fn draw(&self, gui: &dc::GuiContainer, context: &dc::RenderContext, target: &mut glium::Frame) {
+        let translate = na::Translation3::from(self.position);
+        let parent_model_mat =
+            na::Isometry3::from_parts(na::convert(translate), na::convert(self.rotation));
+        let scale_vec = na::Vector3::new(
+            self.scale.x as f32 ,
+            self.scale.y as f32 ,
+            self.scale.z as f32 ,
+        );
+        for model in &self.models {
+            model.draw_at_position(
+                gui,
+                context,
+                target,
+                parent_model_mat
+                    .to_homogeneous()
+                    .prepend_nonuniform_scaling(&scale_vec),
+            );
+        }
+    }
+}
 
 // // Define the scene structure
 // pub struct Scene {

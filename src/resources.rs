@@ -6,6 +6,7 @@ use crate::model;
 
 pub async fn load_mesh(
     file_name: &str,
+    color: na::base::Vector4<f32>,
     device: &wgpu::Device,
 ) -> anyhow::Result<model::Mesh> {
     let obj_cursor = Cursor::new(file_name);
@@ -35,9 +36,6 @@ pub async fn load_mesh(
             mesh.positions[i*3 + 1],
             mesh.positions[i*3 + 2],
         ];
-
-        // TODO: allow custom colors
-        let color = [1.0, 0.0, 0.0];
 
         vertices.push(model::ModelVertex {
             position,

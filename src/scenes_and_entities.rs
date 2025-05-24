@@ -631,89 +631,6 @@ impl<'a> Scene<'a> {
 }
 
 
-// Define the wireframe or model representation
-pub struct WireframeObject {
-    // Define the structure for your wireframe representation
-    // This could include vertex data, indices, color, etc.
-    // ...
-    positions: Vec<dc::ModelVertex>,
-    normals: Vec<dc::ModelVertex>,
-    indices: Vec<u32>,
-    color: na::base::Vector4<f32>,
-}
-
-impl WireframeObject {
-    pub fn load_wireframe_from_obj(
-        filepath: &str,
-        colorvec: na::base::Vector4<f32>,
-    ) -> WireframeObject {
-        let file = tobj::load_obj(filepath, &tobj::GPU_LOAD_OPTIONS);
-        assert!(file.is_ok());
-
-        let (models, _) = file.unwrap();
-        let mesh = &models[0].mesh;
-
-        WireframeObject {
-            positions: WireframeObject::convert_to_vertex_struct(&mesh.positions),
-            normals: WireframeObject::convert_to_normal_struct(&mesh.normals),
-            indices: mesh.indices.clone(),
-            color: colorvec,
-        }
-    }
-
-    pub fn convert_to_vertex_struct(target: &Vec<f32>) -> Vec<dc::Vertex> {
-        // Have to pass a reference (&) to the target.
-        // Datatype does not support copying, and Rust creates a copy of the orignal function arguments.
-        // Original copy not modified, so fine
-        let mut vertex_array: Vec<dc::Vertex> = std::vec::Vec::new();
-        for i in 0..target.len() / 3 {
-            vertex_array.push(dc::Vertex::new(
-                target[3 * i + 0] as f64,
-                target[3 * i + 1] as f64,
-                target[3 * i + 2] as f64,
-            ));
-        }
-        return vertex_array;
-    }
-
-    pub fn convert_to_normal_struct(target: &Vec<f32>) -> Vec<dc::Normal> {
-        // Have to pass a reference (&) to the target.
-        // Datatype does not support copying, and Rust creates a copy of the orignal function arguments.
-        // Original copy not modified, so fine
-        let mut normal_array: Vec<dc::Normal> = std::vec::Vec::new();
-        for i in 0..target.len() / 3 {
-            normal_array.push(dc::Normal::new(
-                target[3 * i + 0] as f64,
-                target[3 * i + 1] as f64,
-                target[3 * i + 2] as f64,
-            ));
-        }
-        return normal_array;
-    }
-
-    pub fn new(
-        positions: Vec<dc::Vertex>,
-        normals: Vec<dc::Normal>,
-        indices: Vec<u32>,
-        color: na::base::Vector4<f32>,
-    ) -> WireframeObject {
-        WireframeObject {
-            positions: positions,
-            normals: normals,
-            indices: indices,
-            color: color,
-        }
-    }
-
-    pub fn change_color(&mut self, new_color: na::Vector4<f32>) {
-        self.color = new_color;
-    }
-
-    pub fn get_color(&mut self) -> na::Vector4<f32> {
-        self.color
-    }
-}
-
 impl DrawInScene for WireframeObject {
     fn draw_at_position(
         &self,
@@ -827,33 +744,37 @@ impl DrawInScene for WireframeObject {
 
 // Define the component for a model
 pub struct ModelComponent {
-    wireframe: WireframeObject, // Wireframe model of the object to be displayed
+    name: String,
+    mesh: model::Mesh, // Wireframe model of the object to be displayed
     local_position: na::Point3<f32>, // Local **unscaled** position relative to parent body
     local_orientation: na::UnitQuaternion<f32>, // Primary rotation of model relative to parent body. Intended to be static but can be modified.
     local_rotation: na::UnitQuaternion<f32>, // Secondary rotation of model relative to parent body. Intended to be a dynamic property.
+    color: [f32; 3],
 }
 
 impl ModelComponent {
-    pub fn new(wireframe: WireframeObject) -> ModelComponent {
+    pub fn new(name: String, mesh: model::Mesh, color: [f32; 3]) -> ModelComponent {
         ModelComponent {
-            wireframe: wireframe,
+            name: name,
+            mesh: mesh,
             local_position: na::Point3::origin(),
             local_orientation: na::UnitQuaternion::identity(),
             local_rotation: na::UnitQuaternion::identity(),
+            color: color,
         }
     }
 
-    pub fn load_from_json_file(filepath: &str) -> ModelComponent {
+    pub fn load_from_json_file(filepath: &str, device: &wgpu::Device) -> ModelComponent {
         let json_unparsed = std::fs::read_to_string(filepath).unwrap();
-        ModelComponent::load_from_json_str(&json_unparsed)
+        ModelComponent::load_from_json_str(&json_unparsed, device)
     }
 
-    pub fn load_from_json_str(json_string: &str) -> ModelComponent {
+    pub fn load_from_json_str(json_string: &str, device: &wgpu::Device) -> ModelComponent {
         let json_parsed: Value = serde_json::from_str(json_string).unwrap();
-        ModelComponent::load_from_json(&json_parsed)
+        ModelComponent::load_from_json(&json_parsed, device)
     }
 
-    pub fn load_from_json(json_parsed: &serde_json::Value) -> ModelComponent {
+    pub fn load_from_json(json_parsed: &serde_json::Value, device: &wgpu::Device) -> ModelComponent {
         let name = json_parsed["Name"].as_str().unwrap();
         let filepath = json_parsed["ObjectFilePath"].as_str().unwrap();
 
@@ -904,7 +825,7 @@ impl ModelComponent {
         // debug!("COLOR: {}", color_vec);
 
         ModelComponent {
-            wireframe: WireframeObject::load_wireframe_from_obj(&filepath, color_vec),
+            mesh: resources::load_mesh(&filepath, color_vec, device),
             local_position: position_vec,
             local_orientation: na::UnitQuaternion::new(orientation_vec),
             local_rotation: na::UnitQuaternion::new(rotation_vec),
@@ -941,11 +862,9 @@ impl DrawInScene for ModelComponent {
         target: &mut glium::Frame,
         model: na::Matrix4<f32>,
     ) {
-        let local_model = na::Isometry3::from_parts(
-            na::Translation3::from(self.local_position),
-            self.local_rotation,
-        )
-        .to_homogeneous();
+        let local_model = (cgmath::Matrix4::from_translation(self.position)
+                * cgmath::Matrix4::from(self.rotation))
+            .into();
 
         self.wireframe
             .draw_at_position(gui, context, target, model * local_model);
@@ -1044,8 +963,7 @@ pub struct Entity {
     position: na::Point3<f64>,
     rotation: na::UnitQuaternion<f64>,
     scale: na::Vector3<f64>,
-    models: Vec<model::Model>,
-    behaviors: Vec<Behavior>,
+    models: Vec<ModelComponent>,
     // Other entity-specific data...
 }
 

@@ -1,4 +1,3 @@
-use std::io::{BufReader, Cursor};
 use wgpu::util::DeviceExt;
 
 pub trait Vertex {
@@ -47,22 +46,15 @@ pub fn load_mesh(
     device: &wgpu::Device,
     color: cgmath::Vector3<f32>,
 ) -> anyhow::Result<Mesh> {
-    let obj_text = file_name.to_string();
-    let obj_cursor = Cursor::new(obj_text);
-    let mut obj_reader = BufReader::new(obj_cursor);
-
-    let (models, _) = tobj::load_obj_buf(
-        &mut obj_reader,
+    let (models, _) = tobj::load_obj(
+        file_name,
         &tobj::LoadOptions {
             triangulate: true,
             single_index: true,
             ..Default::default()
         },
-        |p| {
-            let mat_text = p.to_string_lossy().to_string();
-            tobj::load_mtl_buf(&mut BufReader::new(Cursor::new(mat_text)))
-        },
     )?;
+
 
     let model = &models[0];
     let mesh = &model.mesh;
@@ -81,6 +73,8 @@ pub fn load_mesh(
             position: position,
             color: color_arr,
         });
+
+
     }
 
     let vertex_data = bytemuck::cast_slice(&vertices);
@@ -107,7 +101,6 @@ pub fn load_mesh(
 }
 
 
-#[allow(dead_code)]
 pub struct Model {
     pub name: String,
     pub obj: Mesh,
@@ -202,7 +195,6 @@ impl Model {
 }
 
 pub trait DrawModel<'a> {
-    #[allow(unused)]
     fn draw_mesh(
         &mut self,
         mesh: &'a Mesh,

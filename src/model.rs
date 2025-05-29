@@ -1,4 +1,5 @@
 use wgpu::util::DeviceExt;
+use cgmath::EuclideanSpace;
 
 pub trait Vertex {
     fn desc() -> wgpu::VertexBufferLayout<'static>;
@@ -100,7 +101,7 @@ pub fn load_mesh(
     })
 }
 
-
+#[allow(dead_code)]
 pub struct Model {
     pub name: String,
     pub obj: Mesh,
@@ -192,6 +193,12 @@ impl Model {
             color_vec,
         )
     }
+
+    pub fn to_matrix(&self) -> cgmath::Matrix4<f32> {
+        let translation = cgmath::Matrix4::from_translation(self.position.to_vec());
+        let rotation = cgmath::Matrix4::from(self.rotation);
+        translation * rotation
+    }
 }
 
 pub trait DrawModel<'a> {
@@ -199,6 +206,7 @@ pub trait DrawModel<'a> {
         &mut self,
         mesh: &'a Mesh,
         camera_bind_group: &'a wgpu::BindGroup,
+        model_bind_group: &'a wgpu::BindGroup,
     );
 }
 
@@ -210,10 +218,12 @@ where
         &mut self,
         mesh: &'b Mesh,
         camera_bind_group: &'b wgpu::BindGroup,
+        model_bind_group: &'b wgpu::BindGroup,
     ) {
         self.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
         self.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
         self.set_bind_group(0, camera_bind_group, &[]);
+        self.set_bind_group(1, model_bind_group, &[]);
         self.draw_indexed(0..mesh.num_elements, 0, 0..1);
     }
 }

@@ -164,67 +164,6 @@ impl CameraController {
     }
 }
 
-struct Instance {
-    position: cgmath::Vector3<f32>,
-    rotation: cgmath::Quaternion<f32>,
-}
-
-impl Instance {
-    fn to_raw(&self) -> InstanceRaw {
-        InstanceRaw {
-            model: (cgmath::Matrix4::from_translation(self.position)
-                * cgmath::Matrix4::from(self.rotation))
-            .into(),
-        }
-    }
-}
-
-#[repr(C)]
-#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-struct InstanceRaw {
-    #[allow(dead_code)]
-    model: [[f32; 4]; 4],
-}
-
-impl InstanceRaw {
-    fn desc() -> wgpu::VertexBufferLayout<'static> {
-        use std::mem;
-        wgpu::VertexBufferLayout {
-            array_stride: mem::size_of::<InstanceRaw>() as wgpu::BufferAddress,
-            // We need to switch from using a step mode of Vertex to Instance
-            // This means that our shaders will only change to use the next
-            // instance when the shader starts processing a new instance
-            step_mode: wgpu::VertexStepMode::Instance,
-            attributes: &[
-                wgpu::VertexAttribute {
-                    offset: 0,
-                    // While our vertex shader only uses locations 0, and 1 now, in later tutorials we'll
-                    // be using 2, 3, and 4, for Vertex. We'll start at slot 5 not conflict with them later
-                    shader_location: 5,
-                    format: wgpu::VertexFormat::Float32x4,
-                },
-                // A mat4 takes up 4 vertex slots as it is technically 4 vec4s. We need to define a slot
-                // for each vec4. We don't have to do this in code though.
-                wgpu::VertexAttribute {
-                    offset: mem::size_of::<[f32; 4]>() as wgpu::BufferAddress,
-                    shader_location: 6,
-                    format: wgpu::VertexFormat::Float32x4,
-                },
-                wgpu::VertexAttribute {
-                    offset: mem::size_of::<[f32; 8]>() as wgpu::BufferAddress,
-                    shader_location: 7,
-                    format: wgpu::VertexFormat::Float32x4,
-                },
-                wgpu::VertexAttribute {
-                    offset: mem::size_of::<[f32; 12]>() as wgpu::BufferAddress,
-                    shader_location: 8,
-                    format: wgpu::VertexFormat::Float32x4,
-                },
-            ],
-        }
-    }
-}
-
 pub enum BehaviorType {
     EntityRotate,
     EntityTranslate,
@@ -286,9 +225,9 @@ impl Behavior {
 #[allow(dead_code)]
 struct Entity {
     name: String,
-    position: cgmath::Point3<f64>,
-    rotation: cgmath::Quaternion<f64>,
-    scale: cgmath::Vector3<f64>,
+    position: cgmath::Point3<f32>,
+    rotation: cgmath::Quaternion<f32>,
+    scale: cgmath::Vector3<f32>,
     models: Vec<model::Model>,
     behaviors: Vec<Behavior>,
 }
@@ -298,14 +237,14 @@ impl Entity {
         let name = json["Name"].to_string();
 
         // Position
-        let mut position_vec = cgmath::Point3::<f64>::new(0.0, 0.0, 0.0);
+        let mut position_vec = cgmath::Point3::<f32>::new(0.0, 0.0, 0.0);
         let position_temp: Vec<_> = json["Position"]
             .as_array()
             .unwrap()
             .into_iter()
             .collect();
         for (i, position) in position_temp.iter().enumerate() {
-            position_vec[i] = position.as_f64().unwrap();
+            position_vec[i] = position.as_f64().unwrap() as f32;
         }
 
         // Rotation
@@ -314,9 +253,9 @@ impl Entity {
             .unwrap()
             .into_iter()
             .collect();
-        let mut rotation_vec = cgmath::Vector3::<f64>::new(0.0, 0.0, 0.0);
+        let mut rotation_vec = cgmath::Vector3::<f32>::new(0.0, 0.0, 0.0);
         for (i, rotation_comp) in rotation_temp.iter().enumerate() {
-            rotation_vec[i] = rotation_comp.as_f64().unwrap();
+            rotation_vec[i] = rotation_comp.as_f64().unwrap() as f32;
         }
 
         // Scale
@@ -325,9 +264,9 @@ impl Entity {
             .unwrap()
             .into_iter()
             .collect();
-        let mut scale_vec = cgmath::Vector3::<f64>::new(0.0, 0.0, 0.0);
+        let mut scale_vec = cgmath::Vector3::<f32>::new(0.0, 0.0, 0.0);
         for (i, scale_comp) in scale_temp.iter().enumerate() {
-            scale_vec[i] = scale_comp.as_f64().unwrap();
+            scale_vec[i] = scale_comp.as_f64().unwrap() as f32;
         }
 
         let model_vec: Vec<_> = match json["Models"].as_array() {
@@ -363,58 +302,35 @@ impl Entity {
             behaviors: behavior_vec,
         }
     }
-}
 
-impl model::Vertex for InstanceRaw {
-    fn desc() -> wgpu::VertexBufferLayout<'static> {
-        use std::mem;
-        wgpu::VertexBufferLayout {
-            array_stride: mem::size_of::<InstanceRaw>() as wgpu::BufferAddress,
-            // We need to switch from using a step mode of Vertex to Instance
-            // This means that our shaders will only change to use the next
-            // instance when the shader starts processing a new instance
-            step_mode: wgpu::VertexStepMode::Instance,
-            attributes: &[
-                wgpu::VertexAttribute {
-                    offset: 0,
-                    // While our vertex shader only uses locations 0, and 1 now, in later tutorials we'll
-                    // be using 2, 3, and 4, for Vertex. We'll start at slot 5 not conflict with them later
-                    shader_location: 5,
-                    format: wgpu::VertexFormat::Float32x4,
-                },
-                // A mat4 takes up 4 vertex slots as it is technically 4 vec4s. We need to define a slot
-                // for each vec4. We don't have to do this in code though.
-                wgpu::VertexAttribute {
-                    offset: mem::size_of::<[f32; 4]>() as wgpu::BufferAddress,
-                    shader_location: 6,
-                    format: wgpu::VertexFormat::Float32x4,
-                },
-                wgpu::VertexAttribute {
-                    offset: mem::size_of::<[f32; 8]>() as wgpu::BufferAddress,
-                    shader_location: 7,
-                    format: wgpu::VertexFormat::Float32x4,
-                },
-                wgpu::VertexAttribute {
-                    offset: mem::size_of::<[f32; 12]>() as wgpu::BufferAddress,
-                    shader_location: 8,
-                    format: wgpu::VertexFormat::Float32x4,
-                },
-                wgpu::VertexAttribute {
-                    offset: mem::size_of::<[f32; 16]>() as wgpu::BufferAddress,
-                    shader_location: 9,
-                    format: wgpu::VertexFormat::Float32x3,
-                },
-                wgpu::VertexAttribute {
-                    offset: mem::size_of::<[f32; 19]>() as wgpu::BufferAddress,
-                    shader_location: 10,
-                    format: wgpu::VertexFormat::Float32x3,
-                },
-                wgpu::VertexAttribute {
-                    offset: mem::size_of::<[f32; 22]>() as wgpu::BufferAddress,
-                    shader_location: 11,
-                    format: wgpu::VertexFormat::Float32x3,
-                },
-            ],
+    fn to_matrix(&self) -> cgmath::Matrix4<f32> {
+        let translation = cgmath::Matrix4::from_translation(self.position.to_vec());
+        let rotation = cgmath::Matrix4::from(self.rotation);
+        let scale = cgmath::Matrix4::from_nonuniform_scale(self.scale.x, self.scale.y, self.scale.z);
+        translation * rotation * scale
+    }
+
+    pub fn draw<'a>(
+        &'a self,
+        render_pass: &mut wgpu::RenderPass<'a>,
+        camera_bind_group: &'a wgpu::BindGroup,
+        model_bind_group: &'a wgpu::BindGroup,
+        model_uniform_buffer: &'a wgpu::Buffer,
+        queue: &wgpu::Queue,
+    ) {
+        let entity_matrix = self.to_matrix();
+        for model in &self.models {
+            let model_matrix = model.to_matrix();
+            let full_transform = entity_matrix * model_matrix;
+            let full_uniform: [[f32; 4]; 4] = full_transform.into();
+
+            queue.write_buffer(
+                model_uniform_buffer,
+                0,
+                bytemuck::cast_slice(&[full_uniform]),
+            );
+
+            render_pass.draw_mesh(&model.obj, camera_bind_group, model_bind_group);
         }
     }
 }
@@ -432,6 +348,8 @@ struct State<'a> {
     camera_uniform: CameraUniform,
     camera_buffer: wgpu::Buffer,
     camera_bind_group: wgpu::BindGroup,
+    model_bind_group: wgpu::BindGroup,
+    model_uniform_buffer: wgpu::Buffer,
     // #[allow(dead_code)]
     // instances: Vec<Instance>,
     // #[allow(dead_code)]
@@ -439,7 +357,7 @@ struct State<'a> {
     window: &'a Window,
 }
 impl<'a> State<'a> {
-    async fn new(window: &'a Window) -> State<'a> {
+    async fn new(window: &'a Window, filepath: &str) -> State<'a> {
         let size = window.inner_size();
 
         // The instance is a handle to our GPU
@@ -532,49 +450,36 @@ impl<'a> State<'a> {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
-        // const SPACE_BETWEEN: f32 = 3.0;
-        // let instances = (0..NUM_INSTANCES_PER_ROW)
-        //     .flat_map(|z| {
-        //         (0..NUM_INSTANCES_PER_ROW).map(move |x| {
-        //             let x = SPACE_BETWEEN * (x as f32 - NUM_INSTANCES_PER_ROW as f32 / 2.0);
-        //             let z = SPACE_BETWEEN * (z as f32 - NUM_INSTANCES_PER_ROW as f32 / 2.0);
+        let model_uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Model Uniform Buffer"),
+            size: std::mem::size_of::<[[f32; 4]; 4]>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
 
-        //             let position = cgmath::Vector3 { x, y: 0.0, z };
+        let model_bind_group_layout = 
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+                label: Some("Model Bind Group Layout"),
+        });
 
-        //             let rotation = if position.is_zero() {
-        //                 cgmath::Quaternion::from_axis_angle(
-        //                     cgmath::Vector3::unit_z(),
-        //                     cgmath::Deg(0.0),
-        //                 )
-        //             } else {
-        //                 cgmath::Quaternion::from_axis_angle(position.normalize(), cgmath::Deg(45.0))
-        //             };
-
-        //             Instance { position, rotation }
-        //         })
-        //     })
-        //     .collect::<Vec<_>>();
-        // let instance = Instance {
-        //     position: cgmath::Vector3 {
-        //         x: 0.0,
-        //         y: 0.0,
-        //         z: 0.0,
-        //     },
-        //     rotation: cgmath::Quaternion::from_axis_angle(
-        //         cgmath::Vector3::unit_z(),
-        //         cgmath::Deg(0.0),
-        //     ),
-        // };
-        // let instances = vec![instance];
-        
-        // // converts the Vec<Instance> into the corresponding Vec<InstanceRaw>
-        // let instance_data = instances.iter().map(Instance::to_raw).collect::<Vec<_>>();
-        // let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-        //     label: Some("Instance Buffer"),
-        //     contents: bytemuck::cast_slice(&instance_data), // &[vertices]
-        //     usage: wgpu::BufferUsages::VERTEX,
-        // });
-
+        let model_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &model_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: model_uniform_buffer.as_entire_binding(),
+            }],
+            label: Some("Model Bind Group"),
+        });
         let camera_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 entries: &[wgpu::BindGroupLayoutEntry {
@@ -587,7 +492,7 @@ impl<'a> State<'a> {
                     },
                     count: None,
                 }],
-                label: Some("camera_bind_group_layout"),
+                label: Some("Camera Bind Group Layout"),
             });
 
         let camera_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -596,20 +501,23 @@ impl<'a> State<'a> {
                 binding: 0,
                 resource: camera_buffer.as_entire_binding(),
             }],
-            label: Some("camera_bind_group"),
+            label: Some("Camera Bind Group"),
         });
 
-        let entities = vec![];
+        let entities = Self::load_scene_from_json(filepath, &device);
 
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Shader"),
             source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
         });
 
-        let render_pipeline_layout =
+        let render_pipeline_layout: wgpu::PipelineLayout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Render Pipeline Layout"),
-                bind_group_layouts: &[&camera_bind_group_layout],
+                bind_group_layouts: &[
+                    &camera_bind_group_layout,
+                    &model_bind_group_layout,
+                    ],
                 push_constant_ranges: &[],
             });
 
@@ -619,7 +527,7 @@ impl<'a> State<'a> {
             vertex: wgpu::VertexState {
                 module: &shader,
                 entry_point: Some("vs_main"),
-                buffers: &[model::ModelVertex::desc(), InstanceRaw::desc()],
+                buffers: &[model::ModelVertex::desc()],
                 compilation_options: Default::default(),
             },
             fragment: Some(wgpu::FragmentState {
@@ -672,6 +580,8 @@ impl<'a> State<'a> {
             camera_buffer,
             camera_bind_group,
             camera_uniform,
+            model_bind_group,
+            model_uniform_buffer,
             window,
         }
     }
@@ -739,18 +649,8 @@ impl<'a> State<'a> {
             });
 
             render_pass.set_pipeline(&self.render_pipeline);
-            // render_pass.draw_mesh_instanced(
-            //     &self.obj_mesh,
-            //     0..self.instances.len() as u32,
-            //     &self.camera_bind_group,
-            // );
             for entity in &self.entities {
-                for model in &entity.models {
-                    render_pass.draw_mesh(
-                        &model.obj,
-                        &self.camera_bind_group,
-                    );
-                }
+                entity.draw(&mut render_pass, &self.camera_bind_group, &self.model_bind_group, &self.model_uniform_buffer, &self.queue);
             }
         }
 
@@ -760,7 +660,7 @@ impl<'a> State<'a> {
         Ok(())
     }
 
-    fn load_scene_from_json(&mut self, filepath: &str) {
+    fn load_scene_from_json(filepath: &str, device: &wgpu::Device) -> Vec<Entity> {
         let json_unparsed = std::fs::read_to_string(filepath).unwrap();
         let json: serde_json::Value = serde_json::from_str(&json_unparsed).unwrap();
 
@@ -771,10 +671,10 @@ impl<'a> State<'a> {
             .collect();
         let mut entity_vec = vec![];
         for i in entity_temp.iter() {
-            entity_vec.push(Entity::load_from_json(*i, &self.device));
+            entity_vec.push(Entity::load_from_json(*i, device));
         }
 
-        self.entities = entity_vec;
+        entity_vec
     }
 }
 

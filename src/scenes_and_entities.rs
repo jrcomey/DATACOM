@@ -1,7 +1,7 @@
 // SCENES AND ENTITIES
 
 use crate::{com, camera, resources, dc::{self, green_vec}};
-use crate::model::{self, DrawMesh, Vertex};
+use crate::model::{self, DrawModel, Vertex};
 use log::{debug, info};
 use nalgebra as na;
 use cgmath::prelude::*;
@@ -9,7 +9,7 @@ use num_traits::ToPrimitive;
 // use rand::Error;
 use serde_json::Value;
 use std::{
-    ops::DerefMut, sync::atomic::{AtomicU64, Ordering}, time::Duration, vec
+    ops::DerefMut, sync::atomic::{AtomicU64, Ordering}, time::Duration, vec, iter
 };
 use std::net::TcpListener;
 use std::fmt::Error;
@@ -27,6 +27,9 @@ pub const OPENGL_TO_WGPU_MATRIX: cgmath::Matrix4<f32> = cgmath::Matrix4::new(
     0.0, 0.0, 0.5, 0.5,
     0.0, 0.0, 0.0, 1.0,
 );
+
+#[allow(unused)]
+const NUM_INSTANCES_PER_ROW: u32 = 10;
 
 #[derive(Debug)]
 struct Camera {
@@ -61,6 +64,7 @@ impl CameraUniform {
     }
 
     fn update_view_proj(&mut self, camera: &Camera) {
+        // self.view_proj = camera.build_view_projection_matrix().into();
         self.view_proj = (OPENGL_TO_WGPU_MATRIX * camera.build_view_projection_matrix()).into();
     }
 }
@@ -233,7 +237,7 @@ struct Entity {
 }
 
 impl Entity {
-    pub fn load_from_json(json: &serde_json::Value, device: &wgpu::Device) -> Entity {
+    pub fn load_from_json(json: &serde_json::Value, device: &wgpu::Device, model_bind_group_layout: &wgpu::BindGroupLayout) -> Entity {
         let name = json["Name"].to_string();
 
         // Position
@@ -274,7 +278,7 @@ impl Entity {
                 let model_temp: Vec<_> = array.into_iter().collect();
                 let mut model_vec = vec![];
                 for i in model_temp.iter() {
-                    model_vec.push(model::Model::load_from_json(*i, device));
+                    model_vec.push(model::Model::load_from_json(*i, device, model_bind_group_layout));
                 }
                 model_vec
             }
@@ -307,30 +311,30 @@ impl Entity {
         let translation = cgmath::Matrix4::from_translation(self.position.to_vec());
         let rotation = cgmath::Matrix4::from(self.rotation);
         let scale = cgmath::Matrix4::from_nonuniform_scale(self.scale.x, self.scale.y, self.scale.z);
-        translation * rotation * scale
+        let rotation_correction = cgmath::Matrix4::from_angle_x(cgmath::Deg(-90.0));
+        rotation_correction * translation * rotation * scale
     }
 
     pub fn draw<'a>(
         &'a self,
         render_pass: &mut wgpu::RenderPass<'a>,
         camera_bind_group: &'a wgpu::BindGroup,
-        model_bind_group: &'a wgpu::BindGroup,
-        model_uniform_buffer: &'a wgpu::Buffer,
         queue: &wgpu::Queue,
     ) {
         let entity_matrix = self.to_matrix();
         for model in &self.models {
+            println!("drawing {}", model.name);
             let model_matrix = model.to_matrix();
             let full_transform = entity_matrix * model_matrix;
             let full_uniform: [[f32; 4]; 4] = full_transform.into();
 
             queue.write_buffer(
-                model_uniform_buffer,
+                &model.uniform_buffer,
                 0,
                 bytemuck::cast_slice(&[full_uniform]),
             );
 
-            render_pass.draw_mesh(&model.obj, camera_bind_group, model_bind_group);
+            render_pass.draw_mesh(&model.obj, camera_bind_group, &model.bind_group);
         }
     }
 }
@@ -348,8 +352,6 @@ struct State<'a> {
     camera_uniform: CameraUniform,
     camera_buffer: wgpu::Buffer,
     camera_bind_group: wgpu::BindGroup,
-    model_bind_group: wgpu::BindGroup,
-    model_uniform_buffer: wgpu::Buffer,
     // #[allow(dead_code)]
     // instances: Vec<Instance>,
     // #[allow(dead_code)]
@@ -450,13 +452,6 @@ impl<'a> State<'a> {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
-        let model_uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Model Uniform Buffer"),
-            size: std::mem::size_of::<[[f32; 4]; 4]>() as u64,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-
         let model_bind_group_layout = 
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 entries: &[wgpu::BindGroupLayoutEntry {
@@ -472,14 +467,6 @@ impl<'a> State<'a> {
                 label: Some("Model Bind Group Layout"),
         });
 
-        let model_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &model_bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: model_uniform_buffer.as_entire_binding(),
-            }],
-            label: Some("Model Bind Group"),
-        });
         let camera_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 entries: &[wgpu::BindGroupLayoutEntry {
@@ -504,11 +491,11 @@ impl<'a> State<'a> {
             label: Some("Camera Bind Group"),
         });
 
-        let entities = Self::load_scene_from_json(filepath, &device);
+        let entities = Self::load_scene_from_json(filepath, &device, &model_bind_group_layout);
 
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(include_str!("shaders/shader.wgsl").into()),
         });
 
         let render_pipeline_layout: wgpu::PipelineLayout =
@@ -580,8 +567,6 @@ impl<'a> State<'a> {
             camera_buffer,
             camera_bind_group,
             camera_uniform,
-            model_bind_group,
-            model_uniform_buffer,
             window,
         }
     }
@@ -649,8 +634,18 @@ impl<'a> State<'a> {
             });
 
             render_pass.set_pipeline(&self.render_pipeline);
+            // render_pass.draw_mesh_instanced(
+            //     &self.obj_mesh,
+            //     0..self.instances.len() as u32,
+            //     &self.camera_bind_group,
+            // );
+
+            // we want a wgpu::Buffer derived from vertex_data
+            // a Vec<[[f32; 4]; 4]>
+            // each matrix contains entity_transform * model_transform
+            // 
             for entity in &self.entities {
-                entity.draw(&mut render_pass, &self.camera_bind_group, &self.model_bind_group, &self.model_uniform_buffer, &self.queue);
+                entity.draw(&mut render_pass, &self.camera_bind_group, &self.queue);
             }
         }
 
@@ -660,7 +655,7 @@ impl<'a> State<'a> {
         Ok(())
     }
 
-    fn load_scene_from_json(filepath: &str, device: &wgpu::Device) -> Vec<Entity> {
+    fn load_scene_from_json(filepath: &str, device: &wgpu::Device, model_bind_group_layout: &wgpu::BindGroupLayout) -> Vec<Entity> {
         let json_unparsed = std::fs::read_to_string(filepath).unwrap();
         let json: serde_json::Value = serde_json::from_str(&json_unparsed).unwrap();
 
@@ -671,7 +666,7 @@ impl<'a> State<'a> {
             .collect();
         let mut entity_vec = vec![];
         for i in entity_temp.iter() {
-            entity_vec.push(Entity::load_from_json(*i, device));
+            entity_vec.push(Entity::load_from_json(*i, device, model_bind_group_layout));
         }
 
         entity_vec

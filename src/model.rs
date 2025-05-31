@@ -1,5 +1,5 @@
 use wgpu::util::DeviceExt;
-use cgmath::EuclideanSpace;
+use cgmath::{EuclideanSpace, InnerSpace};
 
 pub trait Vertex {
     fn desc() -> wgpu::VertexBufferLayout<'static>;
@@ -221,6 +221,11 @@ impl Model {
         let translation = cgmath::Matrix4::from_translation(self.position.to_vec());
         let rotation = cgmath::Matrix4::from(self.rotation);
         translation * rotation
+    }
+
+    pub fn rotate(&mut self, rotation: cgmath::Quaternion<f32>){
+        self.rotation = self.rotation * rotation;
+        self.rotation.normalize();
     }
 }
 

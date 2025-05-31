@@ -4,7 +4,8 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-tobj = "3.2.3"
+tobj = { version = "3.2", default-features = false, features = ["async"]}
+glium = "0.36.0"
 nalgebra = "0.31.0"
 rand = "0.8.5"
 pretty_env_logger = "0.4.0"
@@ -17,6 +18,8 @@ glutin = "0.32.0"
 toml = "0.8.22"
 serde = "1.0.219"
 serde_derive = "1.0.219"
+wgpu = "25.0.0"
 winit = "0.29"
-wgpu = "25.0.2"
-pollster = "0.4.0"
+bytemuck = { version = "1.16", features = ["derive"]}
+cgmath = "0.18.0"
+anyhow = "1.0"

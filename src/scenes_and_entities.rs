@@ -1,633 +1,174 @@
 // SCENES AND ENTITIES
 
-use crate::{com, dc::{self, green_vec}};
-use glium::debug;
+use crate::{com, camera, resources, dc::{self, green_vec}};
+use crate::model::{self, DrawModel, Vertex};
+use log::{debug, info};
 use nalgebra as na;
+use cgmath::prelude::*;
 use num_traits::ToPrimitive;
 // use rand::Error;
 use serde_json::Value;
 use std::{
-    ops::DerefMut, sync::atomic::{AtomicU64, Ordering}, time::Duration, vec
+    ops::DerefMut, sync::atomic::{AtomicU64, Ordering}, time::Duration, vec, iter
 };
-use tobj::Model;
 use std::net::TcpListener;
 use std::fmt::Error;
+use winit::window::Window;
+use winit::event::{WindowEvent, KeyEvent, MouseButton, ElementState};
+use winit::keyboard::{PhysicalKey, KeyCode};
+use wgpu::{util::DeviceExt, SurfaceConfiguration};
 // const SCALE_FACTOR: f32 = 1E0;
 static ENTITY_COUNTER: AtomicU64 = AtomicU64::new(0);
 
+#[rustfmt::skip]
+pub const OPENGL_TO_WGPU_MATRIX: cgmath::Matrix4<f32> = cgmath::Matrix4::new(
+    1.0, 0.0, 0.0, 0.0,
+    0.0, 1.0, 0.0, 0.0,
+    0.0, 0.0, 0.5, 0.5,
+    0.0, 0.0, 0.0, 1.0,
+);
 
-// Define the wireframe or model representation
-pub struct WireframeObject {
-    // Define the structure for your wireframe representation
-    // This could include vertex data, indices, color, etc.
-    // ...
-    positions: Vec<dc::Vertex>,
-    normals: Vec<dc::Normal>,
-    indices: Vec<u32>,
-    color: na::base::Vector4<f32>,
+#[allow(unused)]
+const NUM_INSTANCES_PER_ROW: u32 = 10;
+
+#[derive(Debug)]
+struct Camera {
+    eye: cgmath::Point3<f32>,
+    target: cgmath::Point3<f32>,
+    up: cgmath::Vector3<f32>,
+    aspect: f32,
+    fovy: f32,
+    znear: f32,
+    zfar: f32,
 }
 
-impl WireframeObject {
-    pub fn load_wireframe_from_obj(
-        filepath: &str,
-        colorvec: na::base::Vector4<f32>,
-    ) -> WireframeObject {
-        let file = tobj::load_obj(filepath, &tobj::GPU_LOAD_OPTIONS);
-        assert!(file.is_ok());
-
-        let (models, _) = file.unwrap();
-        let mesh = &models[0].mesh;
-
-        WireframeObject {
-            positions: WireframeObject::convert_to_vertex_struct(&mesh.positions),
-            normals: WireframeObject::convert_to_normal_struct(&mesh.normals),
-            indices: mesh.indices.clone(),
-            color: colorvec,
-        }
-    }
-
-    pub fn convert_to_vertex_struct(target: &Vec<f32>) -> Vec<dc::Vertex> {
-        // Have to pass a reference (&) to the target.
-        // Datatype does not support copying, and Rust creates a copy of the orignal function arguments.
-        // Original copy not modified, so fine
-        let mut vertex_array: Vec<dc::Vertex> = std::vec::Vec::new();
-        for i in 0..target.len() / 3 {
-            vertex_array.push(dc::Vertex::new(
-                target[3 * i + 0] as f64,
-                target[3 * i + 1] as f64,
-                target[3 * i + 2] as f64,
-            ));
-        }
-        return vertex_array;
-    }
-
-    pub fn convert_to_normal_struct(target: &Vec<f32>) -> Vec<dc::Normal> {
-        // Have to pass a reference (&) to the target.
-        // Datatype does not support copying, and Rust creates a copy of the orignal function arguments.
-        // Original copy not modified, so fine
-        let mut normal_array: Vec<dc::Normal> = std::vec::Vec::new();
-        for i in 0..target.len() / 3 {
-            normal_array.push(dc::Normal::new(
-                target[3 * i + 0] as f64,
-                target[3 * i + 1] as f64,
-                target[3 * i + 2] as f64,
-            ));
-        }
-        return normal_array;
-    }
-
-    pub fn new(
-        positions: Vec<dc::Vertex>,
-        normals: Vec<dc::Normal>,
-        indices: Vec<u32>,
-        color: na::base::Vector4<f32>,
-    ) -> WireframeObject {
-        WireframeObject {
-            positions: positions,
-            normals: normals,
-            indices: indices,
-            color: color,
-        }
-    }
-
-    pub fn change_color(&mut self, new_color: na::Vector4<f32>) {
-        self.color = new_color;
-    }
-
-    pub fn get_color(&mut self) -> na::Vector4<f32> {
-        self.color
+impl Camera {
+    fn build_view_projection_matrix(&self) -> cgmath::Matrix4<f32> {
+        let view = cgmath::Matrix4::look_at_rh(self.eye, self.target, self.up);
+        let proj = cgmath::perspective(cgmath::Deg(self.fovy), self.aspect, self.znear, self.zfar);
+        proj * view
     }
 }
 
-impl DrawInScene for WireframeObject {
-    fn draw_at_position(
-        &self,
-        gui: &dc::GuiContainer,
-        context: &dc::RenderContext,
-        target: &mut glium::Frame,
-        model: na::Matrix4<f32>,
-    ) {
-        // info!("Drawing Wireframe");
-        use glium::Surface;
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+struct CameraUniform {
+    view_proj: [[f32; 4]; 4],
+}
 
-        let scalar = na::Matrix4::<f32>::new_scaling(1.0);
-        let uniforms = glium::uniform! {
-            model: dc::uniformify_mat4(model),
-            view: dc::uniformify_mat4(context.view),
-            perspective: dc::uniformify_mat4(context.perspective),
-            color_obj: dc::uniformify_vec4(self.color),
-            vp: dc::uniformify_mat4(context.viewport_shift),
-        };
+impl CameraUniform {
+    fn new() -> Self {
+        Self {
+            view_proj: cgmath::Matrix4::identity().into(),
+        }
+    }
 
-        let positions = glium::VertexBuffer::new(&gui.display, &self.positions).unwrap();
-        let normals = glium::VertexBuffer::new(&gui.display, &self.normals).unwrap();
-        let indices = glium::IndexBuffer::new(
-            &gui.display,
-            glium::index::PrimitiveType::TrianglesList,
-            &self.indices,
-        )
-        .unwrap();
-
-        let poly_off = glium::draw_parameters::PolygonOffset {
-            factor: 0.0,
-            units: 1.0,
-            ..Default::default()
-            // point: true,
-            // line: true,
-            // fill: true,
-        };
-
-        let params = glium::DrawParameters {
-            polygon_mode: glium::draw_parameters::PolygonMode::Line,
-            depth: glium::Depth {
-                test: glium::draw_parameters::DepthTest::IfLess,
-                write: true,
-                // range: (0.0, 1.0),
-                clamp: glium::draw_parameters::DepthClamp::Clamp,
-                ..Default::default()
-            },
-            line_width: std::option::Option::Some(1E-5),
-            scissor: std::option::Option::Some(context.pixel_bounds),
-            backface_culling: glium::draw_parameters::BackfaceCullingMode::CullClockwise,
-            polygon_offset: poly_off,
-            ..Default::default()
-        };
-
-
-        let poly_off_solid = glium::draw_parameters::PolygonOffset {
-            factor: 1.00,
-            units: 1.0,
-            point: true,
-            line: true,
-            fill: true,
-        };
-
-        let uniforms_solid = glium::uniform! {
-            model: dc::uniformify_mat4(model*scalar),
-            view: dc::uniformify_mat4(context.view),
-            perspective: dc::uniformify_mat4(context.perspective),
-            color_obj: dc::uniformify_vec4(dc::rgba(0.0, 0.0, 0.0, 0.2)),
-            vp: dc::uniformify_mat4(context.viewport_shift),
-        };
-
-        let params_solid = glium::DrawParameters {
-            polygon_mode: glium::draw_parameters::PolygonMode::Fill,
-            depth: glium::Depth {
-                test: glium::draw_parameters::DepthTest::IfLess,
-                write: true,
-                // range: (0.0, 1.0),
-                clamp: glium::draw_parameters::DepthClamp::Clamp,
-                ..Default::default()
-            },
-            line_width: std::option::Option::Some(1E-5),
-            scissor: std::option::Option::Some(context.pixel_bounds),
-            backface_culling: glium::draw_parameters::BackfaceCullingMode::CullClockwise,
-            polygon_offset: poly_off_solid,
-            ..Default::default()
-        };
-
-        target
-            .draw(
-                (&positions, &normals),
-                &indices,
-                &gui.program,
-                &uniforms_solid,
-                &params_solid,
-            )
-            .unwrap();
-
-        target
-            .draw(
-                (&positions, &normals),
-                &indices,
-                &gui.program,
-                &uniforms,
-                &params,
-            )
-            .unwrap();
-
-        
+    fn update_view_proj(&mut self, camera: &Camera) {
+        // self.view_proj = camera.build_view_projection_matrix().into();
+        self.view_proj = (OPENGL_TO_WGPU_MATRIX * camera.build_view_projection_matrix()).into();
     }
 }
 
-// Define the component for a model
-pub struct ModelComponent {
-    wireframe: WireframeObject, // Wireframe model of the object to be displayed
-    local_position: na::Point3<f32>, // Local **unscaled** position relative to parent body
-    local_orientation: na::UnitQuaternion<f32>, // Primary rotation of model relative to parent body. Intended to be static but can be modified.
-    local_rotation: na::UnitQuaternion<f32>, // Secondary rotation of model relative to parent body. Intended to be a dynamic property.
+struct CameraController {
+    speed: f32,
+    is_up_pressed: bool,
+    is_down_pressed: bool,
+    is_forward_pressed: bool,
+    is_backward_pressed: bool,
+    is_left_pressed: bool,
+    is_right_pressed: bool,
 }
 
-impl ModelComponent {
-    pub fn new(wireframe: WireframeObject) -> ModelComponent {
-        ModelComponent {
-            wireframe: wireframe,
-            local_position: na::Point3::origin(),
-            local_orientation: na::UnitQuaternion::identity(),
-            local_rotation: na::UnitQuaternion::identity(),
+impl CameraController {
+    fn new(speed: f32) -> Self {
+        Self {
+            speed,
+            is_up_pressed: false,
+            is_down_pressed: false,
+            is_forward_pressed: false,
+            is_backward_pressed: false,
+            is_left_pressed: false,
+            is_right_pressed: false,
         }
     }
 
-    pub fn load_from_json_file(filepath: &str) -> ModelComponent {
-        let json_unparsed = std::fs::read_to_string(filepath).unwrap();
-        ModelComponent::load_from_json_str(&json_unparsed)
-    }
-
-    pub fn load_from_json_str(json_string: &str) -> ModelComponent {
-        let json_parsed: Value = serde_json::from_str(json_string).unwrap();
-        ModelComponent::load_from_json(&json_parsed)
-    }
-
-    pub fn load_from_json(json_parsed: &serde_json::Value) -> ModelComponent {
-        let name = json_parsed["Name"].as_str().unwrap();
-        let filepath = json_parsed["ObjectFilePath"].as_str().unwrap();
-
-        let mut position_vec = na::Point3::<f32>::new(0.0, 0.0, 0.0);
-        let position_temp: Vec<_> = json_parsed["Position"]
-            .as_array()
-            .unwrap()
-            .into_iter()
-            .collect();
-        for (i, position) in position_temp.iter().enumerate() {
-            position_vec[i] = position.as_f64().unwrap() as f32;
-        }
-
-        let orientation_temp: Vec<_> = json_parsed["Orientation"]
-            .as_array()
-            .unwrap()
-            .into_iter()
-            .collect();
-        let mut orientation_vec = na::Vector3::<f32>::new(0.0, 0.0, 0.0);
-        for (i, orientation_comp) in orientation_temp.iter().enumerate() {
-            orientation_vec[i] = orientation_comp.as_f64().unwrap() as f32;
-        }
-
-        let rotation_temp: Vec<_> = json_parsed["Rotation"]
-            .as_array()
-            .unwrap()
-            .into_iter()
-            .collect();
-        let mut rotation_vec = na::Vector3::<f32>::new(0.0, 0.0, 0.0);
-        for (i, rotation_comp) in rotation_temp.iter().enumerate() {
-            rotation_vec[i] = rotation_comp.as_f64().unwrap() as f32;
-        }
-
-        let color_temp: Vec<_> = json_parsed["Color"]
-            .as_array()
-            .unwrap()
-            .into_iter()
-            .collect();
-        let mut color_vec = na::Vector4::<f32>::new(0.0, 0.0, 0.0, 0.0);
-        for (i, color_comp) in color_temp.iter().enumerate() {
-            color_vec[i] = color_comp.as_f64().unwrap() as f32;
-        }
-
-        // debug!("NAME: {}", name);
-        // debug!("POSITION: {}", position_vec);
-        // debug!("ORIENTATION: {}", orientation_vec);
-        // debug!("ROTATION: {}", rotation_vec);
-        // debug!("COLOR: {}", color_vec);
-
-        ModelComponent {
-            wireframe: WireframeObject::load_wireframe_from_obj(&filepath, color_vec),
-            local_position: position_vec,
-            local_orientation: na::UnitQuaternion::new(orientation_vec),
-            local_rotation: na::UnitQuaternion::new(rotation_vec),
-        }
-    }
-
-    pub fn update_local_position(&mut self, new_local_position: na::Point3<f32>) {
-        self.local_position = new_local_position;
-    }
-
-    pub fn update_local_rotation(&mut self, new_local_rotation: na::UnitQuaternion<f32>) {
-        self.local_rotation = new_local_rotation;
-    }
-
-    pub fn rotate_by(&mut self, rotation_factor: na::UnitQuaternion<f32>) {
-        self.local_rotation = self.local_rotation * rotation_factor;
-        self.local_rotation.renormalize_fast();
-    }
-
-    pub fn change_color(&mut self, new_color: na::Vector4<f32>) {
-        self.wireframe.change_color(new_color);
-    }
-
-    pub fn get_color(&mut self) -> na::Vector4<f32> {
-        self.wireframe.get_color()
-    }
-}
-
-impl DrawInScene for ModelComponent {
-    fn draw_at_position(
-        &self,
-        gui: &dc::GuiContainer,
-        context: &dc::RenderContext,
-        target: &mut glium::Frame,
-        model: na::Matrix4<f32>,
-    ) {
-        let local_model = na::Isometry3::from_parts(
-            na::Translation3::from(self.local_position),
-            self.local_rotation,
-        )
-        .to_homogeneous();
-
-        self.wireframe
-            .draw_at_position(gui, context, target, model * local_model);
-    }
-}
-
-// Define the component for a behavior
-pub struct BehaviorComponent {
-    // Define the behavior-specific data and logic
-    // This could include methods for movement, rotation, etc.
-    // Intended to be used for constant animations: e.g. spinning rotors that
-    // don't need to wait for external command but should perform anyway
-    pub behavior: Command,
-}
-
-impl BehaviorComponent {
-    pub fn new(behavior_vector: Command) -> BehaviorComponent {
-        BehaviorComponent {
-            behavior: behavior_vector,
-        }
-    }
-
-    pub fn get_behavior(&self) -> Command {
-        self.behavior.clone()
-    }
-
-    pub fn change_command_data(&mut self, new_data: Vec<f64>) {
-        self.behavior.change_data(new_data);
-    }
-
-    pub fn load_from_json(json_parsed: &serde_json::Value) -> BehaviorComponent {
-        let command = Command::from_json(json_parsed);
-        BehaviorComponent { behavior: command }
-    }
-}
-
-// Define the entity structure
-pub struct Entity {
-    id: u64, // Unique identifier for the entity
-    position: na::Point3<f64>,
-    rotation: na::UnitQuaternion<f64>,
-    scale: na::Vector3<f64>,
-    models: Vec<ModelComponent>,
-    behaviors: Vec<BehaviorComponent>,
-    // Other entity-specific data...
-}
-
-impl Entity {
-    // Additional methods for entity management...
-
-    pub fn new() -> Entity {
-        Entity {
-            id: ENTITY_COUNTER.fetch_add(1, Ordering::Relaxed),
-            position: na::Point3::origin(),
-            rotation: na::UnitQuaternion::identity(),
-            scale: na::Vector3::new(1.0, 1.0, 1.0),
-            models: Vec::new(),
-            behaviors: Vec::new(),
-            // Other entity-specific data...
-        }
-    }
-
-    pub fn load_from_json_file(filepath: &str) -> Entity {
-        let json_unparsed = std::fs::read_to_string(filepath).unwrap();
-        Entity::load_from_json_str(&json_unparsed)
-    }
-
-    pub fn load_from_json_str(json_string: &str) -> Entity {
-        let json_parsed: Value = serde_json::from_str(json_string).unwrap();
-        Entity::load_from_json(&json_parsed)
-    }
-
-    pub fn load_from_json(json_parsed: &serde_json::Value) -> Entity {
-        let name = json_parsed["Name"].as_str().unwrap();
-
-        // Position
-        let mut position_vec = na::Point3::<f64>::new(0.0, 0.0, 0.0);
-        let position_temp: Vec<_> = json_parsed["Position"]
-            .as_array()
-            .unwrap()
-            .into_iter()
-            .collect();
-        for (i, position) in position_temp.iter().enumerate() {
-            position_vec[i] = position.as_f64().unwrap();
-        }
-
-        // Rotation
-        let rotation_temp: Vec<_> = json_parsed["Rotation"]
-            .as_array()
-            .unwrap()
-            .into_iter()
-            .collect();
-        let mut rotation_vec = na::Vector3::<f64>::new(0.0, 0.0, 0.0);
-        for (i, rotation_comp) in rotation_temp.iter().enumerate() {
-            rotation_vec[i] = rotation_comp.as_f64().unwrap();
-        }
-
-        // Scale
-        let scale_temp: Vec<_> = json_parsed["Scale"]
-            .as_array()
-            .unwrap()
-            .into_iter()
-            .collect();
-        let mut scale_vec = na::Vector3::<f64>::new(0.0, 0.0, 0.0);
-        for (i, scale_comp) in scale_temp.iter().enumerate() {
-            scale_vec[i] = scale_comp.as_f64().unwrap();
-        }
-
-        // let scale_vec: Vec<_> = match json_parsed["Scale"].as_array() {
-        //     Some(array) => {
-        //         let scale_temp: Vec<_> = array.into_iter().collect();
-        //         let mut scale_vec = na::Vector3::<f64>::new(0.0, 0.0, 0.0);
-        //         for (i, scale_comp) in scale_temp.iter().enumerate() {
-        //             scale_vec[i] = scale_comp.as_f64().unwrap();
-        //         }
-        //         scale_vec
-        //     },
-        //     None => vec![]
-        // };
-
-        // let model_temp: Vec<_> = json_parsed["Models"].as_array().unwrap().into_iter().collect();
-        // let mut model_vec = vec![];
-        // for i in model_temp.iter() {
-        //     model_vec.push(ModelComponent::load_from_json(*i));
-        // }
-
-        let model_vec: Vec<_> = match json_parsed["Models"].as_array() {
-            Some(array) => {
-                let model_temp: Vec<_> = array.into_iter().collect();
-                let mut model_vec = vec![];
-                for i in model_temp.iter() {
-                    model_vec.push(ModelComponent::load_from_json(*i));
+    fn process_events(&mut self, event: &WindowEvent) -> bool {
+        match event {
+            WindowEvent::KeyboardInput {
+                event:
+                    KeyEvent {
+                        state,
+                        physical_key: PhysicalKey::Code(keycode),
+                        ..
+                    },
+                ..
+            } => {
+                let is_pressed = *state == ElementState::Pressed;
+                match keycode {
+                    KeyCode::Space => {
+                        self.is_up_pressed = is_pressed;
+                        true
+                    }
+                    KeyCode::ShiftLeft => {
+                        self.is_down_pressed = is_pressed;
+                        true
+                    }
+                    KeyCode::KeyW | KeyCode::ArrowUp => {
+                        self.is_forward_pressed = is_pressed;
+                        true
+                    }
+                    KeyCode::KeyA | KeyCode::ArrowLeft => {
+                        self.is_left_pressed = is_pressed;
+                        true
+                    }
+                    KeyCode::KeyS | KeyCode::ArrowDown => {
+                        self.is_backward_pressed = is_pressed;
+                        true
+                    }
+                    KeyCode::KeyD | KeyCode::ArrowRight => {
+                        self.is_right_pressed = is_pressed;
+                        true
+                    }
+                    _ => false,
                 }
-                model_vec
             }
-            None => vec![],
-        };
-
-        // let behavior_temp: Vec<_> = json_parsed["Behaviors"].as_array().unwrap().into_iter().collect();
-        // let mut behavior_vec = vec![];
-        // for i in behavior_temp.iter() {
-        //     behavior_vec.push(BehaviorComponent::load_from_json(*i));
-        // }
-
-        let behavior_vec: Vec<_> = match json_parsed["Behaviors"].as_array() {
-            Some(array) => {
-                let behavior_temp: Vec<_> = array.into_iter().collect();
-                let mut behavior_vec = vec![];
-                for i in behavior_temp.iter() {
-                    behavior_vec.push(BehaviorComponent::load_from_json(*i));
-                }
-                behavior_vec
-            }
-            None => vec![],
-        };
-        // debug!("{}", model_temp[0]["Name"]);
-
-        // debug!("NAME: {}", name);
-        // debug!("POSITION: {}", position_vec);
-        // debug!("ROTATION: {}", rotation_vec);
-        // debug!("SCALE: {}", scale_vec);
-
-        Entity {
-            id: ENTITY_COUNTER.fetch_add(1, Ordering::Relaxed),
-            position: position_vec,
-            rotation: na::UnitQuaternion::new(rotation_vec),
-            scale: scale_vec,
-            models: model_vec,
-            behaviors: behavior_vec,
-            // Other entity-specific data...
+            _ => false,
         }
     }
 
-    pub fn add_model(&mut self, model: ModelComponent) {
-        self.models.push(model);
-    }
+    fn update_camera(&self, camera: &mut Camera) {
+        let forward = camera.target - camera.eye;
+        let forward_norm = forward.normalize();
+        let forward_mag = forward.magnitude();
 
-    pub fn add_behavior(&mut self, behavior: BehaviorComponent) {
-        self.behaviors.push(behavior);
-    }
-
-    pub fn change_position(&mut self, new_position: na::Point3<f64>) {
-        self.position = new_position;
-    }
-
-    pub fn change_scale(&mut self, new_scale: na::Vector3<f64>) {
-        self.scale = new_scale;
-    }
-
-    pub fn get_model(&mut self, model_component_id: u64) -> &mut ModelComponent {
-        &mut self.models[model_component_id as usize]
-    }
-
-    pub fn get_behavior(&mut self, index: usize) -> Command {
-        self.behaviors[index].get_behavior()
-    }
-
-    pub fn command(&mut self, cmd: Command) {
-        match cmd.cmd_type {
-            // Translate entity by vector
-            CommandType::EntityTranslate => {
-                let new_position = na::Vector3::<f64>::new(cmd.data[0], cmd.data[1], cmd.data[2]);
-                self.change_position(self.position + new_position);
-            }
-
-            // Change position to input
-            CommandType::EntityChangePosition => {
-                let new_position = na::Point3::<f64>::new(cmd.data[0], cmd.data[1], cmd.data[2]);
-                self.change_position(new_position);
-            }
-
-            // Change color to input
-            CommandType::ComponentChangeColor => {
-                let model_id = cmd.data[0] as u64;
-                let new_color = na::Vector4::<f32>::new(
-                    cmd.data[1] as f32,
-                    cmd.data[2] as f32,
-                    cmd.data[3] as f32,
-                    cmd.data[4] as f32,
-                );
-                self.get_model(model_id).change_color(new_color);
-            }
-
-            // Rotate item at constant speed
-            CommandType::ComponentRotateConstantSpeed => {
-                let model_id = cmd.data[0] as u64;
-                let rotation_factor = cmd.data[1];
-                let new_quaternion_vector = na::Vector3::<f32>::new(
-                    (rotation_factor * cmd.data[2]) as f32,
-                    (rotation_factor * cmd.data[4]) as f32,
-                    (rotation_factor * cmd.data[3]) as f32,
-                );
-                let new_quaternion = na::UnitQuaternion::<f32>::new(new_quaternion_vector);
-
-                self.get_model(model_id).rotate_by(new_quaternion);
-            }
-
-            // Modify Existing Behavior
-            CommandType::ModifyBehavior => {
-                let behavior_id = cmd.data[0] as usize;
-                let new_data = cmd.data.into_iter().collect();
-                self.get_behavior(behavior_id).change_data(new_data);
-            }
-
-            _ => return,
+        // Prevents glitching when camera gets too close to the
+        // center of the scene.
+        if self.is_forward_pressed && forward_mag > self.speed {
+            camera.eye += forward_norm * self.speed;
         }
-    }
-
-    pub fn clear_behaviors(&mut self) {
-        self.behaviors = vec![];
-    }
-
-    pub fn run_behaviors(&mut self) {
-        // Gather behaviors into vector
-
-        let mut cmds = vec![];
-        for i in &mut self.behaviors {
-            cmds.push(i.get_behavior());
+        if self.is_backward_pressed {
+            camera.eye -= forward_norm * self.speed;
         }
-        //Run them all in an iterator
 
-        for i in cmds.iter() {
-            self.command(i.clone());
+        let right = forward_norm.cross(camera.up);
+
+        // Redo radius calc in case the up/ down is pressed.
+        let forward = camera.target - camera.eye;
+        let forward_mag = forward.magnitude();
+
+        if self.is_right_pressed {
+            // Rescale the distance between the target and eye so
+            // that it doesn't change. The eye therefore still
+            // lies on the circle made by the target and eye.
+            camera.eye = camera.target - (forward + right * self.speed).normalize() * forward_mag;
         }
-    }
-
-    pub fn get_position(&mut self) -> &na::Point3<f64> {
-        &self.position
-    }
-}
-
-impl dc::Draw for Entity {
-    fn draw(&self, gui: &dc::GuiContainer, context: &dc::RenderContext, target: &mut glium::Frame) {
-        let translate = na::Translation3::from(self.position);
-        let parent_model_mat =
-            na::Isometry3::from_parts(na::convert(translate), na::convert(self.rotation));
-        let scale_vec = na::Vector3::new(
-            self.scale.x as f32 ,
-            self.scale.y as f32 ,
-            self.scale.z as f32 ,
-        );
-        for model in &self.models {
-            model.draw_at_position(
-                gui,
-                context,
-                target,
-                parent_model_mat
-                    .to_homogeneous()
-                    .prepend_nonuniform_scaling(&scale_vec),
-            );
+        if self.is_left_pressed {
+            camera.eye = camera.target - (forward - right * self.speed).normalize() * forward_mag;
         }
     }
 }
 
-// Types of command
-#[derive(Copy, Clone)]
-pub enum CommandType {
+pub enum BehaviorType {
     EntityRotate,
     EntityTranslate,
     EntityChangePosition,
@@ -639,249 +180,675 @@ pub enum CommandType {
     Null,
 }
 
-impl CommandType {
-    pub fn match_from_string(input_string: &str) -> CommandType {
+impl BehaviorType {
+    pub fn match_from_string(input_string: &str) -> BehaviorType {
         match input_string {
-            "EntityRotate" => CommandType::EntityRotate,
-            "EntityTranslate" => CommandType::EntityTranslate,
-            "EntityChangePosition" => CommandType::EntityChangePosition,
-            "ComponentRotate" => CommandType::ComponentRotate,
-            "ComponentTranslate" => CommandType::ComponentTranslate,
-            "ComponentChangeColor" => CommandType::ComponentChangeColor,
-            "ComponentRotateConstantSpeed" => CommandType::ComponentRotateConstantSpeed,
-            "ModifyBehavior" => CommandType::ModifyBehavior,
-            _ => CommandType::Null,
+            "EntityRotate" => BehaviorType::EntityRotate,
+            "EntityTranslate" => BehaviorType::EntityTranslate,
+            "EntityChangePosition" => BehaviorType::EntityChangePosition,
+            "ComponentRotate" => BehaviorType::ComponentRotate,
+            "ComponentTranslate" => BehaviorType::ComponentTranslate,
+            "ComponentChangeColor" => BehaviorType::ComponentChangeColor,
+            "ComponentRotateConstantSpeed" => BehaviorType::ComponentRotateConstantSpeed,
+            "ModifyBehavior" => BehaviorType::ModifyBehavior,
+            _ => BehaviorType::Null,
         }
     }
 }
-#[derive(Clone)]
-pub struct Command {
-    pub cmd_type: CommandType,
+
+pub struct Behavior {
+    pub behavior_type: BehaviorType,
     pub data: Vec<f64>,
 }
 
-impl Command {
-    pub fn new(cmd_type: CommandType, data: Vec<f64>) -> Command {
-        Command {
-            cmd_type: cmd_type,
+impl Behavior {
+    pub fn new(behavior_type: BehaviorType, data: Vec<f64>) -> Behavior {
+        Behavior {
+            behavior_type: behavior_type,
             data: data,
         }
     }
-
-    pub fn change_data(&mut self, new_data: Vec<f64>) {
-        self.data = new_data;
-    }
-
-    pub fn get_data(&self) -> &Vec<f64> {
-        &self.data
-    }
-
-    pub fn from_json(json_parsed: &serde_json::Value) -> Command {
-        let data_temp: Vec<_> = json_parsed["data"]
+    pub fn load_from_json(json: &serde_json::Value) -> Behavior {
+        let data_temp: Vec<_> = json["data"]
             .as_array()
             .unwrap()
             .into_iter()
             .collect();
         let mut data: Vec<f64> = vec![];
-        for (i, data_point) in data_temp.iter().enumerate() {
+        for data_point in data_temp.iter() {
             data.push(data_point.as_f64().unwrap());
         }
 
-        // let data: Vec<_> = match json_parsed["data"].as_array() {
-        //     Some(data_temp) => {
-        //         let data_temp: Vec<_> = json_parsed["data"].as_array().unwrap().into_iter().collect();
-        //         let mut data: Vec<f64> = vec![];
-        //         for (i, data_point) in data_temp.iter().enumerate() {
-        //             data.push(data_point.as_f64().unwrap());
-        //         }
-        //         data
-        //     },
-        //     None => vec![],
-        // };
+        let behavior_type: BehaviorType =
+            BehaviorType::match_from_string(json["commandType"].as_str().unwrap());
 
-        let command_type: CommandType =
-            CommandType::match_from_string(json_parsed["commandType"].as_str().unwrap());
-
-        Command::new(command_type, data)
+        Behavior::new(behavior_type, data)
     }
 }
 
-// Define the scene structure
-pub struct Scene {
-    pub entities: Vec<Entity>,
+#[allow(dead_code)]
+struct Entity {
+    name: String,
+    position: cgmath::Point3<f32>,
+    rotation: cgmath::Quaternion<f32>,
+    scale: cgmath::Vector3<f32>,
+    models: Vec<model::Model>,
+    behaviors: Vec<Behavior>,
 }
 
-impl Scene {
-    // Method to add an entity to the scene
-    pub fn add_entity(&mut self, entity: Entity) {
-        self.entities.push(entity);
-    }
+impl Entity {
+    pub fn load_from_json(json: &serde_json::Value, device: &wgpu::Device, model_bind_group_layout: &wgpu::BindGroupLayout) -> Entity {
+        let name = json["Name"].to_string();
 
-    // Other scene-related methods...
-    pub fn new() -> Scene {
-        Scene { entities: vec![] }
-    }
-
-    pub fn new_entities(entities: Vec<Entity>) -> Scene {
-        Scene { entities: entities }
-    }
-
-    pub fn change_entity_position(&mut self, entity_id: u64, new_position: na::Point3<f64>) {
-        self.entities[entity_id as usize].change_position(new_position);
-    }
-
-    pub fn change_entity_scale(&mut self, entity_id: u64, new_scale: na::Vector3<f64>) {
-        self.entities[entity_id as usize].change_scale(new_scale);
-    }
-
-    pub fn update(&mut self) {
-        // for entity in self.entities.iter().collect::<Vec<_>>() {
-        //     entity.run_behaviors();
-        // }
-
-        // self.entities.iter().map(|x| x.run_behaviors()).next();
-
-        // This is really dumb, but this is the only way to do it without cloning the data.
-        for entity in &mut self.entities {
-            entity.run_behaviors();
+        // Position
+        let mut position_vec = cgmath::Point3::<f32>::new(0.0, 0.0, 0.0);
+        let position_temp: Vec<_> = json["Position"]
+            .as_array()
+            .unwrap()
+            .into_iter()
+            .collect();
+        for (i, position) in position_temp.iter().enumerate() {
+            position_vec[i] = position.as_f64().unwrap() as f32;
         }
-    }
 
-    pub fn cmd_msg_str(&mut self, json_unparsed: &str) {
-        if json_unparsed.is_empty() {
-            return;
+        // Rotation
+        let rotation_temp: Vec<_> = json["Rotation"]
+            .as_array()
+            .unwrap()
+            .into_iter()
+            .collect();
+        let mut rotation_vec = cgmath::Vector3::<f32>::new(0.0, 0.0, 0.0);
+        for (i, rotation_comp) in rotation_temp.iter().enumerate() {
+            rotation_vec[i] = rotation_comp.as_f64().unwrap() as f32;
         }
-        // let json_parsed: Value = serde_json::from_str(json_unparsed);
-        // self.cmd_msg(&json_parsed);
 
-        let json_parsed: Value = match serde_json::from_str(&json_unparsed) {
-            serde_json::Result::Ok(val) => val,
-            serde_json::Result::Err(err) => serde_json::Value::Null,
-            // _ => {}
+        // Scale
+        let scale_temp: Vec<_> = json["Scale"]
+            .as_array()
+            .unwrap()
+            .into_iter()
+            .collect();
+        let mut scale_vec = cgmath::Vector3::<f32>::new(0.0, 0.0, 0.0);
+        for (i, scale_comp) in scale_temp.iter().enumerate() {
+            scale_vec[i] = scale_comp.as_f64().unwrap() as f32;
+        }
+
+        let model_vec: Vec<_> = match json["Models"].as_array() {
+            Some(array) => {
+                let model_temp: Vec<_> = array.into_iter().collect();
+                let mut model_vec = vec![];
+                for i in model_temp.iter() {
+                    model_vec.push(model::Model::load_from_json(*i, device, model_bind_group_layout));
+                }
+                model_vec
+            }
+            None => vec![],
         };
 
-        // debug!("Parsed JSON Packet: {}", json_parsed.to_string());
-
-        if json_parsed != serde_json::Value::Null {
-            for cmd in json_parsed.as_array().expect("").into_iter() {
-                // debug!("Target ID: {}", cmd["targetEntityID"]);
-                // debug!("Cmd Type: {}", cmd["commandType"]);
-                // debug!("Data: {}", cmd["data"]);
-                self.cmd_msg(&cmd);
+        let behavior_vec: Vec<_> = match json["Behaviors"].as_array() {
+            Some(array) => {
+                let behavior_temp: Vec<_> = array.into_iter().collect();
+                let mut behavior_vec = vec![];
+                for i in behavior_temp.iter() {
+                    behavior_vec.push(Behavior::load_from_json(*i));
+                }
+                behavior_vec
             }
-            // self.cmd_msg(&json_parsed);
-        } else {
-            error!("json failed to load!");
-            error!("{}", json_unparsed);
+            None => vec![],
+        };
+
+        Entity {
+            name: name,
+            position: position_vec,
+            rotation: cgmath::Quaternion::from_sv(1.0, rotation_vec),
+            scale: scale_vec,
+            models: model_vec,
+            behaviors: behavior_vec,
         }
     }
 
-    pub fn cmd_msg(&mut self, json_parsed: &serde_json::Value) {
-
-        // debug!("Target ID: {}", json_parsed["targetEntityID"]);
-        let target_entity_id = json_parsed["targetEntityID"].as_u64().unwrap() as usize;
-
-        let cmd = Command::from_json(json_parsed);
-
-        self.get_entity(target_entity_id).expect("Out of bounds!").command(cmd);
+    fn to_matrix(&self) -> cgmath::Matrix4<f32> {
+        let translation = cgmath::Matrix4::from_translation(self.position.to_vec());
+        let rotation = cgmath::Matrix4::from(self.rotation);
+        let scale = cgmath::Matrix4::from_nonuniform_scale(self.scale.x, self.scale.y, self.scale.z);
+        let rotation_correction = cgmath::Matrix4::from_angle_x(cgmath::Deg(-90.0));
+        rotation_correction * translation * rotation * scale
     }
 
-    pub fn load_from_json_file(filepath: &str) -> Scene {
+    pub fn draw<'a>(
+        &'a self,
+        render_pass: &mut wgpu::RenderPass<'a>,
+        camera_bind_group: &'a wgpu::BindGroup,
+        queue: &wgpu::Queue,
+    ) {
+        let entity_matrix = self.to_matrix();
+        for model in &self.models {
+            println!("drawing {}", model.name);
+            let model_matrix = model.to_matrix();
+            let full_transform = entity_matrix * model_matrix;
+            let full_uniform: [[f32; 4]; 4] = full_transform.into();
+
+            queue.write_buffer(
+                &model.uniform_buffer,
+                0,
+                bytemuck::cast_slice(&[full_uniform]),
+            );
+
+            render_pass.draw_mesh(&model.obj, camera_bind_group, &model.bind_group);
+        }
+    }
+}
+
+struct State<'a> {
+    surface: wgpu::Surface<'a>,
+    device: wgpu::Device,
+    queue: wgpu::Queue,
+    config: wgpu::SurfaceConfiguration,
+    size: winit::dpi::PhysicalSize<u32>,
+    render_pipeline: wgpu::RenderPipeline,
+    entities: Vec<Entity>,
+    camera: Camera,
+    camera_controller: CameraController,
+    camera_uniform: CameraUniform,
+    camera_buffer: wgpu::Buffer,
+    camera_bind_group: wgpu::BindGroup,
+    // #[allow(dead_code)]
+    // instances: Vec<Instance>,
+    // #[allow(dead_code)]
+    // instance_buffer: wgpu::Buffer, 
+    window: &'a Window,
+}
+impl<'a> State<'a> {
+    async fn new(window: &'a Window, filepath: &str) -> State<'a> {
+        let size = window.inner_size();
+
+        // The instance is a handle to our GPU
+        // BackendBit::PRIMARY => Vulkan + Metal + DX12 + Browser WebGPU
+        log::warn!("WGPU setup");
+        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+            #[cfg(not(target_arch = "wasm32"))]
+            backends: wgpu::Backends::PRIMARY,
+            #[cfg(target_arch = "wasm32")]
+            backends: wgpu::Backends::GL,
+            ..Default::default()
+        });
+
+        // # Safety
+        //
+        // The surface needs to live as long as the window that created it.
+        // State owns the window so this should be safe.
+        let surface = instance.create_surface(window).unwrap();
+
+        let adapter = instance
+            .request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::default(),
+                compatible_surface: Some(&surface),
+                force_fallback_adapter: false,
+            })
+            .await
+            .unwrap();
+
+        log::warn!("device and queue");
+
+        let (device, queue) = adapter
+            .request_device(
+                &wgpu::DeviceDescriptor {
+                    label: None,
+                    required_features: wgpu::Features::POLYGON_MODE_LINE,
+                    // WebGL doesn't support all of wgpu's features, so if
+                    // we're building for the web we'll have to disable some.
+                    required_limits: if cfg!(target_arch = "wasm32") {
+                        wgpu::Limits::downlevel_webgl2_defaults()
+                    } else {
+                        wgpu::Limits::default()
+                    },
+                    memory_hints: Default::default(),
+                    trace: wgpu::Trace::Off, // Trace path
+                },
+            )
+            .await
+            .unwrap();
+        assert!(device.features().contains(wgpu::Features::POLYGON_MODE_LINE), "Wireframe polygon mode not supported!");
+
+        log::warn!("Surface");
+        let surface_caps = surface.get_capabilities(&adapter);
+        // Shader code in this tutorial assumes an Srgb surface texture. Using a different
+        // one will result all the colors comming out darker. If you want to support non
+        // Srgb surfaces, you'll need to account for that when drawing to the frame.
+        let surface_format = surface_caps
+            .formats
+            .iter()
+            .copied()
+            .find(|f| f.is_srgb())
+            .unwrap_or(surface_caps.formats[0]);
+        let config = wgpu::SurfaceConfiguration {
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            format: surface_format,
+            width: size.width,
+            height: size.height,
+            present_mode: surface_caps.present_modes[0],
+            alpha_mode: surface_caps.alpha_modes[0],
+            view_formats: vec![],
+            desired_maximum_frame_latency: 2,
+        };
+
+        let camera = Camera {
+            eye: (0.0, 5.0, -10.0).into(),
+            target: (0.0, 0.0, 0.0).into(),
+            up: cgmath::Vector3::unit_y(),
+            aspect: config.width as f32 / config.height as f32,
+            fovy: 45.0,
+            znear: 0.1,
+            zfar: 100.0,
+        };
+        let camera_controller = CameraController::new(0.2);
+
+        let mut camera_uniform = CameraUniform::new();
+        camera_uniform.update_view_proj(&camera);
+
+        let camera_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Camera Buffer"),
+            contents: bytemuck::cast_slice(&[camera_uniform]),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+
+        let model_bind_group_layout = 
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+                label: Some("Model Bind Group Layout"),
+        });
+
+        let camera_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+                label: Some("Camera Bind Group Layout"),
+            });
+
+        let camera_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &camera_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: camera_buffer.as_entire_binding(),
+            }],
+            label: Some("Camera Bind Group"),
+        });
+
+        let entities = Self::load_scene_from_json(filepath, &device, &model_bind_group_layout);
+
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Shader"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("shaders/shader.wgsl").into()),
+        });
+
+        let render_pipeline_layout: wgpu::PipelineLayout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Render Pipeline Layout"),
+                bind_group_layouts: &[
+                    &camera_bind_group_layout,
+                    &model_bind_group_layout,
+                    ],
+                push_constant_ranges: &[],
+            });
+
+        let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Render Pipeline"),
+            layout: Some(&render_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_main"),
+                buffers: &[model::ModelVertex::desc()],
+                compilation_options: Default::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_main"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: config.format,
+                    blend: None,
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: Default::default(),
+            }),
+            // fragment: None,
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: Some(wgpu::Face::Back),
+                // Setting this to anything other than Fill requires Features::POLYGON_MODE_LINE
+                // or Features::POLYGON_MODE_POINT
+                polygon_mode: wgpu::PolygonMode::Line,
+                // Requires Features::DEPTH_CLIP_CONTROL
+                unclipped_depth: false,
+                // Requires Features::CONSERVATIVE_RASTERIZATION
+                conservative: false,
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState {
+                count: 1,
+                mask: !0,
+                alpha_to_coverage_enabled: false,
+            },
+            // If the pipeline will be used with a multiview render pass, this
+            // indicates how many array layers the attachments will have.
+            multiview: None,
+            // Useful for optimizing shader compilation on Android
+            cache: None,
+        });
+
+        Self {
+            surface,
+            device,
+            queue,
+            config,
+            size,
+            render_pipeline,
+            entities,
+            camera,
+            camera_controller,
+            camera_buffer,
+            camera_bind_group,
+            camera_uniform,
+            window,
+        }
+    }
+
+    pub fn window(&self) -> &Window {
+        &self.window
+    }
+
+    pub fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
+        if new_size.width > 0 && new_size.height > 0 {
+            self.size = new_size;
+            self.config.width = new_size.width;
+            self.config.height = new_size.height;
+            self.surface.configure(&self.device, &self.config);
+        }
+    }
+
+    fn input(&mut self, event: &WindowEvent) -> bool {
+        self.camera_controller.process_events(event)
+    }
+
+    fn update(&mut self) {
+        self.camera_controller.update_camera(&mut self.camera);
+        log::info!("{:?}", self.camera);
+        self.camera_uniform.update_view_proj(&self.camera);
+        log::info!("{:?}", self.camera_uniform);
+        self.queue.write_buffer(
+            &self.camera_buffer,
+            0,
+            bytemuck::cast_slice(&[self.camera_uniform]),
+        );
+    }
+
+    fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
+        let output = self.surface.get_current_texture()?;
+        let view = output
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
+
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Render Encoder"),
+            });
+
+        {
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Render Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color {
+                            r: 0.1,
+                            g: 0.2,
+                            b: 0.3,
+                            a: 1.0,
+                        }),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                occlusion_query_set: None,
+                timestamp_writes: None,
+            });
+
+            render_pass.set_pipeline(&self.render_pipeline);
+            // render_pass.draw_mesh_instanced(
+            //     &self.obj_mesh,
+            //     0..self.instances.len() as u32,
+            //     &self.camera_bind_group,
+            // );
+
+            // we want a wgpu::Buffer derived from vertex_data
+            // a Vec<[[f32; 4]; 4]>
+            // each matrix contains entity_transform * model_transform
+            // 
+            for entity in &self.entities {
+                entity.draw(&mut render_pass, &self.camera_bind_group, &self.queue);
+            }
+        }
+
+        self.queue.submit(iter::once(encoder.finish()));
+        output.present();
+
+        Ok(())
+    }
+
+    fn load_scene_from_json(filepath: &str, device: &wgpu::Device, model_bind_group_layout: &wgpu::BindGroupLayout) -> Vec<Entity> {
         let json_unparsed = std::fs::read_to_string(filepath).unwrap();
-        Scene::load_from_json_str(&json_unparsed)
-    }
+        let json: serde_json::Value = serde_json::from_str(&json_unparsed).unwrap();
 
-    pub fn load_from_json_str(json_unparsed: &str) -> Scene {
-        // debug!("{}", json_unparsed);
-        let json_parsed: Value = serde_json::from_str(json_unparsed).unwrap();
-        Scene::load_from_json(&json_parsed)
-    }
-
-    pub fn load_from_json(json_parsed: &serde_json::Value) -> Scene {
-        let entity_temp: Vec<_> = json_parsed["entities"]
+        let entity_temp: Vec<_> = json["entities"]
             .as_array()
             .unwrap()
             .into_iter()
             .collect();
         let mut entity_vec = vec![];
         for i in entity_temp.iter() {
-            entity_vec.push(Entity::load_from_json(*i));
+            entity_vec.push(Entity::load_from_json(*i, device, model_bind_group_layout));
         }
 
-        Scene {
-            entities: entity_vec,
-        }
-    }
-
-    pub fn get_entity(&mut self, entity_id: usize) -> Option<&mut Entity> {
-        self.entities.get_mut(entity_id)
-    }
-
-    pub fn load_from_network(addr: &str) -> Result<Scene, Error> {
-        // Open port
-        let listener = TcpListener::bind(addr).unwrap();
-        let mut num_attempt = 0;
-        
-        // Attempt to recieve initialization packet and parse when successful.
-        let initialization_packet = loop {
-            match listener.accept() {
-                Ok((stream, _)) => {
-                    // debug!("{}", com::from_network(&stream));
-                    break com::from_network(&stream)
-                },
-                _ => {
-                    num_attempt += 1;
-                    debug!("No packet recieved. Trying attempt {}...", num_attempt);
-                    std::thread::sleep(Duration::from_millis(100));
-                },
-            }
-        };
-        info!("Received initialization file");
-        // debug!("Initialization file: {}", initialization_packet);
-
-        // Receive and save model files
-        for stream in listener.incoming() {
-
-            let mut local_stream = stream.unwrap();
-            match com::from_network_with_protocol(&mut local_stream) {
-                Ok(_) => {},
-                Err("END") => {
-                    debug!("Finished recieving files!");
-                }
-                _ => {break}
-            }
-        }
-
-        info!("All files recieved.");
-
-        //
-        
-        // Load Scene from initialization packet
-
-        Ok(Scene::load_from_json_str(&initialization_packet))
-        
-    }
-
-    /// Clear all entities 
-    pub fn clear_all(&mut self) {
-        self.entities = vec![];
+        entity_vec
     }
 }
 
-impl dc::Draw for Scene {
-    fn draw(&self, gui: &dc::GuiContainer, context: &dc::RenderContext, target: &mut glium::Frame) {
-        for entity in &self.entities {
-            entity.draw(gui, context, target);
-        }
-    }
-}
+// // Define the scene structure
+// pub struct Scene {
+//     pub entities: Vec<Entity>,
+// }
 
-pub trait DrawInScene {
-    fn draw_at_position(
-        &self,
-        gui: &dc::GuiContainer,
-        context: &dc::RenderContext,
-        target: &mut glium::Frame,
-        model_mat: na::Matrix4<f32>,
-    );
-}
+// impl Scene {
+//     // Method to add an entity to the scene
+//     pub fn add_entity(&mut self, entity: Entity) {
+//         self.entities.push(entity);
+//     }
+
+//     // Other scene-related methods...
+//     pub fn new() -> Scene {
+//         Scene { entities: vec![] }
+//     }
+
+//     pub fn new_entities(entities: Vec<Entity>) -> Scene {
+//         Scene { entities: entities }
+//     }
+
+//     pub fn change_entity_position(&mut self, entity_id: u64, new_position: na::Point3<f64>) {
+//         self.entities[entity_id as usize].change_position(new_position);
+//     }
+
+//     pub fn change_entity_scale(&mut self, entity_id: u64, new_scale: na::Vector3<f64>) {
+//         self.entities[entity_id as usize].change_scale(new_scale);
+//     }
+
+//     pub fn update(&mut self) {
+//         // for entity in self.entities.iter().collect::<Vec<_>>() {
+//         //     entity.run_behaviors();
+//         // }
+
+//         // self.entities.iter().map(|x| x.run_behaviors()).next();
+
+//         // This is really dumb, but this is the only way to do it without cloning the data.
+//         for entity in &mut self.entities {
+//             entity.run_behaviors();
+//         }
+//     }
+
+//     pub fn cmd_msg_str(&mut self, json_unparsed: &str) {
+//         if json_unparsed.is_empty() {
+//             return;
+//         }
+//         // let json_parsed: Value = serde_json::from_str(json_unparsed);
+//         // self.cmd_msg(&json_parsed);
+
+//         let json_parsed: Value = match serde_json::from_str(&json_unparsed) {
+//             serde_json::Result::Ok(val) => val,
+//             serde_json::Result::Err(err) => serde_json::Value::Null,
+//             // _ => {}
+//         };
+
+//         // debug!("Parsed JSON Packet: {}", json_parsed.to_string());
+
+//         if json_parsed != serde_json::Value::Null {
+//             for cmd in json_parsed.as_array().expect("").into_iter() {
+//                 // debug!("Target ID: {}", cmd["targetEntityID"]);
+//                 // debug!("Cmd Type: {}", cmd["commandType"]);
+//                 // debug!("Data: {}", cmd["data"]);
+//                 self.cmd_msg(&cmd);
+//             }
+//             // self.cmd_msg(&json_parsed);
+//         } else {
+//             error!("json failed to load!");
+//             error!("{}", json_unparsed);
+//         }
+//     }
+
+//     pub fn cmd_msg(&mut self, json_parsed: &serde_json::Value) {
+
+//         // debug!("Target ID: {}", json_parsed["targetEntityID"]);
+//         let target_entity_id = json_parsed["targetEntityID"].as_u64().unwrap() as usize;
+
+//         let cmd = Command::from_json(json_parsed);
+
+//         self.get_entity(target_entity_id).expect("Out of bounds!").command(cmd);
+//     }
+
+//     pub fn load_from_json_file(filepath: &str) -> Scene {
+//         let json_unparsed = std::fs::read_to_string(filepath).unwrap();
+//         Scene::load_from_json_str(&json_unparsed)
+//     }
+
+//     pub fn load_from_json_str(json_unparsed: &str) -> Scene {
+//         // debug!("{}", json_unparsed);
+//         let json_parsed: Value = serde_json::from_str(json_unparsed).unwrap();
+//         Scene::load_from_json(&json_parsed)
+//     }
+
+//     pub fn load_from_json(json_parsed: &serde_json::Value) -> Scene {
+//         let entity_temp: Vec<_> = json_parsed["entities"]
+//             .as_array()
+//             .unwrap()
+//             .into_iter()
+//             .collect();
+//         let mut entity_vec = vec![];
+//         for i in entity_temp.iter() {
+//             entity_vec.push(Entity::load_from_json(*i));
+//         }
+
+//         Scene {
+//             entities: entity_vec,
+//         }
+//     }
+
+//     pub fn get_entity(&mut self, entity_id: usize) -> Option<&mut Entity> {
+//         self.entities.get_mut(entity_id)
+//     }
+
+//     pub fn load_from_network(addr: &str) -> Result<Scene, Error> {
+//         // Open port
+//         let listener = TcpListener::bind(addr).unwrap();
+//         let mut num_attempt = 0;
+        
+//         // Attempt to recieve initialization packet and parse when successful.
+//         let initialization_packet = loop {
+//             match listener.accept() {
+//                 Ok((stream, _)) => {
+//                     // debug!("{}", com::from_network(&stream));
+//                     break com::from_network(&stream)
+//                 },
+//                 _ => {
+//                     num_attempt += 1;
+//                     debug!("No packet recieved. Trying attempt {}...", num_attempt);
+//                     std::thread::sleep(Duration::from_millis(100));
+//                 },
+//             }
+//         };
+//         info!("Received initialization file");
+//         // debug!("Initialization file: {}", initialization_packet);
+
+//         // Receive and save model files
+//         for stream in listener.incoming() {
+
+//             let mut local_stream = stream.unwrap();
+//             match com::from_network_with_protocol(&mut local_stream) {
+//                 Ok(_) => {},
+//                 Err("END") => {
+//                     debug!("Finished recieving files!");
+//                 }
+//                 _ => {break}
+//             }
+//         }
+
+//         info!("All files recieved.");
+
+//         //
+        
+//         // Load Scene from initialization packet
+
+//         Ok(Scene::load_from_json_str(&initialization_packet))
+        
+//     }
+
+//     /// Clear all entities 
+//     pub fn clear_all(&mut self) {
+//         self.entities = vec![];
+//     }
+// }
+
+// impl dc::Draw for Scene {
+//     fn draw(&self, gui: &dc::GuiContainer, context: &dc::RenderContext, target: &mut glium::Frame) {
+//         for entity in &self.entities {
+//             entity.draw(gui, context, target);
+//         }
+//     }
+// }
+
+// pub trait DrawInScene {
+//     fn draw_at_position(
+//         &self,
+//         gui: &dc::GuiContainer,
+//         context: &dc::RenderContext,
+//         target: &mut glium::Frame,
+//         model_mat: na::Matrix4<f32>,
+//     );
+// }

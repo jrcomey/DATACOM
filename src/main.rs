@@ -51,7 +51,7 @@
 
 // */
 
-use tutorial4_buffer::run;
+use datacom::run;
 
 fn main() {
     pollster::block_on(run());

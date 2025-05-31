@@ -2,10 +2,10 @@ use winit::{
     event::*,
     event_loop::EventLoop,
     keyboard::{KeyCode, PhysicalKey},
-    window::Window,
 };
 
 mod scenes_and_entities;
+mod model;
 
 pub async fn run() {
     let event_loop = EventLoop::new().unwrap();

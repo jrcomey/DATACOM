@@ -1,5 +1,5 @@
 [package]
-name = "DATACOM"
+name = "datacom"
 version = "0.1.0"
 edition = "2021"
 
@@ -23,3 +23,4 @@ winit = "0.29"
 bytemuck = { version = "1.16", features = ["derive"]}
 cgmath = "0.18.0"
 anyhow = "1.0"
+pollster = "0.4.0"

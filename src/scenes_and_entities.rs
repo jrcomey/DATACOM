@@ -1,24 +1,20 @@
-// SCENES AND ENTITIES
+use std::iter;
 
-use crate::{com, camera, resources, dc::{self, green_vec}};
-use crate::model::{self, DrawModel, Vertex};
-use log::{debug, info};
-use nalgebra as na;
 use cgmath::prelude::*;
-use num_traits::ToPrimitive;
-// use rand::Error;
-use serde_json::Value;
-use std::{
-    ops::DerefMut, sync::atomic::{AtomicU64, Ordering}, time::Duration, vec, iter
+use wgpu::util::DeviceExt;
+use winit::{
+    event::*,
+    keyboard::{KeyCode, PhysicalKey},
+    window::Window,
 };
-use std::net::TcpListener;
-use std::fmt::Error;
-use winit::window::Window;
-use winit::event::{WindowEvent, KeyEvent, MouseButton, ElementState};
-use winit::keyboard::{PhysicalKey, KeyCode};
-use wgpu::{util::DeviceExt, SurfaceConfiguration};
-// const SCALE_FACTOR: f32 = 1E0;
-static ENTITY_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen::prelude::*;
+
+use crate::model;
+// mod camera;
+
+use model::{DrawModel, Vertex};
 
 #[rustfmt::skip]
 pub const OPENGL_TO_WGPU_MATRIX: cgmath::Matrix4<f32> = cgmath::Matrix4::new(
@@ -168,15 +164,14 @@ impl CameraController {
     }
 }
 
+#[derive(Copy, Clone)]
 pub enum BehaviorType {
     EntityRotate,
     EntityTranslate,
     EntityChangePosition,
     ComponentRotate,
     ComponentTranslate,
-    ComponentChangeColor,
     ComponentRotateConstantSpeed,
-    ModifyBehavior,
     Null,
 }
 
@@ -188,21 +183,20 @@ impl BehaviorType {
             "EntityChangePosition" => BehaviorType::EntityChangePosition,
             "ComponentRotate" => BehaviorType::ComponentRotate,
             "ComponentTranslate" => BehaviorType::ComponentTranslate,
-            "ComponentChangeColor" => BehaviorType::ComponentChangeColor,
             "ComponentRotateConstantSpeed" => BehaviorType::ComponentRotateConstantSpeed,
-            "ModifyBehavior" => BehaviorType::ModifyBehavior,
             _ => BehaviorType::Null,
         }
     }
 }
 
+#[derive(Clone)]
 pub struct Behavior {
     pub behavior_type: BehaviorType,
-    pub data: Vec<f64>,
+    pub data: Vec<f32>,
 }
 
 impl Behavior {
-    pub fn new(behavior_type: BehaviorType, data: Vec<f64>) -> Behavior {
+    pub fn new(behavior_type: BehaviorType, data: Vec<f32>) -> Behavior {
         Behavior {
             behavior_type: behavior_type,
             data: data,
@@ -214,13 +208,13 @@ impl Behavior {
             .unwrap()
             .into_iter()
             .collect();
-        let mut data: Vec<f64> = vec![];
+        let mut data: Vec<f32> = vec![];
         for data_point in data_temp.iter() {
-            data.push(data_point.as_f64().unwrap());
+            data.push(data_point.as_f64().unwrap() as f32);
         }
 
         let behavior_type: BehaviorType =
-            BehaviorType::match_from_string(json["commandType"].as_str().unwrap());
+            BehaviorType::match_from_string(json["behaviorType"].as_str().unwrap());
 
         Behavior::new(behavior_type, data)
     }
@@ -337,14 +331,68 @@ impl Entity {
             render_pass.draw_mesh(&model.obj, camera_bind_group, &model.bind_group);
         }
     }
+
+    pub fn run_behavior(&mut self, behavior: Behavior) {
+        match behavior.behavior_type {
+            // Translate entity by vector
+            BehaviorType::EntityTranslate => {
+                let new_position = cgmath::Vector3::<f32>::new(behavior.data[0], behavior.data[1], behavior.data[2]);
+                self.change_position(self.position + new_position);
+            }
+
+            // Change position to input
+            BehaviorType::EntityChangePosition => {
+                let new_position = cgmath::Point3::<f32>::new(behavior.data[0], behavior.data[1], behavior.data[2]);
+                self.change_position(new_position);
+            }
+
+            // Rotate item at constant speed
+            BehaviorType::ComponentRotateConstantSpeed => {
+                let model_id = behavior.data[0] as u64;
+                let rotation_factor = behavior.data[1];
+                let new_quaternion_vector = cgmath::Vector3::<f32>::new(
+                    (rotation_factor * behavior.data[2]) as f32,
+                    (rotation_factor * behavior.data[4]) as f32,
+                    (rotation_factor * behavior.data[3]) as f32,
+                );
+                let new_quaternion = cgmath::Quaternion::<f32>::from_sv(1.0, new_quaternion_vector);
+
+                self.get_model(model_id).rotate(new_quaternion);
+            }
+
+            _ => return,
+        }
+    }
+
+    pub fn run_behaviors(&mut self) {
+        // Gather behaviors into vector
+
+        let mut cmds = vec![];
+        for i in &mut self.behaviors {
+            cmds.push(i.clone());
+        }
+        //Run them all in an iterator
+
+        for i in cmds.iter() {
+            self.run_behavior(i.clone());
+        }
+    }
+
+    pub fn change_position(&mut self, new_position: cgmath::Point3<f32>) {
+        self.position = new_position;
+    }
+
+    pub fn get_model(&mut self, model_component_id: u64) -> &mut model::Model {
+        &mut self.models[model_component_id as usize]
+    }
 }
 
-struct State<'a> {
+pub struct State<'a> {
     surface: wgpu::Surface<'a>,
     device: wgpu::Device,
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
-    size: winit::dpi::PhysicalSize<u32>,
+    pub size: winit::dpi::PhysicalSize<u32>,
     render_pipeline: wgpu::RenderPipeline,
     entities: Vec<Entity>,
     camera: Camera,
@@ -359,7 +407,7 @@ struct State<'a> {
     window: &'a Window,
 }
 impl<'a> State<'a> {
-    async fn new(window: &'a Window, filepath: &str) -> State<'a> {
+    pub async fn new(window: &'a Window, filepath: &str) -> State<'a> {
         let size = window.inner_size();
 
         // The instance is a handle to our GPU
@@ -584,15 +632,21 @@ impl<'a> State<'a> {
         }
     }
 
-    fn input(&mut self, event: &WindowEvent) -> bool {
+    pub fn input(&mut self, event: &WindowEvent) -> bool {
         self.camera_controller.process_events(event)
     }
 
-    fn update(&mut self) {
+    pub fn update(&mut self) {
         self.camera_controller.update_camera(&mut self.camera);
         log::info!("{:?}", self.camera);
+
         self.camera_uniform.update_view_proj(&self.camera);
         log::info!("{:?}", self.camera_uniform);
+
+        for entity in &mut self.entities {
+            entity.run_behaviors();
+        }
+        
         self.queue.write_buffer(
             &self.camera_buffer,
             0,
@@ -600,7 +654,7 @@ impl<'a> State<'a> {
         );
     }
 
-    fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
+    pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
         let output = self.surface.get_current_texture()?;
         let view = output
             .texture

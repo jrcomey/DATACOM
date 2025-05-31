@@ -15,7 +15,7 @@ pub async fn run() {
         .build(&event_loop)
         .unwrap();
 
-    let scene_file = "data/test_scene.json";
+    let scene_file = "data/scene_loading/test_scene.json";
 
     // State::new uses async code, so we're going to wait for it to finish
     let mut state = scenes_and_entities::State::new(&window, scene_file).await;

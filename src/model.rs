@@ -224,8 +224,7 @@ impl Model {
     }
 
     pub fn rotate(&mut self, rotation: cgmath::Quaternion<f32>){
-        self.rotation = self.rotation * rotation;
-        self.rotation.normalize();
+        self.rotation = (self.rotation * rotation).normalize();
     }
 }
 

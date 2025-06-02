@@ -1,9 +1,9 @@
+use winit::event::*;
+use winit::keyboard::KeyCode;
+use winit::dpi::PhysicalPosition;
 use cgmath::*;
 use std::f32::consts::FRAC_PI_2;
 use std::time::Duration;
-use winit::dpi::PhysicalPosition;
-use winit::event::*;
-use winit::keyboard::KeyCode;
 
 #[rustfmt::skip]
 pub const OPENGL_TO_WGPU_MATRIX: cgmath::Matrix4<f32> = cgmath::Matrix4::new(
@@ -44,6 +44,7 @@ impl Camera {
             Vector3::new(cos_pitch * cos_yaw, sin_pitch, cos_pitch * sin_yaw).normalize(),
             Vector3::unit_y(),
         )
+        // Matrix4::look_at_rh(self.position, Point3::new(0.0, 0.0, 0.0), Vector3::unit_y())
     }
 }
 

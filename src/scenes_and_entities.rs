@@ -8,9 +8,6 @@ use winit::{
     window::Window,
 };
 
-#[cfg(target_arch = "wasm32")]
-use wasm_bindgen::prelude::*;
-
 use crate::{model, camera};
 
 use model::{DrawModel, Vertex};
@@ -189,7 +186,7 @@ impl Entity {
     ) {
         let entity_matrix = self.to_matrix();
         for model in &self.models {
-            println!("drawing {}", model.name);
+            // println!("drawing {}", model.name);
             let model_matrix = model.to_matrix();
             let full_transform = entity_matrix * model_matrix;
             let full_uniform: [[f32; 4]; 4] = full_transform.into();
@@ -288,10 +285,7 @@ impl<'a> State<'a> {
         // BackendBit::PRIMARY => Vulkan + Metal + DX12 + Browser WebGPU
         log::warn!("WGPU setup");
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
-            #[cfg(not(target_arch = "wasm32"))]
             backends: wgpu::Backends::PRIMARY,
-            #[cfg(target_arch = "wasm32")]
-            backends: wgpu::Backends::GL,
             ..Default::default()
         });
 
@@ -319,11 +313,7 @@ impl<'a> State<'a> {
                     required_features: wgpu::Features::POLYGON_MODE_LINE,
                     // WebGL doesn't support all of wgpu's features, so if
                     // we're building for the web we'll have to disable some.
-                    required_limits: if cfg!(target_arch = "wasm32") {
-                        wgpu::Limits::downlevel_webgl2_defaults()
-                    } else {
-                        wgpu::Limits::default()
-                    },
+                    required_limits: wgpu::Limits::default(),
                     memory_hints: Default::default(),
                     trace: wgpu::Trace::Off, // Trace path
                 },

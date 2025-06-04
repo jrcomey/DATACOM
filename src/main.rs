@@ -105,7 +105,7 @@ fn main() {
 //     // Initialization procedures
 //     std::env::set_var("RUST_LOG", "DATACOM=trace, warn cargo run");                                 // Initialize logger
 //     pretty_env_logger::init();
-//     info!("Program Start!");
+    // info!("Program Start!");
 
 //     let test_scene = scenes_and_entities::Scene::load_from_json_file("data/scene_loading/test_scene.json");
 
@@ -162,6 +162,15 @@ fn main() {
 //     Ok(handle)
 // }
 
+/*
+initialize glium items
+create scenes
+create text objects
+create viewport(s)
+create listener thread
+create calculation thread
+run event loop
+*/
 // fn start_program(scene: scenes_and_entities::Scene) {
 
 //     // Initialize glium items

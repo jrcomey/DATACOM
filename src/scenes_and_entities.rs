@@ -12,27 +12,6 @@ use crate::{model, camera};
 
 use model::{DrawModel, Vertex};
 
-#[repr(C)]
-#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-struct CameraUniform {
-    view_position: [f32; 4],
-    view_proj: [[f32; 4]; 4],
-}
-
-impl CameraUniform {
-    fn new() -> Self {
-        Self {
-            view_position: [0.0; 4],
-            view_proj: cgmath::Matrix4::identity().into(),
-        }
-    }
-
-    fn update_view_proj(&mut self, camera: &camera::Camera, projection: &camera::Projection) {
-        self.view_position = camera.position.to_homogeneous().into();
-        self.view_proj = (projection.calc_matrix() * camera.calc_matrix()).into();
-    }
-}
-
 #[derive(Copy, Clone)]
 pub enum BehaviorType {
     EntityRotate,
@@ -267,7 +246,7 @@ pub struct State<'a> {
     camera: camera::Camera,
     projection: camera::Projection,
     pub camera_controller: camera::CameraController,
-    camera_uniform: CameraUniform,
+    camera_uniform: camera::CameraUniform,
     camera_buffer: wgpu::Buffer,
     camera_bind_group: wgpu::BindGroup,
     // #[allow(dead_code)]
@@ -348,7 +327,7 @@ impl<'a> State<'a> {
         let projection = camera::Projection::new(config.width, config.height, cgmath::Deg(45.0), 0.1, 100.0);
         let camera_controller = camera::CameraController::new(4.0, 0.4);
 
-        let mut camera_uniform = CameraUniform::new();
+        let mut camera_uniform = camera::CameraUniform::new();
         camera_uniform.update_view_proj(&camera, &projection);
 
         let camera_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -773,22 +752,4 @@ impl<'a> State<'a> {
 //     pub fn clear_all(&mut self) {
 //         self.entities = vec![];
 //     }
-// }
-
-// impl dc::Draw for Scene {
-//     fn draw(&self, gui: &dc::GuiContainer, context: &dc::RenderContext, target: &mut glium::Frame) {
-//         for entity in &self.entities {
-//             entity.draw(gui, context, target);
-//         }
-//     }
-// }
-
-// pub trait DrawInScene {
-//     fn draw_at_position(
-//         &self,
-//         gui: &dc::GuiContainer,
-//         context: &dc::RenderContext,
-//         target: &mut glium::Frame,
-//         model_mat: na::Matrix4<f32>,
-//     );
 // }

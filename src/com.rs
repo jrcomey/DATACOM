@@ -82,7 +82,7 @@ pub fn run_server<A: ToSocketAddrs>(scene_reference: Arc<RwLock<Scene>>, addr: A
             Ok(stream) => {
                 let packet = from_network(&stream);
                 debug!("Packet: {}", packet.as_str());
-                scene_reference.write().unwrap().cmd_msg_str(&packet.as_str());
+                scene_reference.write().unwrap().bhvr_msg_str(&packet.as_str());
             },
             Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                 if start.elapsed() > timeout {

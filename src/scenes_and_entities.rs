@@ -7,6 +7,7 @@ use winit::{
     keyboard::PhysicalKey,
     window::Window,
 };
+use log::error;
 
 use crate::{model, camera};
 
@@ -242,7 +243,7 @@ pub struct State<'a> {
     config: wgpu::SurfaceConfiguration,
     pub size: winit::dpi::PhysicalSize<u32>,
     render_pipeline: wgpu::RenderPipeline,
-    entities: Vec<Entity>,
+    scene: Scene,
     camera: camera::Camera,
     projection: camera::Projection,
     pub camera_controller: camera::CameraController,
@@ -375,7 +376,7 @@ impl<'a> State<'a> {
             label: Some("Camera Bind Group"),
         });
 
-        let entities = Self::load_scene_from_json(filepath, &device, &model_bind_group_layout);
+        let scene = Scene::load_scene_from_json(filepath, &device, &model_bind_group_layout);
 
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Shader"),
@@ -447,7 +448,7 @@ impl<'a> State<'a> {
             config,
             size,
             render_pipeline,
-            entities,
+            scene,
             camera,
             projection,
             camera_controller,
@@ -508,9 +509,7 @@ impl<'a> State<'a> {
         self.camera_uniform.update_view_proj(&self.camera, &self.projection);
         log::info!("{:?}", self.camera_uniform);
 
-        for entity in &mut self.entities {
-            entity.run_behaviors();
-        }
+        self.scene.run_behaviors();
         
         self.queue.write_buffer(
             &self.camera_buffer,
@@ -562,10 +561,8 @@ impl<'a> State<'a> {
             // we want a wgpu::Buffer derived from vertex_data
             // a Vec<[[f32; 4]; 4]>
             // each matrix contains entity_transform * model_transform
-            // 
-            for entity in &self.entities {
-                entity.draw(&mut render_pass, &self.camera_bind_group, &self.queue);
-            }
+            //
+            self.scene.draw(&mut render_pass, &self.camera_bind_group, &self.queue);
         }
 
         self.queue.submit(iter::once(encoder.finish()));
@@ -573,8 +570,78 @@ impl<'a> State<'a> {
 
         Ok(())
     }
+}
 
-    fn load_scene_from_json(filepath: &str, device: &wgpu::Device, model_bind_group_layout: &wgpu::BindGroupLayout) -> Vec<Entity> {
+// Define the scene structure
+pub struct Scene {
+    pub entities: Vec<Entity>,
+}
+
+impl Scene {
+    // Method to add an entity to the scene
+    pub fn add_entity(&mut self, entity: Entity) {
+        self.entities.push(entity);
+    }
+
+    // Other scene-related methods...
+    pub fn new() -> Scene {
+        Scene { entities: vec![] }
+    }
+
+    pub fn new_entities(entities: Vec<Entity>) -> Scene {
+        Scene { entities: entities }
+    }
+
+    // pub fn change_entity_position(&mut self, entity_id: u64, new_position: cgmath::Point3<f64>) {
+    //     self.entities[entity_id as usize].change_position(new_position);
+    // }
+
+    pub fn run_behaviors(&mut self) {
+        for entity in &mut self.entities {
+            entity.run_behaviors();
+        }
+    }
+
+    pub fn bhvr_msg_str(&mut self, json_unparsed: &str) {
+        if json_unparsed.is_empty() {
+            return;
+        }
+        // let json_parsed: Value = serde_json::from_str(json_unparsed);
+        // self.cmd_msg(&json_parsed);
+
+        let json_parsed: serde_json::Value = match serde_json::from_str(&json_unparsed) {
+            serde_json::Result::Ok(val) => val,
+            serde_json::Result::Err(err) => serde_json::Value::Null,
+            // _ => {}
+        };
+
+        // debug!("Parsed JSON Packet: {}", json_parsed.to_string());
+
+        if json_parsed != serde_json::Value::Null {
+            for behavior in json_parsed.as_array().expect("").into_iter() {
+                // debug!("Target ID: {}", cmd["targetEntityID"]);
+                // debug!("Cmd Type: {}", cmd["commandType"]);
+                // debug!("Data: {}", cmd["data"]);
+                self.bhvr_msg(&behavior);
+            }
+            // self.bhvr_msg(&json_parsed);
+        } else {
+            error!("json failed to load!");
+            error!("{}", json_unparsed);
+        }
+    }
+
+    pub fn bhvr_msg(&mut self, json_parsed: &serde_json::Value) {
+
+        // debug!("Target ID: {}", json_parsed["targetEntityID"]);
+        let target_entity_id = json_parsed["targetEntityID"].as_u64().unwrap() as usize;
+
+        let behavior = Behavior::load_from_json(json_parsed);
+
+        self.get_entity(target_entity_id).expect("Out of bounds!").run_behavior(behavior);
+    }
+
+    fn load_scene_from_json(filepath: &str, device: &wgpu::Device, model_bind_group_layout: &wgpu::BindGroupLayout) -> Scene {
         let json_unparsed = std::fs::read_to_string(filepath).unwrap();
         let json: serde_json::Value = serde_json::from_str(&json_unparsed).unwrap();
 
@@ -588,168 +655,73 @@ impl<'a> State<'a> {
             entity_vec.push(Entity::load_from_json(*i, device, model_bind_group_layout));
         }
 
-        entity_vec
+        Scene{ 
+            entities: entity_vec,
+        }
+    }
+
+    pub fn get_entity(&mut self, entity_id: usize) -> Option<&mut Entity> {
+        self.entities.get_mut(entity_id)
+    }
+
+    // pub fn load_from_network(addr: &str) -> Result<Scene, Error> {
+    //     // Open port
+    //     let listener = TcpListener::bind(addr).unwrap();
+    //     let mut num_attempt = 0;
+        
+    //     // Attempt to recieve initialization packet and parse when successful.
+    //     let initialization_packet = loop {
+    //         match listener.accept() {
+    //             Ok((stream, _)) => {
+    //                 // debug!("{}", com::from_network(&stream));
+    //                 break com::from_network(&stream)
+    //             },
+    //             _ => {
+    //                 num_attempt += 1;
+    //                 debug!("No packet recieved. Trying attempt {}...", num_attempt);
+    //                 std::thread::sleep(Duration::from_millis(100));
+    //             },
+    //         }
+    //     };
+    //     info!("Received initialization file");
+    //     // debug!("Initialization file: {}", initialization_packet);
+
+    //     // Receive and save model files
+    //     for stream in listener.incoming() {
+
+    //         let mut local_stream = stream.unwrap();
+    //         match com::from_network_with_protocol(&mut local_stream) {
+    //             Ok(_) => {},
+    //             Err("END") => {
+    //                 debug!("Finished recieving files!");
+    //             }
+    //             _ => {break}
+    //         }
+    //     }
+
+    //     info!("All files recieved.");
+
+    //     //
+        
+    //     // Load Scene from initialization packet
+
+    //     Ok(Scene::load_from_json_str(&initialization_packet))
+        
+    // }
+
+    /// Clear all entities 
+    pub fn clear_all(&mut self) {
+        self.entities = vec![];
+    }
+
+    pub fn draw<'a>(
+        &'a self,
+        render_pass: &mut wgpu::RenderPass<'a>,
+        camera_bind_group: &'a wgpu::BindGroup,
+        queue: &wgpu::Queue,
+    ){
+        for entity in &self.entities {
+            entity.draw(render_pass, camera_bind_group, queue);
+        }
     }
 }
-
-// // Define the scene structure
-// pub struct Scene {
-//     pub entities: Vec<Entity>,
-// }
-
-// impl Scene {
-//     // Method to add an entity to the scene
-//     pub fn add_entity(&mut self, entity: Entity) {
-//         self.entities.push(entity);
-//     }
-
-//     // Other scene-related methods...
-//     pub fn new() -> Scene {
-//         Scene { entities: vec![] }
-//     }
-
-//     pub fn new_entities(entities: Vec<Entity>) -> Scene {
-//         Scene { entities: entities }
-//     }
-
-//     pub fn change_entity_position(&mut self, entity_id: u64, new_position: na::Point3<f64>) {
-//         self.entities[entity_id as usize].change_position(new_position);
-//     }
-
-//     pub fn change_entity_scale(&mut self, entity_id: u64, new_scale: na::Vector3<f64>) {
-//         self.entities[entity_id as usize].change_scale(new_scale);
-//     }
-
-//     pub fn update(&mut self) {
-//         // for entity in self.entities.iter().collect::<Vec<_>>() {
-//         //     entity.run_behaviors();
-//         // }
-
-//         // self.entities.iter().map(|x| x.run_behaviors()).next();
-
-//         // This is really dumb, but this is the only way to do it without cloning the data.
-//         for entity in &mut self.entities {
-//             entity.run_behaviors();
-//         }
-//     }
-
-//     pub fn cmd_msg_str(&mut self, json_unparsed: &str) {
-//         if json_unparsed.is_empty() {
-//             return;
-//         }
-//         // let json_parsed: Value = serde_json::from_str(json_unparsed);
-//         // self.cmd_msg(&json_parsed);
-
-//         let json_parsed: Value = match serde_json::from_str(&json_unparsed) {
-//             serde_json::Result::Ok(val) => val,
-//             serde_json::Result::Err(err) => serde_json::Value::Null,
-//             // _ => {}
-//         };
-
-//         // debug!("Parsed JSON Packet: {}", json_parsed.to_string());
-
-//         if json_parsed != serde_json::Value::Null {
-//             for cmd in json_parsed.as_array().expect("").into_iter() {
-//                 // debug!("Target ID: {}", cmd["targetEntityID"]);
-//                 // debug!("Cmd Type: {}", cmd["commandType"]);
-//                 // debug!("Data: {}", cmd["data"]);
-//                 self.cmd_msg(&cmd);
-//             }
-//             // self.cmd_msg(&json_parsed);
-//         } else {
-//             error!("json failed to load!");
-//             error!("{}", json_unparsed);
-//         }
-//     }
-
-//     pub fn cmd_msg(&mut self, json_parsed: &serde_json::Value) {
-
-//         // debug!("Target ID: {}", json_parsed["targetEntityID"]);
-//         let target_entity_id = json_parsed["targetEntityID"].as_u64().unwrap() as usize;
-
-//         let cmd = Command::from_json(json_parsed);
-
-//         self.get_entity(target_entity_id).expect("Out of bounds!").command(cmd);
-//     }
-
-//     pub fn load_from_json_file(filepath: &str) -> Scene {
-//         let json_unparsed = std::fs::read_to_string(filepath).unwrap();
-//         Scene::load_from_json_str(&json_unparsed)
-//     }
-
-//     pub fn load_from_json_str(json_unparsed: &str) -> Scene {
-//         // debug!("{}", json_unparsed);
-//         let json_parsed: Value = serde_json::from_str(json_unparsed).unwrap();
-//         Scene::load_from_json(&json_parsed)
-//     }
-
-//     pub fn load_from_json(json_parsed: &serde_json::Value) -> Scene {
-//         let entity_temp: Vec<_> = json_parsed["entities"]
-//             .as_array()
-//             .unwrap()
-//             .into_iter()
-//             .collect();
-//         let mut entity_vec = vec![];
-//         for i in entity_temp.iter() {
-//             entity_vec.push(Entity::load_from_json(*i));
-//         }
-
-//         Scene {
-//             entities: entity_vec,
-//         }
-//     }
-
-//     pub fn get_entity(&mut self, entity_id: usize) -> Option<&mut Entity> {
-//         self.entities.get_mut(entity_id)
-//     }
-
-//     pub fn load_from_network(addr: &str) -> Result<Scene, Error> {
-//         // Open port
-//         let listener = TcpListener::bind(addr).unwrap();
-//         let mut num_attempt = 0;
-        
-//         // Attempt to recieve initialization packet and parse when successful.
-//         let initialization_packet = loop {
-//             match listener.accept() {
-//                 Ok((stream, _)) => {
-//                     // debug!("{}", com::from_network(&stream));
-//                     break com::from_network(&stream)
-//                 },
-//                 _ => {
-//                     num_attempt += 1;
-//                     debug!("No packet recieved. Trying attempt {}...", num_attempt);
-//                     std::thread::sleep(Duration::from_millis(100));
-//                 },
-//             }
-//         };
-//         info!("Received initialization file");
-//         // debug!("Initialization file: {}", initialization_packet);
-
-//         // Receive and save model files
-//         for stream in listener.incoming() {
-
-//             let mut local_stream = stream.unwrap();
-//             match com::from_network_with_protocol(&mut local_stream) {
-//                 Ok(_) => {},
-//                 Err("END") => {
-//                     debug!("Finished recieving files!");
-//                 }
-//                 _ => {break}
-//             }
-//         }
-
-//         info!("All files recieved.");
-
-//         //
-        
-//         // Load Scene from initialization packet
-
-//         Ok(Scene::load_from_json_str(&initialization_packet))
-        
-//     }
-
-//     /// Clear all entities 
-//     pub fn clear_all(&mut self) {
-//         self.entities = vec![];
-//     }
-// }

@@ -48,7 +48,7 @@ fn get_ports(file: &str) -> Result<Vec<SocketAddr>, Box<dyn std::error::Error>>{
     Ok(result)
 }
 
-fn create_listener_thread(scene_ref: Arc<RwLock<scenes_and_entities::State>>, file: String) -> Result<thread::JoinHandle<()>, std::io::Error>{
+fn create_listener_thread(scene_ref: Arc<RwLock<scenes_and_entities::Scene>>, file: String) -> Result<thread::JoinHandle<()>, std::io::Error>{
     let handle = thread::Builder::new().name("listener thread".to_string()).spawn(move || {
         info!("Opened listener thread");
         println!("about to unwrap ports vector");

@@ -21,6 +21,7 @@ pub enum BehaviorType {
     ComponentRotate,
     ComponentTranslate,
     ComponentRotateConstantSpeed,
+    ComponentChangeColor,
     Null,
 }
 
@@ -33,6 +34,7 @@ impl BehaviorType {
             "ComponentRotate" => BehaviorType::ComponentRotate,
             "ComponentTranslate" => BehaviorType::ComponentTranslate,
             "ComponentRotateConstantSpeed" => BehaviorType::ComponentRotateConstantSpeed,
+            "ComponentChangeColor" => BehaviorType::ComponentChangeColor,
             _ => BehaviorType::Null,
         }
     }
@@ -243,7 +245,7 @@ pub struct State<'a> {
     config: wgpu::SurfaceConfiguration,
     pub size: winit::dpi::PhysicalSize<u32>,
     render_pipeline: wgpu::RenderPipeline,
-    scene: Scene,
+    pub scene: Scene,
     camera: camera::Camera,
     projection: camera::Projection,
     pub camera_controller: camera::CameraController,
@@ -574,23 +576,23 @@ impl<'a> State<'a> {
 
 // Define the scene structure
 pub struct Scene {
-    pub entities: Vec<Entity>,
+    entities: Vec<Entity>,
 }
 
 impl Scene {
     // Method to add an entity to the scene
-    pub fn add_entity(&mut self, entity: Entity) {
-        self.entities.push(entity);
-    }
+    // pub fn add_entity(&mut self, entity: Entity) {
+    //     self.entities.push(entity);
+    // }
 
     // Other scene-related methods...
-    pub fn new() -> Scene {
-        Scene { entities: vec![] }
-    }
+    // pub fn new() -> Scene {
+    //     Scene { entities: vec![] }
+    // }
 
-    pub fn new_entities(entities: Vec<Entity>) -> Scene {
-        Scene { entities: entities }
-    }
+    // pub fn new_entities(entities: Vec<Entity>) -> Scene {
+    //     Scene { entities: entities }
+    // }
 
     // pub fn change_entity_position(&mut self, entity_id: u64, new_position: cgmath::Point3<f64>) {
     //     self.entities[entity_id as usize].change_position(new_position);
@@ -611,7 +613,7 @@ impl Scene {
 
         let json_parsed: serde_json::Value = match serde_json::from_str(&json_unparsed) {
             serde_json::Result::Ok(val) => val,
-            serde_json::Result::Err(err) => serde_json::Value::Null,
+            serde_json::Result::Err(_) => serde_json::Value::Null,
             // _ => {}
         };
 
@@ -660,7 +662,7 @@ impl Scene {
         }
     }
 
-    pub fn get_entity(&mut self, entity_id: usize) -> Option<&mut Entity> {
+    fn get_entity(&mut self, entity_id: usize) -> Option<&mut Entity> {
         self.entities.get_mut(entity_id)
     }
 
@@ -710,9 +712,9 @@ impl Scene {
     // }
 
     /// Clear all entities 
-    pub fn clear_all(&mut self) {
-        self.entities = vec![];
-    }
+    // pub fn clear_all(&mut self) {
+    //     self.entities = vec![];
+    // }
 
     pub fn draw<'a>(
         &'a self,

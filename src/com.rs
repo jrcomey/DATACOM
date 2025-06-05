@@ -1,18 +1,12 @@
-use std::fmt::Error;
 use std::io::{Read, Write};
 // use tokio;
 // use tokio::time::sleep;
 use std::net::{ToSocketAddrs, TcpStream, IpAddr, TcpListener, SocketAddr};
 // use std::error::Error;
-use std::sync::{RwLock, Arc};
-use std::time::Duration;
+use std::sync::mpsc::Sender;
 use std::{fs::File, fs, thread};
 use toml::Value;
 use log::{debug, info};
-
-use crate::scenes_and_entities::Scene;
-// use tokio::io::{self, AsyncReadExt, AsyncWriteExt};
-// use tokio::net::{TcpListener, TcpStream};
 
 pub fn from_network(mut stream: &TcpStream) -> String{
     // debug!("Handle Commands called");
@@ -68,7 +62,7 @@ pub fn from_network_with_protocol(stream: &mut TcpStream) -> Result<(), &str> {
     Ok(())
 }
 
-pub fn run_server<A: ToSocketAddrs>(scene_reference: Arc<RwLock<Scene>>, addr: A) {
+pub fn run_server<A: ToSocketAddrs>(tx: Sender<String>, addr: A) {
     info!("Server started!");
     let listener = TcpListener::bind(addr).unwrap();
     info!("Connection successful!");
@@ -82,7 +76,8 @@ pub fn run_server<A: ToSocketAddrs>(scene_reference: Arc<RwLock<Scene>>, addr: A
             Ok(stream) => {
                 let packet = from_network(&stream);
                 debug!("Packet: {}", packet.as_str());
-                scene_reference.write().unwrap().bhvr_msg_str(&packet.as_str());
+                // scene_reference.write().unwrap().bhvr_msg_str(&packet.as_str());
+                tx.send(packet);
             },
             Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                 if start.elapsed() > timeout {
@@ -102,8 +97,6 @@ pub fn run_server<A: ToSocketAddrs>(scene_reference: Arc<RwLock<Scene>>, addr: A
         //     _ => {;},
         // }
 }
-
-
 
 pub fn get_ports(file: &str) -> Result<Vec<SocketAddr>, Box<dyn std::error::Error>>{
     let contents = fs::read_to_string(file)?;
@@ -140,14 +133,14 @@ pub fn get_ports(file: &str) -> Result<Vec<SocketAddr>, Box<dyn std::error::Erro
     Ok(result)
 }
 
-pub fn create_listener_thread(scene_ref: Arc<RwLock<Scene>>, file: String) -> Result<thread::JoinHandle<()>, std::io::Error>{
+pub fn create_listener_thread(tx: Sender<String>, file: String) -> Result<thread::JoinHandle<()>, std::io::Error>{
     let handle = thread::Builder::new().name("listener thread".to_string()).spawn(move || {
         info!("Opened listener thread");
         debug!("about to unwrap ports vector");
         let ports = get_ports(file.as_str()).unwrap();
         debug!("successfully unwrapped ports vector");
         let mut addrs_iter = &(ports[..]);
-        run_server(scene_ref, addrs_iter);
+        run_server(tx, addrs_iter);
     })
     .map_err(|_| std::io::Error::new(std::io::ErrorKind::Other, "Thread spawn failed"))?;
 
@@ -169,4 +162,269 @@ pub fn get_font() -> String{
     {
         "/usr/share/fonts/truetype/futura/JetBrainsMono-Bold.ttf".to_string()
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{path::Path, net::{SocketAddr, TcpListener, TcpStream}, sync::mpsc, thread};
+//     use std::io::{Write, Read};
+    use std::fs::{File, OpenOptions, remove_file};
+
+//     use crate::{dc, glutin, scene_composer, scenes_and_entities::{self, ModelComponent}};
+
+    use super::*;
+    use std::collections::HashSet;
+
+
+//     #[test]
+//     fn unit_quaternion() {
+//         let unit_quaternion: na::UnitQuaternion<f64> = na::UnitQuaternion::identity();
+//         info!("{}", unit_quaternion);
+//     }
+
+//     fn load_from_json(){
+//         scenes_and_entities::ModelComponent::load_from_json_file(&"data/object_loading.blizzard_initialize.json");
+        
+//     }
+
+//     #[test]
+//     fn color_change() {
+//         let mut test_scene = scene_composer::test_scene();
+//         let color_cmd = scenes_and_entities::Command::new(
+//             scenes_and_entities::CommandType::ComponentChangeColor,
+//             vec![0.0, 1.0, 1.0, 1.0, 1.0]
+//         );
+//         assert_eq!(
+//             test_scene.get_entity(0).unwrap().get_model(0).get_color(),
+//             na::Vector4::<f32>::new(0.0, 1.0, 0.0, 1.0),
+//             "Base color is green"
+//         );
+//         test_scene.get_entity(0).unwrap().command(color_cmd);
+//         assert_eq!(
+//             test_scene.get_entity(0).unwrap().get_model(0).get_color(),
+//             na::Vector4::<f32>::new(1.0, 1.0, 1.0, 1.0),
+//             "New color is white"
+//         );
+//     }
+
+//     #[test]
+//     fn position_change() {
+//         let mut test_scene = scene_composer::test_scene();
+//         let pos_cmd = scenes_and_entities::Command::new(
+//             scenes_and_entities::CommandType::EntityChangePosition,
+//             vec![1.0, 1.0, 1.0]
+//         );
+//         assert_eq!(
+//             test_scene.get_entity(0).unwrap().get_position(),
+//             &na::Point3::<f64>::origin(),
+//             "Initial Position is Origin"
+//         );
+//         test_scene.get_entity(0).unwrap().command(pos_cmd);
+//         assert_eq!(
+//             test_scene.get_entity(0).unwrap().get_position(),
+//             &na::Point3::<f64>::new(1.0, 1.0, 1.0),
+//             "Position commanded successfully"
+//         );
+//     }
+
+//     #[test]
+//     fn change_command() {
+//         let mut test_scene = scene_composer::test_scene();
+//         let change_command = scenes_and_entities::Command::new(
+//             scenes_and_entities::CommandType::ModifyBehavior, 
+//             vec![0.0, ]
+//         );
+//     }
+
+//     #[test]
+//     fn load_font() {
+        
+//     }
+
+    fn vectors_match(v1: Result<Vec<SocketAddr>, Box<dyn std::error::Error>>, v2: Result<Vec<SocketAddr>, Box<dyn std::error::Error>>) -> bool{
+        match v1{
+            Ok(_) => {},
+            Err(ref e) => println!("Error msg: {e:?}"),
+        };
+        if v1.is_err() && v2.is_err(){
+            return true;
+        }
+        if !(v1.is_ok() && v2.is_ok()){
+            println!("returning false: case 2");
+            return false;
+        }
+
+        let vec1 = v1.unwrap();
+        let vec2 = v2.unwrap();
+
+        let set1: HashSet<_> = vec1.iter().collect();
+        let set2: HashSet<_> = vec2.iter().collect();
+        set1 == set2
+    }
+
+    fn get_ports_template(toml_name: &str, toml_contents: &str, expected: Result<Vec<SocketAddr>, Box<dyn std::error::Error>>){
+        let file_name_string = format!("{}{}", toml_name, ".toml");
+        let file_name = file_name_string.as_str();
+        let file_path = Path::new(file_name);
+        let mut file = File::create(&file_path).unwrap();
+        _ = writeln!(file, "{}", toml_contents);
+        let actual = get_ports(file_name);
+        assert!(vectors_match(actual, expected));
+        _ = remove_file(&file_path);
+    }
+
+    #[test]
+    fn get_ports_basic(){
+        let toml_name = "get_ports_basic";
+        let toml_contents = "[servers]
+\"10.0.0.5\" = [22]";
+        let expected: Result<Vec<SocketAddr>, _> = Ok(vec![SocketAddr::from(([10, 0, 0, 5], 22))]);
+        get_ports_template(toml_name, toml_contents, expected);
+    }
+
+    #[test]
+    fn get_ports_one_ip_multiple_ports(){
+        let toml_name = "get_ports_one_ip_multiple_ports";
+        let toml_contents = "[servers]
+\"10.0.0.5\" = [22, 8080]";
+        let s1 = SocketAddr::from(([10, 0, 0, 5], 22));
+        let s2 = SocketAddr::from(([10, 0, 0, 5], 8080));
+        let expected: Result<Vec<SocketAddr>, _> = Ok(vec![s1, s2]);
+        get_ports_template(toml_name, toml_contents, expected);
+    }
+
+    #[test]
+    fn get_ports_multiple_ip_one_port(){
+        let toml_name = "get_ports_multiple_ip_one_port";
+        let toml_contents = "[servers]
+\"192.168.0.1\" = [443]
+\"10.0.0.5\" = [22]";
+        let s1 = SocketAddr::from(([192, 168, 0, 1], 443));
+        let s2 = SocketAddr::from(([10, 0, 0, 5], 22));
+        let expected: Result<Vec<SocketAddr>, _> = Ok(vec![s1, s2]);
+        get_ports_template(toml_name, toml_contents, expected);
+    }
+
+    #[test]
+    fn get_ports_multiple_ip_multiple_ports(){
+        let toml_name = "get_ports_multiple_ip_multiple_ports";
+        let toml_contents = "[servers]
+\"192.168.0.1\" = [80, 443]
+\"10.0.0.5\" = [22]
+\"172.16.1.100\" = [21, 8080, 3000]
+\"127.0.0.1\" = [8000, 8001, 8002]
+\"203.0.113.42\" = [53]";
+        let s1 = SocketAddr::from(([192, 168, 0, 1], 80));
+        let s2 = SocketAddr::from(([192, 168, 0, 1], 443));
+        let s3 = SocketAddr::from(([10, 0, 0, 5], 22));
+        let s4 = SocketAddr::from(([172, 16, 1, 100], 21));
+        let s5 = SocketAddr::from(([172, 16, 1, 100], 8080));
+        let s6 = SocketAddr::from(([172, 16, 1, 100], 3000));
+        let s7 = SocketAddr::from(([127, 0, 0, 1], 8000));
+        let s8 = SocketAddr::from(([127, 0, 0, 1], 8001));
+        let s9 = SocketAddr::from(([127, 0, 0, 1], 8002));
+        let s10 = SocketAddr::from(([203, 0, 113, 42], 53));
+        let expected: Result<Vec<SocketAddr>, _> = Ok(vec![s1, s2, s3, s4, s5, s6, s7, s8, s9, s10]);
+        get_ports_template(toml_name, toml_contents, expected);
+    }
+
+    #[test]
+    fn get_ports_localhost(){
+        let toml_name = "get_ports_localhost";
+        let toml_contents = "[servers]
+\"localhost\" = [8081]";
+        let mut addrs = "localhost:8081".to_socket_addrs().unwrap(); 
+        let s1 = addrs.next().unwrap();
+        let expected = Ok(vec![s1]);
+        get_ports_template(toml_name, toml_contents, expected);
+    }
+
+    #[test]
+    fn get_ports_no_server(){
+        let toml_name = "get_ports_no_server";
+        let toml_contents = "[somethingelse]
+irrelevant = content";
+
+        let err = "invalid = [".parse::<toml::Value>().unwrap_err();
+        let expected: Result<Vec<SocketAddr>, Box<dyn std::error::Error>> = Err(Box::new(err));
+
+        // let expected: Result<Vec<SocketAddr>, _> = Ok(vec![SocketAddr::from(([10, 0, 0, 5], 22))]);
+        get_ports_template(toml_name, toml_contents, expected);
+    }
+
+    #[test]
+    fn get_ports_too_high(){
+        let toml_name = "get_ports_too_high";
+        let toml_contents = "[servers]
+\"10.0.0.5\" = [999999999]";
+
+        let err = "invalid = [".parse::<toml::Value>().unwrap_err();
+        let expected: Result<Vec<SocketAddr>, Box<dyn std::error::Error>> = Err(Box::new(err));
+        get_ports_template(toml_name, toml_contents, expected);
+    }
+
+    #[test]
+    fn get_ports_negative(){
+        let toml_name = "get_ports_negative";
+        let toml_contents = "[servers]
+\"10.0.0.5\" = [-1]";
+
+        let err = "invalid = [".parse::<toml::Value>().unwrap_err();
+        let expected: Result<Vec<SocketAddr>, Box<dyn std::error::Error>> = Err(Box::new(err));
+        get_ports_template(toml_name, toml_contents, expected);
+    }
+
+    #[test]
+    fn get_ports_bad_format(){
+        let toml_name = "get_ports_bad_format";
+        let toml_contents = "[servers]
+10005 = [80]";
+
+        let err = "invalid = [".parse::<toml::Value>().unwrap_err();
+        let expected: Result<Vec<SocketAddr>, Box<dyn std::error::Error>> = Err(Box::new(err));
+        get_ports_template(toml_name, toml_contents, expected);
+    }
+
+    #[test]
+    fn get_ports_empty(){
+        let toml_name = "get_ports_empty";
+        let toml_contents = "[servers]";
+
+        let err = "invalid = [".parse::<toml::Value>().unwrap_err();
+        let expected: Result<Vec<SocketAddr>, Box<dyn std::error::Error>> = Err(Box::new(err));
+        get_ports_template(toml_name, toml_contents, expected);
+    }
+
+//     fn create_listener_thread_template(toml_name: &str, toml_contents: &str){
+//         let (tx, rx) = mpsc::channel();
+
+//         let file_name_string = format!("{}{}", toml_name, ".toml");
+//         let file_name_string_clone = file_name_string.clone();
+//         let file_name = file_name_string.as_str();
+//         let file_path = Path::new(file_name);
+//         let mut file = File::create(&file_path).unwrap();
+//         _ = writeln!(file, "{}", toml_contents);
+//         let handle = create_listener_thread(tx, file_name_string_clone).unwrap();
+//         // let join_result = handle.join();
+//         let received = rx.recv().unwrap();
+//         _ = remove_file(&file_path);
+//         // join_result.unwrap();
+//     }
+
+//     #[test]
+//     fn create_listener_thread_success(){
+//         let toml_name = "create_listener_thread_success";
+//         let toml_contents = "[servers]
+// \"127.0.0.1\" = [0]";
+//         create_listener_thread_template(toml_name, toml_contents);
+//     }
+
+//     #[test]
+//     #[should_panic]
+//     fn create_listener_thread_failure(){
+//         let toml_name = "create_listener_thread_failure";
+//         let toml_contents = "[somethingelse]
+// irrelevant = content";
+//         create_listener_thread_template(toml_name, toml_contents);
+//     }
 }

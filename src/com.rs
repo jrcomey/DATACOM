@@ -11,10 +11,17 @@ use log::{debug, info};
 pub fn from_network(mut stream: &TcpStream) -> String{
     // debug!("Handle Commands called");
     let mut buffer = [0; 600000];
-    let bytes_read = stream.read(&mut buffer).unwrap();
-    let packet = String::from_utf8_lossy(&buffer[..bytes_read]);
-    // println!("{}",packet);
-    return packet.to_string();
+    match stream.read(&mut buffer){
+        Ok(bytes_read) => {
+            let packet = String::from_utf8_lossy(&buffer[..bytes_read]);
+            // println!("{}",packet);
+            packet.to_string()
+        },
+        Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+            "Error: No data available yet; try again later".to_string()
+        },
+        Err(e) => "Error: Other".to_string(),
+    }
 }
 
 // Rewrite me to be better
@@ -73,11 +80,18 @@ pub fn run_server<A: ToSocketAddrs>(tx: Sender<String>, addr: A) {
     for stream in listener.incoming() {
         // info!("received TCP stream!");
         match stream {
-            Ok(stream) => {
-                let packet = from_network(&stream);
-                debug!("Packet: {}", packet.as_str());
-                // scene_reference.write().unwrap().bhvr_msg_str(&packet.as_str());
-                tx.send(packet);
+            Ok(mut stream) => {
+                stream.write_all(b"ACK").unwrap();
+                stream.flush().unwrap();
+
+                loop {
+                    let packet = from_network(&stream);
+                    debug!("Packet: {}", packet.as_str());
+                    if !packet.starts_with("Error"){
+                        // scene_reference.write().unwrap().bhvr_msg_str(&packet.as_str());
+                        tx.send(packet).unwrap();
+                    }
+                }
             },
             Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                 if start.elapsed() > timeout {
@@ -139,12 +153,50 @@ pub fn create_listener_thread(tx: Sender<String>, file: String) -> Result<thread
         debug!("about to unwrap ports vector");
         let ports = get_ports(file.as_str()).unwrap();
         debug!("successfully unwrapped ports vector");
-        let mut addrs_iter = &(ports[..]);
+        let addrs_iter = &(ports[..]);
         run_server(tx, addrs_iter);
     })
     .map_err(|_| std::io::Error::new(std::io::ErrorKind::Other, "Thread spawn failed"))?;
 
     Ok(handle)
+}
+
+fn create_sender_thread() -> Result<thread::JoinHandle<()>, Box<dyn std::error::Error>>{
+    let handle = thread::Builder::new().name("sender thread".to_string()).spawn(move|| {
+        info!("Opened sender thread");
+        let mut addrs_iter = "localhost:8081".to_socket_addrs().unwrap();
+        let addr = addrs_iter.next().unwrap();
+        let mut stream = TcpStream::connect(addr).unwrap();
+        
+        stream.set_nodelay(true).unwrap();
+        let mut ack = [0u8; 3];
+        stream.read_exact(&mut ack).unwrap();
+        if &ack == b"ACK" {
+            let start_time = std::time::SystemTime::now();
+
+            loop {
+                let t = (std::time::SystemTime::now().duration_since(start_time).unwrap().as_micros() as f32) / (2.0*1E6*std::f32::consts::PI);
+                let test_command_data = format!("
+                    {{
+                        \"targetEntityID\": 0,
+                        \"commandType\": \"ComponentChangeColor\",
+                        \"data\": [0.0,{},{},{},1.0]
+                    }}", 
+                    t.sin().abs(),
+                    t.cos().abs(),
+                    t.tan().abs()
+                );
+                info!("Sending data to stream");
+                thread::sleep(std::time::Duration::from_millis(10));
+                stream.write_all(test_command_data.as_bytes()).unwrap();
+                stream.flush().unwrap();
+            }
+        }
+    })
+    .map_err(|_| std::io::Error::new(std::io::ErrorKind::Other, "Thread spawn failed"))?;
+
+    Ok(handle)
+
 }
 
 pub fn get_font() -> String{
@@ -395,36 +447,52 @@ irrelevant = content";
         get_ports_template(toml_name, toml_contents, expected);
     }
 
-//     fn create_listener_thread_template(toml_name: &str, toml_contents: &str){
-//         let (tx, rx) = mpsc::channel();
+    fn create_listener_thread_template(toml_name: &str, toml_contents: &str){
+        pretty_env_logger::init();
+        let (tx, rx) = mpsc::channel();
 
-//         let file_name_string = format!("{}{}", toml_name, ".toml");
-//         let file_name_string_clone = file_name_string.clone();
-//         let file_name = file_name_string.as_str();
-//         let file_path = Path::new(file_name);
-//         let mut file = File::create(&file_path).unwrap();
-//         _ = writeln!(file, "{}", toml_contents);
-//         let handle = create_listener_thread(tx, file_name_string_clone).unwrap();
-//         // let join_result = handle.join();
-//         let received = rx.recv().unwrap();
-//         _ = remove_file(&file_path);
-//         // join_result.unwrap();
-//     }
+        let file_name_string = format!("{}{}", toml_name, ".toml");
+        let file_name_string_clone = file_name_string.clone();
+        let file_name = file_name_string.as_str();
+        let file_path = Path::new(file_name);
+        let mut file = File::create(&file_path).unwrap();
+        _ = writeln!(file, "{}", toml_contents);
 
-//     #[test]
-//     fn create_listener_thread_success(){
-//         let toml_name = "create_listener_thread_success";
-//         let toml_contents = "[servers]
-// \"127.0.0.1\" = [0]";
-//         create_listener_thread_template(toml_name, toml_contents);
-//     }
+        let listener = create_listener_thread(tx, file_name_string_clone);
+        listener.unwrap();
+        let sender = create_sender_thread();
+        sender.unwrap();
+        // let join_result = handle.join();
+        let start_time = std::time::SystemTime::now();
+        let mut passed = false;
+        while (std::time::SystemTime::now().duration_since(start_time).unwrap().as_secs()) < 10{
+            let received = rx.recv().unwrap();
+            info!("RECEIVED = {received}");
+            if received.len() > 0 {
+                passed = true;
+                break;
+            }
+        }
+        assert!(passed);
 
-//     #[test]
-//     #[should_panic]
-//     fn create_listener_thread_failure(){
-//         let toml_name = "create_listener_thread_failure";
-//         let toml_contents = "[somethingelse]
-// irrelevant = content";
-//         create_listener_thread_template(toml_name, toml_contents);
-//     }
+        _ = remove_file(&file_path);
+        // join_result.unwrap();
+    }
+
+    #[test]
+    fn create_listener_thread_success(){
+        let toml_name = "create_listener_thread_success";
+        let toml_contents = "[servers]
+\"localhost\" = [8081]";
+        create_listener_thread_template(toml_name, toml_contents);
+    }
+
+    #[test]
+    #[should_panic]
+    fn create_listener_thread_failure(){
+        let toml_name = "create_listener_thread_failure";
+        let toml_contents = "[somethingelse]
+irrelevant = content";
+        create_listener_thread_template(toml_name, toml_contents);
+    }
 }

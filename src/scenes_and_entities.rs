@@ -1,13 +1,15 @@
 use std::iter;
 
-use cgmath::prelude::*;
+use cgmath::{Deg, Point3, Vector3, Quaternion, Matrix4};
 use wgpu::util::DeviceExt;
 use winit::{
     event::*,
     keyboard::PhysicalKey,
     window::Window,
 };
+use std::rc::Rc;
 use log::error;
+use cgmath::EuclideanSpace;
 
 use crate::{model, camera};
 
@@ -72,11 +74,11 @@ impl Behavior {
 }
 
 #[allow(dead_code)]
-struct Entity {
+pub struct Entity {
     name: String,
-    position: cgmath::Point3<f32>,
-    rotation: cgmath::Quaternion<f32>,
-    scale: cgmath::Vector3<f32>,
+    position: Rc<Point3<f32>>,
+    rotation: Quaternion<f32>,
+    scale: Vector3<f32>,
     models: Vec<model::Model>,
     behaviors: Vec<Behavior>,
 }
@@ -86,35 +88,32 @@ impl Entity {
         let name = json["Name"].to_string();
 
         // Position
-        let mut position_vec = cgmath::Point3::<f32>::new(0.0, 0.0, 0.0);
-        let position_temp: Vec<_> = json["Position"]
+        let position_temp = json["Position"]
             .as_array()
             .unwrap()
-            .into_iter()
-            .collect();
-        for (i, position) in position_temp.iter().enumerate() {
+            .into_iter();
+        let mut position_vec = Point3::<f32>::new(0.0, 0.0, 0.0);
+        for (i, position) in position_temp.enumerate() {
             position_vec[i] = position.as_f64().unwrap() as f32;
         }
 
         // Rotation
-        let rotation_temp: Vec<_> = json["Rotation"]
+        let rotation_temp = json["Rotation"]
             .as_array()
             .unwrap()
-            .into_iter()
-            .collect();
-        let mut rotation_vec = cgmath::Vector3::<f32>::new(0.0, 0.0, 0.0);
-        for (i, rotation_comp) in rotation_temp.iter().enumerate() {
+            .into_iter();
+        let mut rotation_vec = Vector3::<f32>::new(0.0, 0.0, 0.0);
+        for (i, rotation_comp) in rotation_temp.enumerate() {
             rotation_vec[i] = rotation_comp.as_f64().unwrap() as f32;
         }
 
         // Scale
-        let scale_temp: Vec<_> = json["Scale"]
+        let scale_temp = json["Scale"]
             .as_array()
             .unwrap()
-            .into_iter()
-            .collect();
-        let mut scale_vec = cgmath::Vector3::<f32>::new(0.0, 0.0, 0.0);
-        for (i, scale_comp) in scale_temp.iter().enumerate() {
+            .into_iter();
+        let mut scale_vec = Vector3::<f32>::new(0.0, 0.0, 0.0);
+        for (i, scale_comp) in scale_temp.enumerate() {
             scale_vec[i] = scale_comp.as_f64().unwrap() as f32;
         }
 
@@ -144,19 +143,26 @@ impl Entity {
 
         Entity {
             name: name,
-            position: position_vec,
-            rotation: cgmath::Quaternion::from_sv(1.0, rotation_vec),
+            position: Rc::new(position_vec),
+            rotation: Quaternion::from_sv(1.0, rotation_vec),
             scale: scale_vec,
             models: model_vec,
             behaviors: behavior_vec,
         }
     }
 
-    fn to_matrix(&self) -> cgmath::Matrix4<f32> {
-        let translation = cgmath::Matrix4::from_translation(self.position.to_vec());
-        let rotation = cgmath::Matrix4::from(self.rotation);
-        let scale = cgmath::Matrix4::from_nonuniform_scale(self.scale.x, self.scale.y, self.scale.z);
-        let rotation_correction = cgmath::Matrix4::from_angle_x(cgmath::Deg(-90.0));
+    pub fn get_position(&self) -> Rc<Point3<f32>> { Rc::clone(&self.position) }
+
+    pub fn set_position(&mut self, new_position: Point3<f32>) {
+        self.position = Rc::new(new_position);
+    }
+
+    fn to_matrix(&self) -> Matrix4<f32> {
+        let pos = *self.position.as_ref();
+        let translation = Matrix4::from_translation(pos.to_vec());
+        let rotation = Matrix4::from(self.rotation);
+        let scale = Matrix4::from_nonuniform_scale(self.scale.x, self.scale.y, self.scale.z);
+        let rotation_correction = Matrix4::from_angle_x(Deg(-90.0));
         rotation_correction * translation * rotation * scale
     }
 
@@ -187,26 +193,26 @@ impl Entity {
         match behavior.behavior_type {
             // Translate entity by vector
             BehaviorType::EntityTranslate => {
-                let new_position = cgmath::Vector3::<f32>::new(behavior.data[0], behavior.data[1], behavior.data[2]);
-                self.change_position(self.position + new_position);
+                let new_position = Vector3::<f32>::new(behavior.data[0], behavior.data[1], behavior.data[2]);
+                self.set_position(*self.position.as_ref() + new_position);
             }
 
             // Change position to input
             BehaviorType::EntityChangePosition => {
-                let new_position = cgmath::Point3::<f32>::new(behavior.data[0], behavior.data[1], behavior.data[2]);
-                self.change_position(new_position);
+                let new_position = Point3::<f32>::new(behavior.data[0], behavior.data[1], behavior.data[2]);
+                self.set_position(new_position);
             }
 
             // Rotate item at constant speed
             BehaviorType::ComponentRotateConstantSpeed => {
                 let model_id = behavior.data[0] as u64;
                 let rotation_factor = behavior.data[1];
-                let new_quaternion_vector = cgmath::Vector3::<f32>::new(
+                let new_quaternion_vector = Vector3::<f32>::new(
                     (rotation_factor * behavior.data[2]) as f32,
                     (rotation_factor * behavior.data[4]) as f32,
                     (rotation_factor * behavior.data[3]) as f32,
                 );
-                let new_quaternion = cgmath::Quaternion::<f32>::from_sv(1.0, new_quaternion_vector);
+                let new_quaternion = Quaternion::<f32>::from_sv(1.0, new_quaternion_vector);
 
                 self.get_model(model_id).rotate(new_quaternion);
             }
@@ -227,10 +233,6 @@ impl Entity {
         for i in cmds.iter() {
             self.run_behavior(i.clone());
         }
-    }
-
-    pub fn change_position(&mut self, new_position: cgmath::Point3<f32>) {
-        self.position = new_position;
     }
 
     pub fn get_model(&mut self, model_component_id: u64) -> &mut model::Model {
@@ -326,8 +328,8 @@ impl<'a> State<'a> {
             desired_maximum_frame_latency: 2,
         };
 
-        let camera = camera::Camera::new((0.0, 5.0, 10.0), cgmath::Deg(0.0), cgmath::Deg(-90.0), cgmath::Deg(-20.0));
-        let projection = camera::Projection::new(config.width, config.height, cgmath::Deg(45.0), 0.1, 100.0);
+        let camera = camera::Camera::new((0.0, 5.0, 10.0), Deg(0.0), Deg(-90.0), Deg(-20.0));
+        let projection = camera::Projection::new(config.width, config.height, Deg(45.0), 0.1, 100.0);
         let camera_controller = camera::CameraController::new(4.0, 0.4);
 
         let mut camera_uniform = camera::CameraUniform::new();
@@ -487,7 +489,7 @@ impl<'a> State<'a> {
                         ..
                     },
                 ..
-            } => self.camera_controller.process_keyboard(*key, *state),
+            } => self.camera_controller.process_keyboard(*key, *state, &self.scene.entities),
             WindowEvent::MouseWheel { delta, .. } => {
                 self.camera_controller.process_scroll(delta);
                 true
@@ -594,7 +596,7 @@ impl Scene {
     //     Scene { entities: entities }
     // }
 
-    // pub fn change_entity_position(&mut self, entity_id: u64, new_position: cgmath::Point3<f64>) {
+    // pub fn change_entity_position(&mut self, entity_id: u64, new_position: Point3<f64>) {
     //     self.entities[entity_id as usize].change_position(new_position);
     // }
 

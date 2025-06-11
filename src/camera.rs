@@ -3,7 +3,11 @@ use winit::keyboard::KeyCode;
 use winit::dpi::PhysicalPosition;
 use cgmath::*;
 use std::f32::consts::FRAC_PI_2;
+use std::rc::Rc;
 use std::time::Duration;
+use std::collections::HashSet;
+
+use crate::scenes_and_entities::Entity;
 
 #[rustfmt::skip]
 pub const OPENGL_TO_WGPU_MATRIX: Matrix4<f32> = Matrix4::new(
@@ -27,8 +31,6 @@ pub struct Camera {
     roll: Rad<f32>,
     yaw: Rad<f32>,
     pitch: Rad<f32>,
-    mode: CameraMode,
-    point_of_focus: Option<Point3<f32>>,
 }
 
 impl Camera {
@@ -43,8 +45,6 @@ impl Camera {
             roll: roll.into(),
             yaw: yaw.into(),
             pitch: pitch.into(),
-            mode: CameraMode::FreeRoam,
-            point_of_focus: None,
         }
     }
 
@@ -57,11 +57,6 @@ impl Camera {
             Vector3::new(cos_pitch * cos_yaw, sin_pitch, cos_pitch * sin_yaw).normalize(),
             Matrix3::from_axis_angle(Vector3::unit_z(), self.roll) * Vector3::unit_y(),
         )
-    }
-
-    pub fn switch_mode(&mut self, mode: CameraMode, point_of_focus: Option<Point3<f32>>){
-        self.mode = mode;
-        self.point_of_focus = point_of_focus;
     }
 }
 
@@ -93,6 +88,7 @@ impl Projection {
 
 #[derive(Debug)]
 pub struct CameraController {
+    pressed_keys: HashSet<KeyCode>,
     h_translate_step: f32,
     l_translate_step: f32,
     v_translate_step: f32,
@@ -103,11 +99,14 @@ pub struct CameraController {
     translate_speed: f32,
     rotate_speed: f32,
     sensitivity: f32,
+    mode: CameraMode,
+    point_of_focus: Option<Rc<Point3<f32>>>,
 }
 
 impl CameraController {
     pub fn new(speed: f32, sensitivity: f32) -> Self {
         Self {
+            pressed_keys: HashSet::new(),
             h_translate_step: 0.0,
             l_translate_step: 0.0,
             v_translate_step: 0.0,
@@ -118,10 +117,27 @@ impl CameraController {
             translate_speed: speed,
             rotate_speed: 0.3 * speed,
             sensitivity,
+            mode: CameraMode::FreeRoam,
+            point_of_focus: None,
         }
     }
 
-    pub fn process_keyboard(&mut self, key: KeyCode, state: ElementState) -> bool {
+    pub fn process_keyboard(&mut self, key: KeyCode, state: ElementState, scene: &Vec<Entity>) -> bool {
+        match state {
+            ElementState::Pressed => {
+                if !self.pressed_keys.contains(&key) {
+                    self.pressed_keys.insert(key);
+                }
+
+                if key == KeyCode::Enter {
+                    self.switch_mode(scene);
+                }
+            }
+            ElementState::Released => {
+                self.pressed_keys.remove(&key);
+            }
+        }
+        
         let amount = if state == ElementState::Pressed {
             1.0
         } else {
@@ -180,10 +196,23 @@ impl CameraController {
         };
     }
 
+    pub fn switch_mode(&mut self, scene: &Vec<Entity>){
+        match self.mode {
+            CameraMode::FreeRoam => {
+                self.mode = CameraMode::OrbitPoint;
+                self.point_of_focus = Some(scene[0].get_position());
+            },
+            CameraMode::OrbitPoint => {
+                self.mode = CameraMode::FreeRoam;
+                self.point_of_focus = None;
+            }
+        }
+    }
+
     pub fn update_camera(&mut self, camera: &mut Camera, dt: Duration){
-        match camera.mode {
+        match self.mode {
             CameraMode::FreeRoam => self.update_camera_freeroam(camera, dt),
-            CameraMode::OrbitPoint => self.update_camera_orbit(camera, dt, camera.point_of_focus),
+            CameraMode::OrbitPoint => self.update_camera_orbit(camera, dt),
         }
     }
 
@@ -230,36 +259,46 @@ impl CameraController {
         }
     }
 
-    fn update_camera_orbit(&mut self, camera: &mut Camera, dt: Duration, point_option: Option<Point3<f32>>){
-        let point = point_option.expect("Error: camera is attempting to orbit a point that does not exist");
+    fn update_camera_orbit(&mut self, camera: &mut Camera, dt: Duration){
+        let point_of_focus = self.point_of_focus.as_ref().map(|rc| rc.as_ref());
+        let point = *point_of_focus.expect("Error: camera is attempting to orbit a point that does not exist");
         let dt = dt.as_secs_f32();
 
-        // Move forward/backward and left/right
-        let (yaw_sin, yaw_cos) = camera.yaw.0.sin_cos();
-        let forward = Vector3::new(yaw_cos, 0.0, yaw_sin).normalize();
-        let right = Vector3::new(-yaw_sin, 0.0, yaw_cos).normalize();
-        camera.position += forward * (self.l_translate_step) * self.translate_speed * dt;
-        camera.position += right * (self.h_translate_step) * self.translate_speed * dt;
-
-        // Move in/out (aka. "zoom")
-        // Note: this isn't an actual zoom. The camera's position
-        // changes when zooming. I've added this to make it easier
-        // to get closer to an object you want to focus on.
-        let (pitch_sin, pitch_cos) = camera.pitch.0.sin_cos();
-        let scrollward =
-            Vector3::new(pitch_cos * yaw_cos, pitch_sin, pitch_cos * yaw_sin).normalize();
-        camera.position += scrollward * self.scroll * self.translate_speed * self.sensitivity * dt;
-        self.scroll = 0.0;
-
-        // Move up/down. Since we don't use roll, we can just
-        // modify the y coordinate directly.
-        camera.position.y += (self.v_translate_step) * self.translate_speed * dt;
         camera.roll += Rad(self.l_rotate_step) * self.rotate_speed * dt;
 
-        let direction = (point - camera.position).normalize();
+        let mut offset = camera.position - point;
+        let radius = offset.magnitude();
 
-        camera.pitch = Rad(direction.y.asin());
-        camera.yaw = Rad(direction.z.atan2(direction.x));
+        let mut forward = offset.normalize();
+        // let roll_quat = Quaternion::from_axis_angle(forward, camera.roll);
+        // let up =  (roll_quat * Vector3::unit_y()).normalize();
+        let up = Matrix3::from_axis_angle(Vector3::unit_z(), camera.roll) * Vector3::unit_y();
+        let right = forward.cross(up).normalize();
+
+        if self.h_translate_step != 0.0 {
+            let angle = self.h_translate_step * self.translate_speed * dt / radius;
+            let rot = Quaternion::from_axis_angle(up, Rad(angle));
+            offset = rot * offset;
+        }
+
+        if self.v_translate_step != 0.0 {
+            let angle = self.v_translate_step * self.translate_speed * dt / radius;
+            let rot = Quaternion::from_axis_angle(right, Rad(angle));
+            offset = rot * offset;
+        }
+
+        if self.l_translate_step != 0.0 {
+            offset -= forward * self.l_translate_step * self.translate_speed * dt;
+        }
+
+        camera.position = point + offset;
+        // camera.position += forward * (self.l_translate_step) * self.translate_speed * dt;
+        // camera.position += right * (self.h_translate_step) * self.translate_speed * dt;
+        // camera.position += up * (self.v_translate_step) * self.translate_speed * dt;
+
+        forward = (point - camera.position).normalize();
+        camera.pitch = Rad(forward.y.asin());
+        camera.yaw = Rad(forward.z.atan2(forward.x));
     }
 }
 

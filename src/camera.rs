@@ -4,6 +4,7 @@ use winit::dpi::PhysicalPosition;
 use cgmath::*;
 use std::f32::consts::FRAC_PI_2;
 use std::rc::Rc;
+use std::cell::RefCell;
 use std::time::Duration;
 use std::collections::HashSet;
 
@@ -100,7 +101,7 @@ pub struct CameraController {
     rotate_speed: f32,
     sensitivity: f32,
     mode: CameraMode,
-    point_of_focus: Option<Rc<Point3<f32>>>,
+    point_of_focus: Option<Rc<RefCell<Point3<f32>>>>,
 }
 
 impl CameraController {
@@ -260,8 +261,8 @@ impl CameraController {
     }
 
     fn update_camera_orbit(&mut self, camera: &mut Camera, dt: Duration){
-        let point_of_focus = self.point_of_focus.as_ref().map(|rc| rc.as_ref());
-        let point = *point_of_focus.expect("Error: camera is attempting to orbit a point that does not exist");
+        let point_option = self.point_of_focus.as_ref().map(|rc| rc.borrow());
+        let point = *point_option.expect("Error: camera is attempting to orbit a point that does not exist");
         let dt = dt.as_secs_f32();
 
         camera.roll += Rad(self.l_rotate_step) * self.rotate_speed * dt;

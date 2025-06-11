@@ -8,6 +8,7 @@ use winit::{
     window::Window,
 };
 use std::rc::Rc;
+use std::cell::RefCell;
 use log::error;
 use cgmath::EuclideanSpace;
 
@@ -76,7 +77,7 @@ impl Behavior {
 #[allow(dead_code)]
 pub struct Entity {
     name: String,
-    position: Rc<Point3<f32>>,
+    position: Rc<RefCell<Point3<f32>>>,
     rotation: Quaternion<f32>,
     scale: Vector3<f32>,
     models: Vec<model::Model>,
@@ -143,7 +144,7 @@ impl Entity {
 
         Entity {
             name: name,
-            position: Rc::new(position_vec),
+            position: Rc::new(RefCell::new(position_vec)),
             rotation: Quaternion::from_sv(1.0, rotation_vec),
             scale: scale_vec,
             models: model_vec,
@@ -151,15 +152,14 @@ impl Entity {
         }
     }
 
-    pub fn get_position(&self) -> Rc<Point3<f32>> { Rc::clone(&self.position) }
+    pub fn get_position(&self) -> Rc<RefCell<Point3<f32>>> { Rc::clone(&self.position) }
 
     pub fn set_position(&mut self, new_position: Point3<f32>) {
-        self.position = Rc::new(new_position);
+        *self.position.borrow_mut() = new_position;
     }
 
     fn to_matrix(&self) -> Matrix4<f32> {
-        let pos = *self.position.as_ref();
-        let translation = Matrix4::from_translation(pos.to_vec());
+        let translation = Matrix4::from_translation(self.position.borrow().to_vec());
         let rotation = Matrix4::from(self.rotation);
         let scale = Matrix4::from_nonuniform_scale(self.scale.x, self.scale.y, self.scale.z);
         let rotation_correction = Matrix4::from_angle_x(Deg(-90.0));
@@ -193,8 +193,9 @@ impl Entity {
         match behavior.behavior_type {
             // Translate entity by vector
             BehaviorType::EntityTranslate => {
-                let new_position = Vector3::<f32>::new(behavior.data[0], behavior.data[1], behavior.data[2]);
-                self.set_position(*self.position.as_ref() + new_position);
+                let old_position = *self.position.borrow();
+                let offset = Vector3::<f32>::new(behavior.data[0], behavior.data[1], behavior.data[2]);
+                self.set_position(old_position + offset);
             }
 
             // Change position to input

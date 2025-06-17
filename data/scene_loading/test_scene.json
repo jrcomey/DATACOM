@@ -82,6 +82,14 @@
             ],
             "Behaviors": [
                 {
+                    "behaviorType": "EntityTranslate",
+                    "data": [
+                        0.0,
+                        0.0,
+                        0.01
+                    ]
+                },
+                {
                     "behaviorType": "ComponentRotateConstantSpeed",
                     "data": [
                         1.0,

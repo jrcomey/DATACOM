@@ -156,6 +156,7 @@ impl Entity {
 
     pub fn set_position(&mut self, new_position: Point3<f32>) {
         *self.position.borrow_mut() = new_position;
+        // println!("new position: ({}, {}, {})", new_position[0], new_position[1], new_position[2]);
     }
 
     fn to_matrix(&self) -> Matrix4<f32> {
@@ -249,7 +250,6 @@ pub struct State<'a> {
     pub size: winit::dpi::PhysicalSize<u32>,
     render_pipeline: wgpu::RenderPipeline,
     pub scene: Scene,
-    camera: camera::Camera,
     projection: camera::Projection,
     pub camera_controller: camera::CameraController,
     camera_uniform: camera::CameraUniform,
@@ -331,10 +331,10 @@ impl<'a> State<'a> {
 
         let camera = camera::Camera::new((0.0, 5.0, 10.0), Deg(0.0), Deg(-90.0), Deg(-20.0));
         let projection = camera::Projection::new(config.width, config.height, Deg(45.0), 0.1, 100.0);
-        let camera_controller = camera::CameraController::new(4.0, 0.4);
-
         let mut camera_uniform = camera::CameraUniform::new();
         camera_uniform.update_view_proj(&camera, &projection);
+        let camera_controller = camera::CameraController::new(4.0, 0.4, camera);
+
 
         let camera_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Camera Buffer"),
@@ -454,7 +454,6 @@ impl<'a> State<'a> {
             size,
             render_pipeline,
             scene,
-            camera,
             projection,
             camera_controller,
             camera_buffer,
@@ -508,10 +507,10 @@ impl<'a> State<'a> {
     }
 
     pub fn update(&mut self, dt: std::time::Duration) {
-        self.camera_controller.update_camera(&mut self.camera, dt);
-        log::info!("{:?}", self.camera);
+        self.camera_controller.update_camera(dt);
+        // log::info!("{:?}", self.camera);
 
-        self.camera_uniform.update_view_proj(&self.camera, &self.projection);
+        self.camera_uniform.update_view_proj(&self.camera_controller.camera(), &self.projection);
         log::info!("{:?}", self.camera_uniform);
 
         self.scene.run_behaviors();
@@ -579,6 +578,7 @@ impl<'a> State<'a> {
 
 // Define the scene structure
 pub struct Scene {
+    pub axes: model::Axes,
     entities: Vec<Entity>,
 }
 
@@ -660,7 +660,10 @@ impl Scene {
             entity_vec.push(Entity::load_from_json(*i, device, model_bind_group_layout));
         }
 
-        Scene{ 
+        let axes = model::Axes::new(device);
+
+        Scene{
+            axes: axes,
             entities: entity_vec,
         }
     }
@@ -725,6 +728,8 @@ impl Scene {
         camera_bind_group: &'a wgpu::BindGroup,
         queue: &wgpu::Queue,
     ){
+        render_pass.draw_axes(&self.axes, camera_bind_group);
+
         for entity in &self.entities {
             entity.draw(render_pass, camera_bind_group, queue);
         }

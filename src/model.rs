@@ -1,5 +1,5 @@
 use wgpu::util::DeviceExt;
-use cgmath::{EuclideanSpace, InnerSpace};
+use cgmath::{EuclideanSpace, InnerSpace, SquareMatrix};
 
 pub trait Vertex {
     fn desc() -> wgpu::VertexBufferLayout<'static>;
@@ -228,12 +228,99 @@ impl Model {
     }
 }
 
+pub struct Axes {
+    pub vertex_buffer: wgpu::Buffer,
+    pub num_vertices: u32,
+    pub bind_group: wgpu::BindGroup,
+}
+
+impl Axes {
+    pub fn new(
+        device: &wgpu::Device,
+    ) -> Axes {
+        let epsilon = 0.01;
+        let vertices = vec![
+            // X axis: red
+            ModelVertex { position: [0.0, -epsilon, 0.0], color: [1.0, 0.0, 0.0] },
+            ModelVertex { position: [1.0, 0.0, 0.0], color: [1.0, 0.0, 0.0] },
+            ModelVertex { position: [0.0, epsilon, 0.0], color: [1.0, 0.0, 0.0] },
+
+            // Y axis: green
+            ModelVertex { position: [0.0, -epsilon, 0.0], color: [0.0, 1.0, 0.0] },
+            ModelVertex { position: [0.0, 1.0, 0.0], color: [0.0, 1.0, 0.0] },
+            ModelVertex { position: [0.0, epsilon, 0.0], color: [0.0, 1.0, 0.0] },
+
+            // Z axis: blue
+            ModelVertex { position: [0.0, -epsilon, 0.0], color: [0.0, 0.0, 1.0] },
+            ModelVertex { position: [0.0, 0.0, 1.0], color: [0.0, 0.0, 1.0] },
+            ModelVertex { position: [0.0, epsilon, 0.0], color: [0.0, 0.0, 1.0] },
+        ];
+
+        let vertex_data: &[u8] = bytemuck::cast_slice(&vertices);
+        let num_vertices = vertices.len() as u32;
+
+        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Vertex Buffer"),
+            contents: vertex_data,
+            usage: wgpu::BufferUsages::VERTEX,
+        });
+
+        let identity_matrix: [[f32; 4]; 4] = cgmath::Matrix4::<f32>::identity().into();
+        let uniform_matrix: &[u8] = bytemuck::cast_slice(&identity_matrix);
+        println!("Vertex data: {:?}", vertex_data);
+        println!("Uniform matrix: {:?}", uniform_matrix);
+        println!("Number of vertices: {:?}", num_vertices);
+
+        let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Uniform Buffer"),
+            contents: uniform_matrix,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+
+        let bind_group_layout = 
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+                label: Some("Axes Bind Group Layout"),
+        });
+
+        let model_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: uniform_buffer.as_entire_binding(),
+            }],
+            label: Some("Model Bind Group"),
+        });
+
+        Axes{
+            vertex_buffer,
+            num_vertices,
+            bind_group: model_bind_group,
+        }
+    }
+}
+
 pub trait DrawModel<'a> {
     fn draw_mesh(
         &mut self,
         mesh: &'a Mesh,
         camera_bind_group: &'a wgpu::BindGroup,
         model_bind_group: &'a wgpu::BindGroup,
+    );
+
+    fn draw_axes(
+        &mut self,
+        axes: &'a Axes,
+        camera_bind_group: &'a wgpu::BindGroup,
     );
 }
 
@@ -252,5 +339,16 @@ where
         self.set_bind_group(0, camera_bind_group, &[]);
         self.set_bind_group(1, model_bind_group, &[]);
         self.draw_indexed(0..mesh.num_elements, 0, 0..1);
+    }
+
+    fn draw_axes(
+        &mut self,
+        axes: &'b Axes,
+        camera_bind_group: &'b wgpu::BindGroup,
+    ){
+        self.set_vertex_buffer(0, axes.vertex_buffer.slice(..));
+        self.set_bind_group(0, camera_bind_group, &[]);
+        self.set_bind_group(1, &axes.bind_group, &[]);
+        self.draw(0..axes.num_vertices, 0..1);
     }
 }

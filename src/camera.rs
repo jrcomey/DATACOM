@@ -104,6 +104,8 @@ pub struct CameraController {
     mode: CameraMode,
     point_of_focus: Option<Rc<RefCell<Point3<f32>>>>,
     offset: Option<Vector3<f32>>,
+    h_angle: Option<Rad<f32>>,
+    v_angle: Option<Rad<f32>>,
 }
 
 impl CameraController {
@@ -124,6 +126,8 @@ impl CameraController {
             mode: CameraMode::FreeRoam,
             point_of_focus: None,
             offset: None,
+            h_angle: None,
+            v_angle: None,
         }
     }
 
@@ -211,11 +215,15 @@ impl CameraController {
                 let point_option = self.point_of_focus.as_ref().map(|rc| rc.borrow());
                 let point = *point_option.expect("Error: camera is attempting to orbit a point that does not exist");
                 self.offset = Some(self.camera.position - point);
+                self.h_angle = Some(Rad(0.0));
+                self.v_angle = Some(Rad(0.0));
             },
             CameraMode::OrbitPoint => {
                 self.mode = CameraMode::FreeRoam;
                 self.point_of_focus = None;
                 self.offset = None;
+                self.h_angle = None;
+                self.v_angle = None;
             }
         }
     }
@@ -269,59 +277,53 @@ impl CameraController {
             self.camera.pitch = Rad(SAFE_FRAC_PI_2);
         }
 
-        println!("new camera position: ({}, {}, {})", self.camera.position[0], self.camera.position[1], self.camera.position[2]);
-        println!("new camera rotation: ({:?}, {:?}, {:?})", self.camera.roll, self.camera.pitch, self.camera.yaw);
+        // println!("new camera position: ({}, {}, {})", self.camera.position[0], self.camera.position[1], self.camera.position[2]);
+        // println!("new camera rotation: ({:?}, {:?}, {:?})", self.camera.roll, self.camera.pitch, self.camera.yaw);
     }
 
     fn update_camera_orbit(&mut self, dt: Duration){
+        // unwrap data
         let point_option = self.point_of_focus.as_ref().map(|rc| rc.borrow());
-        let point = *point_option.expect("Error: camera is attempting to orbit a point that does not exist");
-        let mut offset = (point + self.offset.unwrap()).to_vec();
+        let target = *point_option.expect("Error: camera is attempting to orbit a point that does not exist");
+        let mut h_angle = self.h_angle.unwrap();
+        let mut v_angle = self.v_angle.unwrap();
+        let mut offset = self.offset.unwrap();
         let dt = dt.as_secs_f32();
 
-        // // self.camera.roll += Rad(self.l_rotate_step) * self.rotate_speed * dt;
+        // update the radius based on forward/backward movement
+        // we subtract from the radius (ie forward = smaller radius, backward = larger radius)
+        let mut radius = offset.magnitude();
+        radius -= self.l_translate_step * self.translate_speed * dt;
 
-        // // let radius = offset.magnitude();
-        // // let mut forward = -self.offset.unwrap().normalize();
-        // // // let roll_quat = Quaternion::from_axis_angle(forward, camera.roll);
-        // // // let up =  (roll_quat * Vector3::unit_y()).normalize();
-        // // let up = Matrix3::from_axis_angle(Vector3::unit_z(), self.camera.roll) * Vector3::unit_y();
-        // // let right = forward.cross(up).normalize();
+        // update the roll
+        self.camera.roll += Rad(self.l_rotate_step) * self.rotate_speed * dt;
 
-        // // println!("F * U = {}", forward.dot(up));
-        // // println!("F * R = {}", forward.dot(right));
-        // // println!("U * R = {}", up.dot(right));
-        // // assert!(forward.dot(up) == 0.0);
-        // // assert!(forward.dot(right) == 0.0);
-        // // assert!(up.dot(right) == 0.0);
+        // update angle based on up/down and left/right movement
+        h_angle += Rad(self.h_translate_step * self.translate_speed/radius * dt);
+        v_angle += Rad(self.v_translate_step * self.translate_speed/radius * dt);
+        let (sin_h, cos_h) = h_angle.0.sin_cos();
+        let (sin_v, cos_v) = v_angle.0.sin_cos();
+        let (sin_roll, cos_roll) = self.camera.roll.0.sin_cos();
+        // println!("radius = {}; angles = ({:?}, {:?})", radius, h_angle, v_angle);
+        // println!("roll data: {:?}, {}, {}", self.camera.roll, sin_roll, cos_roll);
+        // println!("{} * {} * {} * {}", radius, cos_h, cos_v, sin_roll);
+        offset = Vector3::new(
+            radius * cos_h * cos_v, 
+            radius * sin_v,
+            radius * sin_h * cos_v
+        );
+        // println!("new offset: ({}, {}, {})", offset[0], offset[1], offset[2]);
+        // println!("");
 
-        // // if self.h_translate_step != 0.0 {
-        // //     let angle = self.h_translate_step * self.translate_speed * dt / radius;
-        // //     let rot = Quaternion::from_axis_angle(up, Rad(angle));
-        // //     offset = rot * offset;
-        // // }
+        self.camera.position = target + offset;
+        self.offset = Some(offset);
+        self.h_angle = Some(h_angle);
+        self.v_angle = Some(v_angle);
 
-        // // if self.v_translate_step != 0.0 {
-        // //     let angle = self.v_translate_step * self.translate_speed * dt / radius;
-        // //     let rot = Quaternion::from_axis_angle(right, Rad(angle));
-        // //     offset = rot * offset;
-        // // }
+        let forward = (target - self.camera.position).normalize();
+        self.camera.pitch = Rad(forward.y.asin());
+        self.camera.yaw = Rad(forward.z.atan2(forward.x));
 
-        // // if self.l_translate_step != 0.0 {
-        // //     offset -= forward * self.l_translate_step * self.translate_speed * dt;
-        // // }
-
-        self.camera.position = point + offset;
-        println!("new camera position: ({}, {}, {})", self.camera.position[0], self.camera.position[1], self.camera.position[2]);
-        // // self.offset = Some(offset);
-        // // // camera.position += forward * (self.l_translate_step) * self.translate_speed * dt;
-        // // // camera.position += right * (self.h_translate_step) * self.translate_speed * dt;
-        // // // camera.position += up * (self.v_translate_step) * self.translate_speed * dt;
-
-        // forward = (point - self.camera.position).normalize();
-        // let forward = (point - self.camera.position).normalize();
-        // self.camera.pitch = Rad(forward.y.asin());
-        // self.camera.yaw = Rad(forward.z.atan2(forward.x));
 
     }
 }

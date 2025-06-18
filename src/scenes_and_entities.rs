@@ -163,8 +163,9 @@ impl Entity {
         let translation = Matrix4::from_translation(self.position.borrow().to_vec());
         let rotation = Matrix4::from(self.rotation);
         let scale = Matrix4::from_nonuniform_scale(self.scale.x, self.scale.y, self.scale.z);
-        let rotation_correction = Matrix4::from_angle_x(Deg(-90.0));
-        rotation_correction * translation * rotation * scale
+        // let rotation_correction = Matrix4::from_angle_x(Deg(-90.0));
+        // rotation_correction * translation * rotation * scale
+        translation * rotation * scale
     }
 
     pub fn draw<'a>(

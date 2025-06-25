@@ -267,9 +267,9 @@ impl Axes {
 
         let identity_matrix: [[f32; 4]; 4] = cgmath::Matrix4::<f32>::identity().into();
         let uniform_matrix: &[u8] = bytemuck::cast_slice(&identity_matrix);
-        println!("Vertex data: {:?}", vertex_data);
-        println!("Uniform matrix: {:?}", uniform_matrix);
-        println!("Number of vertices: {:?}", num_vertices);
+        // println!("Vertex data: {:?}", vertex_data);
+        // println!("Uniform matrix: {:?}", uniform_matrix);
+        // println!("Number of vertices: {:?}", num_vertices);
 
         let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Uniform Buffer"),

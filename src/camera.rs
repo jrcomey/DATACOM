@@ -2,7 +2,7 @@ use winit::event::*;
 use winit::keyboard::KeyCode;
 use winit::dpi::PhysicalPosition;
 use cgmath::*;
-use std::f32::consts::FRAC_PI_2;
+use std::f32::consts::{PI, FRAC_PI_2};
 use std::rc::Rc;
 use std::cell::RefCell;
 use std::time::Duration;
@@ -56,7 +56,7 @@ impl Camera {
         Matrix4::look_to_rh(
             self.position,
             Vector3::new(cos_pitch * cos_yaw, sin_pitch, cos_pitch * sin_yaw).normalize(),
-            Matrix3::from_axis_angle(Vector3::unit_z(), self.roll) * Vector3::unit_y(),
+            Matrix3::from_axis_angle(Vector3::unit_y(), self.roll) * Vector3::unit_z(),
         )
     }
 }
@@ -103,7 +103,7 @@ pub struct CameraController {
     camera: Camera,
     mode: CameraMode,
     point_of_focus: Option<Rc<RefCell<Point3<f32>>>>,
-    offset: Option<Vector3<f32>>,
+    radius: Option<f32>,
     h_angle: Option<Rad<f32>>,
     v_angle: Option<Rad<f32>>,
 }
@@ -125,7 +125,7 @@ impl CameraController {
             camera,
             mode: CameraMode::FreeRoam,
             point_of_focus: None,
-            offset: None,
+            radius: None,
             h_angle: None,
             v_angle: None,
         }
@@ -214,14 +214,18 @@ impl CameraController {
                 self.point_of_focus = Some(scene[0].get_position());
                 let point_option = self.point_of_focus.as_ref().map(|rc| rc.borrow());
                 let point = *point_option.expect("Error: camera is attempting to orbit a point that does not exist");
-                self.offset = Some(self.camera.position - point);
-                self.h_angle = Some(Rad(0.0));
+                self.radius = Some((self.camera.position - point).magnitude());
+                self.h_angle = Some(Rad(PI));
                 self.v_angle = Some(Rad(0.0));
+                
+                // self.v_angle = Some(Rad(1.5751947));
+                // let forward = (point - self.camera.position).normalize();
+                // self.camera.yaw = Rad(forward.z.atan2(forward.x));
             },
             CameraMode::OrbitPoint => {
                 self.mode = CameraMode::FreeRoam;
                 self.point_of_focus = None;
-                self.offset = None;
+                self.radius = None;
                 self.h_angle = None;
                 self.v_angle = None;
             }
@@ -287,44 +291,44 @@ impl CameraController {
         let target = *point_option.expect("Error: camera is attempting to orbit a point that does not exist");
         let mut h_angle = self.h_angle.unwrap();
         let mut v_angle = self.v_angle.unwrap();
-        let mut offset = self.offset.unwrap();
+        let mut radius = self.radius.unwrap();
         let dt = dt.as_secs_f32();
 
         // update the radius based on forward/backward movement
         // we subtract from the radius (ie forward = smaller radius, backward = larger radius)
-        let mut radius = offset.magnitude();
         radius -= self.l_translate_step * self.translate_speed * dt;
 
         // update the roll
         self.camera.roll += Rad(self.l_rotate_step) * self.rotate_speed * dt;
 
-        // update angle based on up/down and left/right movement
+
         h_angle += Rad(self.h_translate_step * self.translate_speed/radius * dt);
         v_angle += Rad(self.v_translate_step * self.translate_speed/radius * dt);
+        // println!("radius = {}; angles = ({:?}, {:?})", radius, h_angle, v_angle);
+
         let (sin_h, cos_h) = h_angle.0.sin_cos();
         let (sin_v, cos_v) = v_angle.0.sin_cos();
-        let (sin_roll, cos_roll) = self.camera.roll.0.sin_cos();
-        // println!("radius = {}; angles = ({:?}, {:?})", radius, h_angle, v_angle);
-        // println!("roll data: {:?}, {}, {}", self.camera.roll, sin_roll, cos_roll);
-        // println!("{} * {} * {} * {}", radius, cos_h, cos_v, sin_roll);
-        offset = Vector3::new(
+        
+        let offset = Vector3::new(
             radius * cos_h * cos_v, 
+            radius * sin_h * cos_v,
             radius * sin_v,
-            radius * sin_h * cos_v
         );
         // println!("new offset: ({}, {}, {})", offset[0], offset[1], offset[2]);
-        // println!("");
 
         self.camera.position = target + offset;
-        self.offset = Some(offset);
+        self.radius = Some(radius);
         self.h_angle = Some(h_angle);
         self.v_angle = Some(v_angle);
 
         let forward = (target - self.camera.position).normalize();
-        self.camera.pitch = Rad(forward.y.asin());
-        self.camera.yaw = Rad(forward.z.atan2(forward.x));
-
-
+        // println!("forward: {:?}", forward);
+        let pitch = Rad(forward.y.asin());
+        self.camera.pitch = pitch;
+        let yaw = Rad(forward.z.atan2(forward.x));
+        self.camera.yaw = yaw;
+        // println!("new camera rotation: ({}π, {}π, {}π)", self.camera.roll.0/PI, self.camera.pitch.0/PI, self.camera.yaw.0/PI);
+        // println!("");
     }
 }
 

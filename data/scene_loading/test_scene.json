@@ -3,7 +3,7 @@
     "entities": [
         {   
             "Name": "ATP-XW Blizzard",
-            "Position": [0.0, 0.0, 0.0],
+            "Position": [3.0, 0.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [1.0, 1.0, 1.0],
             "Models": [
@@ -81,14 +81,6 @@
                 }
             ],
             "Behaviors": [
-                {
-                    "behaviorType": "EntityTranslate",
-                    "data": [
-                        0.0,
-                        0.0,
-                        0.01
-                    ]
-                },
                 {
                     "behaviorType": "ComponentRotateConstantSpeed",
                     "data": [

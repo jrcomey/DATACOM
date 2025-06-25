@@ -334,7 +334,7 @@ impl<'a> State<'a> {
         let projection = camera::Projection::new(config.width, config.height, Deg(45.0), 0.1, 100.0);
         let mut camera_uniform = camera::CameraUniform::new();
         camera_uniform.update_view_proj(&camera, &projection);
-        let camera_controller = camera::CameraController::new(4.0, 0.4, camera);
+        let camera_controller = camera::CameraController::new(8.0, 0.4, camera);
 
 
         let camera_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {

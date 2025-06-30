@@ -330,7 +330,7 @@ impl<'a> State<'a> {
             desired_maximum_frame_latency: 2,
         };
 
-        let camera = camera::Camera::new((0.0, 5.0, 10.0), Deg(0.0), Deg(-90.0), Deg(-20.0));
+        let camera = camera::Camera::new((-5.0, 0.0, 7.0), Deg(0.0), Deg(0.0), Deg(-45.0));
         let projection = camera::Projection::new(config.width, config.height, Deg(45.0), 0.1, 100.0);
         let mut camera_uniform = camera::CameraUniform::new();
         camera_uniform.update_view_proj(&camera, &projection);

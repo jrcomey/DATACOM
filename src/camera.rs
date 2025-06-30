@@ -55,7 +55,7 @@ impl Camera {
 
         Matrix4::look_to_rh(
             self.position,
-            Vector3::new(cos_pitch * cos_yaw, sin_pitch, cos_pitch * sin_yaw).normalize(),
+            Vector3::new(cos_pitch * cos_yaw, cos_pitch * sin_yaw, sin_pitch).normalize(),
             Matrix3::from_axis_angle(Vector3::unit_y(), self.roll) * Vector3::unit_z(),
         )
     }
@@ -194,9 +194,9 @@ impl CameraController {
         }
     }
 
-    pub fn process_mouse(&mut self, mouse_dx: f64, mouse_dy: f64) {
+    pub fn process_mouse(&mut self, mouse_dx: f64, mouse_dz: f64) {
         self.rotate_horizontal = mouse_dx as f32;
-        self.rotate_vertical = mouse_dy as f32;
+        self.rotate_vertical = mouse_dz as f32;
     }
 
     pub fn process_scroll(&mut self, delta: &MouseScrollDelta) {
@@ -243,11 +243,18 @@ impl CameraController {
         let dt = dt.as_secs_f32();
 
         // Move forward/backward and left/right
+        // self.camera.yaw += Rad(0.01);
         let (yaw_sin, yaw_cos) = self.camera.yaw.0.sin_cos();
-        let forward = Vector3::new(yaw_cos, 0.0, yaw_sin).normalize();
-        let right = Vector3::new(-yaw_sin, 0.0, yaw_cos).normalize();
+        // let forward = Vector3::new(yaw_cos, yaw_sin, 0.0).normalize();
+        // let right = Vector3::new(-yaw_sin, yaw_cos, 0.0).normalize();
+        let forward = Vector3::new(yaw_cos, yaw_sin, 0.0).normalize();
+        let left = Vector3::new(-yaw_sin, yaw_cos, 0.0).normalize();
         self.camera.position += forward * (self.l_translate_step) * self.translate_speed * dt;
-        self.camera.position += right * (self.h_translate_step) * self.translate_speed * dt;
+        self.camera.position -= left * (self.h_translate_step) * self.translate_speed * dt;
+        // println!("new position: ({}, {}, {})", self.camera.position[0], self.camera.position[1], self.camera.position[2]);
+        // println!("forward: ({}, {}, {})", forward.x, forward.y, forward.z);
+        // println!("left: ({}, {}, {})", left.x, left.y, left.z);
+        // println!("{}", forward.dot(left));
 
         // Move in/out (aka. "zoom")
         // Note: this isn't an actual zoom. The camera's position
@@ -261,12 +268,13 @@ impl CameraController {
 
         // Move up/down. Since we don't use roll, we can just
         // modify the y coordinate directly.
-        self.camera.position.y += (self.v_translate_step) * self.translate_speed * dt;
+        self.camera.position.z += (self.v_translate_step) * self.translate_speed * dt;
 
         // Rotate
         self.camera.roll += Rad(self.l_rotate_step) * self.rotate_speed * dt;
-        self.camera.yaw += Rad(self.rotate_horizontal) * self.sensitivity * dt;
+        self.camera.yaw += Rad(-self.rotate_horizontal) * self.sensitivity * dt;
         self.camera.pitch += Rad(-self.rotate_vertical) * self.sensitivity * dt;
+        // println!("new camera rotation: ({}π, {}π, {}π)", self.camera.roll.0/PI, self.camera.pitch.0/PI, self.camera.yaw.0/PI);
 
         // If process_mouse isn't called every frame, these values
         // will not get set to zero, and the camera will rotate

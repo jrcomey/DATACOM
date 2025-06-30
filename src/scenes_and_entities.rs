@@ -250,6 +250,7 @@ pub struct State<'a> {
     config: wgpu::SurfaceConfiguration,
     pub size: winit::dpi::PhysicalSize<u32>,
     render_pipeline: wgpu::RenderPipeline,
+    lines_render_pipeline: wgpu::RenderPipeline,
     pub scene: Scene,
     projection: camera::Projection,
     pub camera_controller: camera::CameraController,
@@ -264,6 +265,63 @@ pub struct State<'a> {
     pub mouse_pressed: bool,
 }
 impl<'a> State<'a> {
+    fn create_render_pipeline(
+        device: &wgpu::Device,
+        layout: &wgpu::PipelineLayout,
+        color_format: wgpu::TextureFormat,
+        vertex_layouts: &[wgpu::VertexBufferLayout],
+        shader: wgpu::ShaderModuleDescriptor,
+        topology: wgpu::PrimitiveTopology,
+    ) -> wgpu::RenderPipeline {
+        let shader = device.create_shader_module(shader);
+
+        device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some(&format!("{:?}", shader)),
+            layout: Some(layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_main"),
+                buffers: vertex_layouts,
+                compilation_options: Default::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_main"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: color_format,
+                    blend: Some(wgpu::BlendState {
+                        alpha: wgpu::BlendComponent::REPLACE,
+                        color: wgpu::BlendComponent::REPLACE,
+                    }),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: Default::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: topology,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: Some(wgpu::Face::Back),
+                // Setting this to anything other than Fill requires Features::NON_FILL_POLYGON_MODE
+                polygon_mode: wgpu::PolygonMode::Line,
+                // Requires Features::DEPTH_CLIP_CONTROL
+                unclipped_depth: false,
+                // Requires Features::CONSERVATIVE_RASTERIZATION
+                conservative: false,
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState {
+                count: 1,
+                mask: !0,
+                alpha_to_coverage_enabled: false,
+            },
+            // If the pipeline will be used with a multiview render pass, this
+            // indicates how many array layers the attachments will have.
+            multiview: None,
+            cache: None,
+        })
+    }
+
     pub async fn new(window: &'a Window, filepath: &str) -> State<'a> {
         let size = window.inner_size();
 
@@ -384,11 +442,6 @@ impl<'a> State<'a> {
 
         let scene = Scene::load_scene_from_json(filepath, &device, &model_bind_group_layout);
 
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("shaders/shader.wgsl").into()),
-        });
-
         let render_pipeline_layout: wgpu::PipelineLayout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Render Pipeline Layout"),
@@ -399,51 +452,35 @@ impl<'a> State<'a> {
                 push_constant_ranges: &[],
             });
 
-        let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("Render Pipeline"),
-            layout: Some(&render_pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs_main"),
-                buffers: &[model::ModelVertex::desc()],
-                compilation_options: Default::default(),
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fs_main"),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: config.format,
-                    blend: None,
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-                compilation_options: Default::default(),
-            }),
-            // fragment: None,
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                strip_index_format: None,
-                front_face: wgpu::FrontFace::Ccw,
-                cull_mode: Some(wgpu::Face::Back),
-                // Setting this to anything other than Fill requires Features::POLYGON_MODE_LINE
-                // or Features::POLYGON_MODE_POINT
-                polygon_mode: wgpu::PolygonMode::Line,
-                // Requires Features::DEPTH_CLIP_CONTROL
-                unclipped_depth: false,
-                // Requires Features::CONSERVATIVE_RASTERIZATION
-                conservative: false,
-            },
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState {
-                count: 1,
-                mask: !0,
-                alpha_to_coverage_enabled: false,
-            },
-            // If the pipeline will be used with a multiview render pass, this
-            // indicates how many array layers the attachments will have.
-            multiview: None,
-            // Useful for optimizing shader compilation on Android
-            cache: None,
-        });
+        let render_pipeline = {
+            let shader = wgpu::ShaderModuleDescriptor {
+                label: Some("Normal Shader"),
+                source: wgpu::ShaderSource::Wgsl(include_str!("shaders/shader.wgsl").into()),
+            };
+            State::create_render_pipeline(
+                &device,
+                &render_pipeline_layout,
+                config.format,
+                &[model::ModelVertex::desc()],
+                shader,
+                wgpu::PrimitiveTopology::TriangleList,
+            )
+        };
+
+        let lines_render_pipeline = {
+            let shader = wgpu::ShaderModuleDescriptor {
+                label: Some("Lines Shader"),
+                source: wgpu::ShaderSource::Wgsl(include_str!("shaders/shader.wgsl").into()),
+            };
+            State::create_render_pipeline(
+                &device,
+                &render_pipeline_layout,
+                config.format,
+                &[model::ModelVertex::desc()],
+                shader,
+                wgpu::PrimitiveTopology::LineList,
+            )
+        };
         
         surface.configure(&device, &config);
 
@@ -454,6 +491,7 @@ impl<'a> State<'a> {
             config,
             size,
             render_pipeline,
+            lines_render_pipeline,
             scene,
             projection,
             camera_controller,
@@ -555,6 +593,9 @@ impl<'a> State<'a> {
                 occlusion_query_set: None,
                 timestamp_writes: None,
             });
+            
+            render_pass.set_pipeline(&self.lines_render_pipeline);
+            render_pass.draw_axes(&self.scene.axes, &self.camera_bind_group);
 
             render_pass.set_pipeline(&self.render_pipeline);
             // render_pass.draw_mesh_instanced(
@@ -729,7 +770,7 @@ impl Scene {
         camera_bind_group: &'a wgpu::BindGroup,
         queue: &wgpu::Queue,
     ){
-        render_pass.draw_axes(&self.axes, camera_bind_group);
+        // render_pass.draw_axes(&self.axes, camera_bind_group);
 
         for entity in &self.entities {
             entity.draw(render_pass, camera_bind_group, queue);

@@ -238,22 +238,36 @@ impl Axes {
     pub fn new(
         device: &wgpu::Device,
     ) -> Axes {
-        let epsilon = 0.01;
+        // let epsilon = 0.01;
+        // let vertices = vec![
+        //     // X axis: red
+        //     ModelVertex { position: [0.0, -epsilon, 0.0], color: [1.0, 0.0, 0.0] },
+        //     ModelVertex { position: [1.0, 0.0, 0.0], color: [1.0, 0.0, 0.0] },
+        //     ModelVertex { position: [0.0, epsilon, 0.0], color: [1.0, 0.0, 0.0] },
+
+        //     // Y axis: green
+        //     ModelVertex { position: [0.0, -epsilon, 0.0], color: [0.0, 1.0, 0.0] },
+        //     ModelVertex { position: [0.0, 1.0, 0.0], color: [0.0, 1.0, 0.0] },
+        //     ModelVertex { position: [0.0, epsilon, 0.0], color: [0.0, 1.0, 0.0] },
+
+        //     // Z axis: blue
+        //     ModelVertex { position: [0.0, -epsilon, 0.0], color: [0.0, 0.0, 1.0] },
+        //     ModelVertex { position: [0.0, 0.0, 1.0], color: [0.0, 0.0, 1.0] },
+        //     ModelVertex { position: [0.0, epsilon, 0.0], color: [0.0, 0.0, 1.0] },
+        // ];
+
         let vertices = vec![
-            // X axis: red
-            ModelVertex { position: [0.0, -epsilon, 0.0], color: [1.0, 0.0, 0.0] },
+            // x-axis: red
+            ModelVertex { position: [0.0, 0.0, 0.0], color: [1.0, 0.0, 0.0] },
             ModelVertex { position: [1.0, 0.0, 0.0], color: [1.0, 0.0, 0.0] },
-            ModelVertex { position: [0.0, epsilon, 0.0], color: [1.0, 0.0, 0.0] },
 
-            // Y axis: green
-            ModelVertex { position: [0.0, -epsilon, 0.0], color: [0.0, 1.0, 0.0] },
+            // y-axis: green
+            ModelVertex { position: [0.0, 0.0, 0.0], color: [0.0, 1.0, 0.0] },
             ModelVertex { position: [0.0, 1.0, 0.0], color: [0.0, 1.0, 0.0] },
-            ModelVertex { position: [0.0, epsilon, 0.0], color: [0.0, 1.0, 0.0] },
 
-            // Z axis: blue
-            ModelVertex { position: [0.0, -epsilon, 0.0], color: [0.0, 0.0, 1.0] },
+            // z-axis: blue
+            ModelVertex { position: [0.0, 0.0, 0.0], color: [0.0, 0.0, 1.0] },
             ModelVertex { position: [0.0, 0.0, 1.0], color: [0.0, 0.0, 1.0] },
-            ModelVertex { position: [0.0, epsilon, 0.0], color: [0.0, 0.0, 1.0] },
         ];
 
         let vertex_data: &[u8] = bytemuck::cast_slice(&vertices);

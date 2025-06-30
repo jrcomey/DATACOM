@@ -253,7 +253,7 @@ impl CameraController {
         let (pitch_sin, pitch_cos) = self.camera.pitch.0.sin_cos();
         let scrollward =
             -1.0 * Vector3::new(pitch_cos * yaw_cos, pitch_cos * yaw_sin, pitch_sin).normalize();
-        println!("scrollward: ({}, {}, {})", scrollward.x, scrollward.y, scrollward.z);
+        // println!("scrollward: ({}, {}, {})", scrollward.x, scrollward.y, scrollward.z);
         self.camera.position += scrollward * self.scroll * self.translate_speed * self.sensitivity * dt;
         self.scroll = 0.0;
 

@@ -133,6 +133,13 @@ impl CameraController {
 
     pub fn camera(&self) -> &Camera { &self.camera }
 
+    fn process_opposite_keys(pressed_keys: &HashSet<KeyCode>, key1: &KeyCode, key2: &KeyCode, key3: &KeyCode, key4: &KeyCode) -> f32 {
+        (
+            ((pressed_keys.contains(key1) || pressed_keys.contains(key2)) as i32) - 
+            ((pressed_keys.contains(key3) || pressed_keys.contains(key4)) as i32)
+        ) as f32
+    }
+
     pub fn process_keyboard(&mut self, key: KeyCode, state: ElementState, scene: &Vec<Entity>) -> bool {
         match state {
             ElementState::Pressed => {
@@ -148,50 +155,32 @@ impl CameraController {
                 self.pressed_keys.remove(&key);
             }
         }
-        
-        let amount = if state == ElementState::Pressed {
-            1.0
-        } else {
-            0.0
-        };
-        match key {
-            KeyCode::KeyW | KeyCode::ArrowUp => {
-                self.l_translate_step = amount;
-                true
-            }
-            KeyCode::KeyS | KeyCode::ArrowDown => {
-                self.l_translate_step = -amount;
-                true
-            }
-            KeyCode::KeyA | KeyCode::ArrowLeft => {
-                self.h_translate_step = -amount;
-                true
-            }
-            KeyCode::KeyD | KeyCode::ArrowRight => {
-                self.h_translate_step = amount;
-                true
-            }
-            KeyCode::KeyK => {
-                self.l_rotate_step = -amount;
-                true
-            }
-            KeyCode::KeyL => {
-                self.l_rotate_step = amount;
-                true
-            }
-            KeyCode::Space => {
-                self.v_translate_step = amount;
-                true
-            }
-            KeyCode::ShiftLeft => {
-                self.v_translate_step = -amount;
-                true
-            }
-            KeyCode::Enter => {
-                true
-            }
-            _ => false,
-        }
+
+        self.h_translate_step = CameraController::process_opposite_keys(
+            &self.pressed_keys, 
+            &KeyCode::KeyD, 
+            &KeyCode::ArrowRight,
+            &KeyCode::KeyA,
+            &KeyCode::ArrowLeft,
+        );
+
+        self.v_translate_step = CameraController::process_opposite_keys(
+            &self.pressed_keys,
+            &KeyCode::KeyW,
+            &KeyCode::ArrowUp,
+            &KeyCode::KeyS,
+            &KeyCode::ArrowDown,
+        );
+
+        self.l_rotate_step = CameraController::process_opposite_keys(
+            &self.pressed_keys,
+            &KeyCode::KeyL,
+            &KeyCode::KeyL,
+            &KeyCode::KeyK,
+            &KeyCode::KeyK,
+        );
+
+        state == ElementState::Pressed
     }
 
     pub fn process_mouse(&mut self, mouse_dx: f64, mouse_dz: f64) {
@@ -255,6 +244,7 @@ impl CameraController {
         // println!("forward: ({}, {}, {})", forward.x, forward.y, forward.z);
         // println!("left: ({}, {}, {})", left.x, left.y, left.z);
         // println!("{}", forward.dot(left));
+        // println!("{:?} * {} * {} * {} = {:?}", left, self.h_translate_step, self.translate_speed, dt, left * (self.h_translate_step) * self.translate_speed * dt);
 
         // Move in/out (aka. "zoom")
         // Note: this isn't an actual zoom. The camera's position

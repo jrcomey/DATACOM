@@ -240,11 +240,6 @@ impl CameraController {
         let left = Vector3::new(-yaw_sin, yaw_cos, 0.0).normalize();
         self.camera.position += forward * (self.l_translate_step) * self.translate_speed * dt;
         self.camera.position -= left * (self.h_translate_step) * self.translate_speed * dt;
-        // println!("new position: ({}, {}, {})", self.camera.position[0], self.camera.position[1], self.camera.position[2]);
-        // println!("forward: ({}, {}, {})", forward.x, forward.y, forward.z);
-        // println!("left: ({}, {}, {})", left.x, left.y, left.z);
-        // println!("{}", forward.dot(left));
-        // println!("{:?} * {} * {} * {} = {:?}", left, self.h_translate_step, self.translate_speed, dt, left * (self.h_translate_step) * self.translate_speed * dt);
 
         // Move in/out (aka. "zoom")
         // Note: this isn't an actual zoom. The camera's position
@@ -295,7 +290,9 @@ impl CameraController {
 
         // update the radius based on forward/backward movement
         // we subtract from the radius (ie forward = smaller radius, backward = larger radius)
-        radius -= self.l_translate_step * self.translate_speed * dt;
+        // radius -= self.l_translate_step * self.translate_speed * dt;
+        radius += self.scroll * self.translate_speed * self.sensitivity * dt;
+        self.scroll = 0.0;
 
         // update the roll
         self.camera.roll += Rad(self.l_rotate_step) * self.rotate_speed * dt;
@@ -322,9 +319,9 @@ impl CameraController {
 
         let forward = (target - self.camera.position).normalize();
         // println!("forward: {:?}", forward);
-        let pitch = Rad(forward.y.asin());
+        let pitch = Rad(forward.z.asin());
         self.camera.pitch = pitch;
-        let yaw = Rad(forward.z.atan2(forward.x));
+        let yaw = Rad(forward.y.atan2(forward.x));
         self.camera.yaw = yaw;
         // println!("new camera rotation: ({}π, {}π, {}π)", self.camera.roll.0/PI, self.camera.pitch.0/PI, self.camera.yaw.0/PI);
         // println!("");

@@ -24,3 +24,8 @@ bytemuck = { version = "1.16", features = ["derive"]}
 cgmath = "0.18.0"
 anyhow = "1.0"
 pollster = "0.4.0"
+hdf5 = "0.8.1"
+
+[patch.crates-io]
+hdf5 = { path = "./hdf5-rust/hdf5" }
+hdf5-sys = { path = "./hdf5-rust/hdf5-sys" }

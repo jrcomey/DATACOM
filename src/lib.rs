@@ -11,8 +11,52 @@ mod model;
 mod camera;
 mod com;
 
+pub async fn run_scene_from_hdf5(args: Vec<String>) {
+    pretty_env_logger::init();
+    info!("Program Start!");
 
-pub async fn run() {                               // Initialize logger
+    let event_loop = EventLoop::new().unwrap();
+    let title = env!("CARGO_PKG_NAME");
+    let window = winit::window::WindowBuilder::new()
+        .with_title(title)
+        .build(&event_loop)
+        .unwrap();
+
+    let mut scene_file_string = String::from("data/");
+    scene_file_string.push_str(&args[1]);
+    let scene_file = scene_file_string.as_str();
+
+    let mut state = scenes_and_entities::State::new(&window, scene_file).await;
+    let mut last_render_time = std::time::Instant::now();
+
+    // State::update() calls scene.run_behaviors(), which calls entity.run_behaviors() on every entity
+    // in the JSON implementation, objects get their existence and behaviors from JSONs
+    // in this implementation, objects get their existence from the Vehicles section
+    // and their behaviors from the data below
+    /*
+        our data is divided into timesteps and data point (pos, rot)
+        we want to run state.update() every timestep
+        we want every timestep to run in time (eg timestep 1.002 should occur 1.002 seconds after starting)
+        step 1: figure out how to make a loop run every timestep
+            start = now
+            func()
+            end = now
+            sleep(timestep - (end-start))
+
+        step 2: figure out how to get each entity its data
+            lib.rs has the data
+            State->Scene->Entity
+            state.update()
+                scene.run_behaviors()
+                    entity.run_behaviors()
+            give each entity its data
+        
+        root->Vehicles->vehicle_name (eg Blizzard_0)
+     */
+}
+
+
+pub async fn run_scene_from_json(args: Vec<String>) {                               // Initialize logger
     pretty_env_logger::init();
     info!("Program Start!");
 
@@ -25,7 +69,9 @@ pub async fn run() {                               // Initialize logger
         .build(&event_loop)
         .unwrap();
 
-    let scene_file = "data/scene_loading/test_scene.json";
+    let mut scene_file_string = String::from("data/scene_loading/");
+    scene_file_string.push_str(&args[1]);
+    let scene_file = scene_file_string.as_str();
 
     // State::new uses async code, so we're going to wait for it to finish
     let mut state = scenes_and_entities::State::new(&window, scene_file).await;

@@ -161,7 +161,7 @@ pub fn create_listener_thread(tx: Sender<String>, file: String) -> Result<thread
     Ok(handle)
 }
 
-fn create_sender_thread() -> Result<thread::JoinHandle<()>, Box<dyn std::error::Error>>{
+pub fn create_sender_thread() -> Result<thread::JoinHandle<()>, Box<dyn std::error::Error>>{
     let handle = thread::Builder::new().name("sender thread".to_string()).spawn(move|| {
         info!("Opened sender thread");
         let mut addrs_iter = "localhost:8081".to_socket_addrs().unwrap();

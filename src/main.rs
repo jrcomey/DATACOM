@@ -51,10 +51,18 @@
 
 // */
 
-use datacom::run;
+use datacom::run_scene_from_json;
 
 fn main() {
-    pollster::block_on(run());
+    let args: Vec<String> = std::env::args().collect();
+    if args.len() > 1 {
+        if args[1].ends_with(".hdf5") {
+            // run hdf5 code
+        } else if args[1].ends_with(".json") {
+            // run json code
+            pollster::block_on(run_scene_from_json(args));
+        }
+    }
 }
 
 // // #![allow(non_snake_case)]

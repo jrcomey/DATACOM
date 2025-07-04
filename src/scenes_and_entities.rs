@@ -11,6 +11,7 @@ use std::rc::Rc;
 use std::cell::RefCell;
 use log::error;
 use cgmath::EuclideanSpace;
+use hdf5::{File, Selection};
 
 use crate::{model, camera};
 
@@ -151,6 +152,8 @@ impl Entity {
             behaviors: behavior_vec,
         }
     }
+
+    // pub fn load_from_hdf5
 
     pub fn get_position(&self) -> Rc<RefCell<Point3<f32>>> { Rc::clone(&self.position) }
 
@@ -687,6 +690,27 @@ impl Scene {
 
         self.get_entity(target_entity_id).expect("Out of bounds!").run_behavior(behavior);
     }
+
+    // fn load_scene_from_hdf5(filepath: &str, device: &wgpu::Device, model_bind_group_layout: &wgpu::BindGroupLayout) -> hdf5::Result<Scene> {
+    //     let file = File::open(filepath).unwrap();
+    //     let group = file.group("Vehicles").unwrap();
+    //     for name in group.member_names()? {
+    //         println!("{}", name);
+
+    //         let obj = group.obj(&name)?;
+    //         match obj {
+    //             hdf5::Object::Group(_) => println!(" --> it's a group"),
+    //             hdf5::Object::Dataset(_) => println!(" --> it's a dataset"),
+    //             _ => println!(" ---> other object type"),
+    //         }
+    //     }
+
+    //     let selection = ds.select((0..1,)).unwrap();
+    //     let result = selection.read_1d().unwrap();
+    //     println!("Element at index 0 is {}", result[0]);
+    //     let mut entity_vec = vec![];
+    //     for 
+    // }
 
     fn load_scene_from_json(filepath: &str, device: &wgpu::Device, model_bind_group_layout: &wgpu::BindGroupLayout) -> Scene {
         let json_unparsed = std::fs::read_to_string(filepath).unwrap();

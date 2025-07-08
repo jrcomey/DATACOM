@@ -153,7 +153,21 @@ impl Entity {
         }
     }
 
-    // pub fn load_from_hdf5
+    pub fn load_from_hdf5(name: String, data: hdf5::Dataset, device: &wgpu::Device, model_bind_group_layout: &wgpu::BindGroupLayout) -> Entity {
+        // name
+
+        // position
+
+        // rotation
+
+        // scale
+
+        // model vec
+
+        // behavior vec
+
+        // return entity
+    }
 
     pub fn get_position(&self) -> Rc<RefCell<Point3<f32>>> { Rc::clone(&self.position) }
 
@@ -691,26 +705,24 @@ impl Scene {
         self.get_entity(target_entity_id).expect("Out of bounds!").run_behavior(behavior);
     }
 
-    // fn load_scene_from_hdf5(filepath: &str, device: &wgpu::Device, model_bind_group_layout: &wgpu::BindGroupLayout) -> hdf5::Result<Scene> {
-    //     let file = File::open(filepath).unwrap();
-    //     let group = file.group("Vehicles").unwrap();
-    //     for name in group.member_names()? {
-    //         println!("{}", name);
+    fn load_scene_from_hdf5(filepath: &str, device: &wgpu::Device, model_bind_group_layout: &wgpu::BindGroupLayout) -> hdf5::Result<Scene> {
+        let file = File::open(filepath)?;
+        let vehicles = file.group("Vehicles")?;
+        let vehicles_vec = vehicles.groups()?;
+        let mut entity_vec = vec![];
+        for vehicle in vehicles_vec.iter() {
+            let name = vehicle.name();
+            let data = vehicle.dataset("states")?;
+            entity_vec.push(Entity::load_from_hdf5(name, data, device, model_bind_group_layout));
+        }
 
-    //         let obj = group.obj(&name)?;
-    //         match obj {
-    //             hdf5::Object::Group(_) => println!(" --> it's a group"),
-    //             hdf5::Object::Dataset(_) => println!(" --> it's a dataset"),
-    //             _ => println!(" ---> other object type"),
-    //         }
-    //     }
+        let axes = model::Axes::new(device);
 
-    //     let selection = ds.select((0..1,)).unwrap();
-    //     let result = selection.read_1d().unwrap();
-    //     println!("Element at index 0 is {}", result[0]);
-    //     let mut entity_vec = vec![];
-    //     for 
-    // }
+        Ok(Scene {
+            axes: axes,
+            entities: entity_vec,
+        })
+    }
 
     fn load_scene_from_json(filepath: &str, device: &wgpu::Device, model_bind_group_layout: &wgpu::BindGroupLayout) -> Scene {
         let json_unparsed = std::fs::read_to_string(filepath).unwrap();

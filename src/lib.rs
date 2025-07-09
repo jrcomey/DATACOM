@@ -52,6 +52,13 @@ pub async fn run_scene_from_hdf5(args: Vec<String>) {
             give each entity its data
         
         root->Vehicles->vehicle_name (eg Blizzard_0)
+
+        step 3: construct an initial scene given HDF5 info
+            lib.rs::run_scene_from_hdf5 takes in a filepath
+            runs scenes_and_entities::State::new(&window, filepath, filetype)
+            if filetype = hdf5:
+                run Scene::load_scene_from_hdf5(filepath, &device, &model_bind_group_layout)
+            
      */
 }
 

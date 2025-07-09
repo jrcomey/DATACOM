@@ -12,6 +12,7 @@ use std::cell::RefCell;
 use log::error;
 use cgmath::EuclideanSpace;
 use hdf5::{File, Selection};
+use ndarray::s;
 
 use crate::{model, camera};
 
@@ -72,6 +73,18 @@ impl Behavior {
             BehaviorType::match_from_string(json["behaviorType"].as_str().unwrap());
 
         Behavior::new(behavior_type, data)
+    }
+
+    pub fn load_from_hdf5(data: hdf5::Dataset) -> hdf5::Result<Behavior> {
+        let behavior_type = BehaviorType::EntityChangePosition;
+        let array: ndarray::Array2<f32> = data.read()?;
+        let data_vec = array.into_raw_vec();
+        Ok(
+            Behavior {
+                behavior_type: behavior_type,
+                data: data_vec,
+            }
+        )
     }
 }
 
@@ -153,20 +166,56 @@ impl Entity {
         }
     }
 
-    pub fn load_from_hdf5(name: String, data: hdf5::Dataset, device: &wgpu::Device, model_bind_group_layout: &wgpu::BindGroupLayout) -> Entity {
+    pub fn load_from_hdf5(name: String, data: hdf5::Dataset, device: &wgpu::Device, model_bind_group_layout: &wgpu::BindGroupLayout) -> hdf5::Result<Entity> {
         // name
 
         // position
+        let initial_transform_array2: ndarray::Array2<f32> = data.read_slice(s![0..1])?;
+        let initial_transform = initial_transform_array2.row(0);
+        let position_data = initial_transform.slice(s![0..3]);
+        let position = Point3::<f32>::new(position_data[0], position_data[1], position_data[2]);
 
         // rotation
+        let rotation_data = initial_transform.slice(s![7..10]);
+        let rotation = Vector3::<f32>::new(rotation_data[0], rotation_data[1], rotation_data[2]);
 
         // scale
+        let mut scale = Vector3::<f32>::new(1.0, 1.0, 1.0);
 
         // model vec
+        let mut name_root = name.clone();
+        if let Some(val) = name_root.find("_"){
+            name_root.truncate(val)
+        }
+        let name_root_str = name_root.as_str();
+        let model_vec: Vec<_> = match name_root_str {
+            "Blizzard" => {
+                // scale = Vector3::<f32>::new(1.0, 1.0, 1.0);
+                vec![model::Model::load_from_json_file("data/cube.obj", device, model_bind_group_layout)]
+            }
+            _ => vec![],
+        };
 
         // behavior vec
+        let behavior_vec: Vec<_> = match name_root_str {
+            "Blizzard" => {
+                // load entire data array into behavior and set type to SetPosition or similar
+                vec![Behavior::load_from_hdf5(data).unwrap()]
+            }
+            _ => vec![],
+        };
 
         // return entity
+        Ok(
+            Entity {
+                name: name,
+                position: Rc::new(RefCell::new(position)),
+                rotation: Quaternion::from_sv(1.0, rotation),
+                scale: scale,
+                models: model_vec,
+                behaviors: behavior_vec,
+            }
+        )
     }
 
     pub fn get_position(&self) -> Rc<RefCell<Point3<f32>>> { Rc::clone(&self.position) }
@@ -713,7 +762,7 @@ impl Scene {
         for vehicle in vehicles_vec.iter() {
             let name = vehicle.name();
             let data = vehicle.dataset("states")?;
-            entity_vec.push(Entity::load_from_hdf5(name, data, device, model_bind_group_layout));
+            entity_vec.push(Entity::load_from_hdf5(name, data, device, model_bind_group_layout)?);
         }
 
         let axes = model::Axes::new(device);

@@ -155,6 +155,13 @@ impl Model {
         }
     }
 
+    pub fn load_from_json_file(filepath: &str, device: &wgpu::Device, model_bind_group_layout: &wgpu::BindGroupLayout) -> Model {
+        let json_unparsed = std::fs::read_to_string(filepath).unwrap();
+        let json_string = json_unparsed.as_str();
+        let json_parsed: serde_json::Value  = serde_json::from_str(json_string).unwrap();
+        Model::load_from_json(&json_parsed, device, model_bind_group_layout)
+    }
+
     pub fn load_from_json(json: &serde_json::Value, device: &wgpu::Device, model_bind_group_layout: &wgpu::BindGroupLayout) -> Model {
         let name = json["Name"].as_str().unwrap();
         let filepath = json["ObjectFilePath"].as_str().unwrap();

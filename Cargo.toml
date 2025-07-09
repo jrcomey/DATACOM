@@ -25,6 +25,7 @@ cgmath = "0.18.0"
 anyhow = "1.0"
 pollster = "0.4.0"
 hdf5 = "0.8.1"
+ndarray = "0.15"
 
 [patch.crates-io]
 hdf5 = { path = "./hdf5-rust/hdf5" }

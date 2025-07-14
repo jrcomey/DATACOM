@@ -58,8 +58,73 @@ pub async fn run_scene_from_hdf5(args: Vec<String>) {
             runs scenes_and_entities::State::new(&window, filepath, filetype)
             if filetype = hdf5:
                 run Scene::load_scene_from_hdf5(filepath, &device, &model_bind_group_layout)
+        
+        for entity in scene.entities:
+            entity.set_pos(scene.pos_data[entity_index][timestep])
             
      */
+
+    event_loop
+        .run(move |event, control_flow| {
+            match event {
+                Event::DeviceEvent {
+                    event: DeviceEvent::MouseMotion{ delta, },
+                    .. // We're not using device_id currently
+                } => if state.mouse_pressed {
+                    state.camera_controller.process_mouse(delta.0, delta.1)
+                }
+                Event::WindowEvent {
+                    ref event,
+                    window_id,
+                } if window_id == state.window().id() && !state.input(event) => {
+                    match event {
+                        WindowEvent::CloseRequested
+                        | WindowEvent::KeyboardInput {
+                            event:
+                                KeyEvent {
+                                    state: ElementState::Pressed,
+                                    physical_key: PhysicalKey::Code(KeyCode::Escape),
+                                    ..
+                                },
+                            ..
+                        } => control_flow.exit(),
+                        WindowEvent::Resized(physical_size) => {
+                            state.resize(*physical_size);
+                        }
+                        WindowEvent::RedrawRequested => {
+                            // This tells winit that we want another frame after this one
+                            state.window().request_redraw();
+                            let now = std::time::Instant::now();
+                            let dt = now - last_render_time;
+                            println!("dt = {:?}", dt);
+                            last_render_time = now;
+                            state.update(dt);
+
+                            match state.render() {
+                                Ok(_) => {}
+                                // Reconfigure the surface if it's lost or outdated
+                                Err(
+                                    wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated,
+                                ) => state.resize(state.size),
+                                // The system is out of memory, we should probably quit
+                                Err(wgpu::SurfaceError::OutOfMemory | wgpu::SurfaceError::Other) => {
+                                    log::error!("OutOfMemory");
+                                    control_flow.exit();
+                                }
+
+                                // This happens when the a frame takes too long to present
+                                Err(wgpu::SurfaceError::Timeout) => {
+                                    log::warn!("Surface timeout")
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                _ => {}
+            }
+        })
+        .unwrap();
 }
 
 

@@ -2,4 +2,3 @@
 /data/test_object
 /data/run_data.hdf5
 /src/read_hdf5.*
-/max_min.py

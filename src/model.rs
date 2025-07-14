@@ -155,11 +155,22 @@ impl Model {
         }
     }
 
-    pub fn load_from_json_file(filepath: &str, device: &wgpu::Device, model_bind_group_layout: &wgpu::BindGroupLayout) -> Model {
+    pub fn load_from_json_file(filepath: &str, device: &wgpu::Device, model_bind_group_layout: &wgpu::BindGroupLayout) -> Vec<Model> {
         let json_unparsed = std::fs::read_to_string(filepath).unwrap();
         let json_string = json_unparsed.as_str();
-        let json_parsed: serde_json::Value  = serde_json::from_str(json_string).unwrap();
-        Model::load_from_json(&json_parsed, device, model_bind_group_layout)
+        let json_parsed: serde_json::Value = serde_json::from_str(json_string).unwrap();
+        
+        match &json_parsed["Models"].as_array() {
+            Some(array) => {
+                let model_temp: Vec<_> = array.into_iter().collect();
+                let mut model_vec = vec![];
+                for i in model_temp.iter() {
+                    model_vec.push(Model::load_from_json(*i, device, model_bind_group_layout));
+                }
+                model_vec
+            }
+            None => vec![],
+        }
     }
 
     pub fn load_from_json(json: &serde_json::Value, device: &wgpu::Device, model_bind_group_layout: &wgpu::BindGroupLayout) -> Model {

@@ -49,13 +49,15 @@ impl BehaviorType {
 pub struct Behavior {
     pub behavior_type: BehaviorType,
     pub data: Vec<f32>,
+    pub data_counter: Option<usize>,
 }
 
 impl Behavior {
-    pub fn new(behavior_type: BehaviorType, data: Vec<f32>) -> Behavior {
+    pub fn new(behavior_type: BehaviorType, data: Vec<f32>, data_counter: Option<usize>) -> Behavior {
         Behavior {
             behavior_type: behavior_type,
             data: data,
+            data_counter: data_counter,
         }
     }
     pub fn load_from_json(json: &serde_json::Value) -> Behavior {
@@ -71,18 +73,26 @@ impl Behavior {
 
         let behavior_type: BehaviorType =
             BehaviorType::match_from_string(json["behaviorType"].as_str().unwrap());
+        
+        let data_counter = None;
 
-        Behavior::new(behavior_type, data)
+        Behavior::new(behavior_type, data, data_counter)
     }
 
-    pub fn load_from_hdf5(data: hdf5::Dataset) -> hdf5::Result<Behavior> {
+    pub fn load_from_hdf5(data: &ndarray::Array1<[f32; 12]>) -> hdf5::Result<Behavior> {
         let behavior_type = BehaviorType::EntityChangePosition;
-        let array: ndarray::Array2<f32> = data.read()?;
-        let data_vec = array.into_raw_vec();
+        let a = 0;
+        let b = 3;
+        let data_vec: Vec<f32> = data
+            .iter()
+            .flat_map(|arrs| arrs[a..b].iter().cloned())
+            .collect();
+        let data_counter = Some(0);
         Ok(
             Behavior {
                 behavior_type: behavior_type,
                 data: data_vec,
+                data_counter: data_counter,
             }
         )
     }
@@ -168,16 +178,17 @@ impl Entity {
 
     pub fn load_from_hdf5(name: String, data: hdf5::Dataset, device: &wgpu::Device, model_bind_group_layout: &wgpu::BindGroupLayout) -> hdf5::Result<Entity> {
         // name
+        println!("NAME: {}", name);
 
         // position
-        let initial_transform_array2: ndarray::Array2<f32> = data.read_slice(s![0..1])?;
-        let initial_transform = initial_transform_array2.row(0);
-        let position_data = initial_transform.slice(s![0..3]);
-        let position = Point3::<f32>::new(position_data[0], position_data[1], position_data[2]);
+        let data_array: ndarray::Array1<[f32; 12]> = data.read()?;
+        let initial_transform: [f32; 12] = data_array[0];
+        let position = Point3::<f32>::new(initial_transform[0], initial_transform[1], initial_transform[2]);
+        println!("POSITION: {:?}", position);
 
         // rotation
-        let rotation_data = initial_transform.slice(s![7..10]);
-        let rotation = Vector3::<f32>::new(rotation_data[0], rotation_data[1], rotation_data[2]);
+        let rotation = Vector3::<f32>::new(initial_transform[6], initial_transform[7], initial_transform[8]);
+        println!("ROTATION: {:?}", rotation);
 
         // scale
         let mut scale = Vector3::<f32>::new(1.0, 1.0, 1.0);
@@ -188,10 +199,11 @@ impl Entity {
             name_root.truncate(val)
         }
         let name_root_str = name_root.as_str();
+        println!("NAME STR: {}", name_root_str);
         let model_vec: Vec<_> = match name_root_str {
             "Blizzard" => {
                 // scale = Vector3::<f32>::new(1.0, 1.0, 1.0);
-                vec![model::Model::load_from_json_file("data/cube.obj", device, model_bind_group_layout)]
+                model::Model::load_from_json_file("data/object_loading/blizzard_initialize_full.json", device, model_bind_group_layout)
             }
             _ => vec![],
         };
@@ -200,10 +212,11 @@ impl Entity {
         let behavior_vec: Vec<_> = match name_root_str {
             "Blizzard" => {
                 // load entire data array into behavior and set type to SetPosition or similar
-                vec![Behavior::load_from_hdf5(data).unwrap()]
+                vec![Behavior::load_from_hdf5(&data_array).unwrap()]
             }
             _ => vec![],
         };
+        // println!("BEHAVIOR: {:?}", behavior_vec[0].data);
 
         // return entity
         Ok(
@@ -257,29 +270,36 @@ impl Entity {
         }
     }
 
-    pub fn run_behavior(&mut self, behavior: Behavior) {
-        match behavior.behavior_type {
+    pub fn run_behavior(&mut self, behavior_index: usize) {
+        // the borrow checker means that we have to refer to the behavior with self.behaviors[behavior_index] every time
+        match self.behaviors[behavior_index].behavior_type {
             // Translate entity by vector
             BehaviorType::EntityTranslate => {
                 let old_position = *self.position.borrow();
-                let offset = Vector3::<f32>::new(behavior.data[0], behavior.data[1], behavior.data[2]);
+                let offset = Vector3::<f32>::new(self.behaviors[behavior_index].data[0], self.behaviors[behavior_index].data[1], self.behaviors[behavior_index].data[2]);
                 self.set_position(old_position + offset);
             }
 
             // Change position to input
             BehaviorType::EntityChangePosition => {
-                let new_position = Point3::<f32>::new(behavior.data[0], behavior.data[1], behavior.data[2]);
+                let counter = self.behaviors[behavior_index].data_counter.expect("Error in Entity::run_behavior : data counter is None");
+                // println!("counter = {}", counter);
+                let new_position = Point3::<f32>::new(self.behaviors[behavior_index].data[counter], self.behaviors[behavior_index].data[counter+1], self.behaviors[behavior_index].data[counter+2]);
+                // TODO: 15 is a magic number, referring to the milliseconds per timestep for the window refresh; figure out a better way to synchronize the timesteps
+                self.behaviors[behavior_index].data_counter = Some(counter+15+3);
+                // println!("data_counter = {}", behavior.data_counter.unwrap());
                 self.set_position(new_position);
+                // println!("set position of entity {} to {:?} using counter {}", self.name, new_position, self.behaviors[behavior_index].data_counter.unwrap());
             }
 
             // Rotate item at constant speed
             BehaviorType::ComponentRotateConstantSpeed => {
-                let model_id = behavior.data[0] as u64;
-                let rotation_factor = behavior.data[1];
+                let model_id = self.behaviors[behavior_index].data[0] as u64;
+                let rotation_factor = self.behaviors[behavior_index].data[1];
                 let new_quaternion_vector = Vector3::<f32>::new(
-                    (rotation_factor * behavior.data[2]) as f32,
-                    (rotation_factor * behavior.data[4]) as f32,
-                    (rotation_factor * behavior.data[3]) as f32,
+                    (rotation_factor * self.behaviors[behavior_index].data[2]) as f32,
+                    (rotation_factor * self.behaviors[behavior_index].data[4]) as f32,
+                    (rotation_factor * self.behaviors[behavior_index].data[3]) as f32,
                 );
                 let new_quaternion = Quaternion::<f32>::from_sv(1.0, new_quaternion_vector);
 
@@ -291,16 +311,8 @@ impl Entity {
     }
 
     pub fn run_behaviors(&mut self) {
-        // Gather behaviors into vector
-
-        let mut cmds = vec![];
-        for i in &mut self.behaviors {
-            cmds.push(i.clone());
-        }
-        //Run them all in an iterator
-
-        for i in cmds.iter() {
-            self.run_behavior(i.clone());
+        for i in 0..self.behaviors.len() {
+            self.run_behavior(i);
         }
     }
 
@@ -506,7 +518,11 @@ impl<'a> State<'a> {
             label: Some("Camera Bind Group"),
         });
 
-        let scene = Scene::load_scene_from_json(filepath, &device, &model_bind_group_layout);
+        let scene = if filepath.ends_with(".hdf5"){
+            Scene::load_scene_from_hdf5(filepath, &device, &model_bind_group_layout).unwrap()
+        } else {
+            Scene::load_scene_from_json(filepath, &device, &model_bind_group_layout)
+        };
 
         let render_pipeline_layout: wgpu::PipelineLayout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -715,55 +731,57 @@ impl Scene {
         }
     }
 
-    pub fn bhvr_msg_str(&mut self, json_unparsed: &str) {
-        if json_unparsed.is_empty() {
-            return;
-        }
-        // let json_parsed: Value = serde_json::from_str(json_unparsed);
-        // self.cmd_msg(&json_parsed);
+    // pub fn bhvr_msg_str(&mut self, json_unparsed: &str) {
+    //     if json_unparsed.is_empty() {
+    //         return;
+    //     }
+    //     // let json_parsed: Value = serde_json::from_str(json_unparsed);
+    //     // self.cmd_msg(&json_parsed);
 
-        let json_parsed: serde_json::Value = match serde_json::from_str(&json_unparsed) {
-            serde_json::Result::Ok(val) => val,
-            serde_json::Result::Err(_) => serde_json::Value::Null,
-            // _ => {}
-        };
+    //     let json_parsed: serde_json::Value = match serde_json::from_str(&json_unparsed) {
+    //         serde_json::Result::Ok(val) => val,
+    //         serde_json::Result::Err(_) => serde_json::Value::Null,
+    //         // _ => {}
+    //     };
 
-        // debug!("Parsed JSON Packet: {}", json_parsed.to_string());
+    //     // debug!("Parsed JSON Packet: {}", json_parsed.to_string());
 
-        if json_parsed != serde_json::Value::Null {
-            for behavior in json_parsed.as_array().expect("").into_iter() {
-                // debug!("Target ID: {}", cmd["targetEntityID"]);
-                // debug!("Cmd Type: {}", cmd["commandType"]);
-                // debug!("Data: {}", cmd["data"]);
-                self.bhvr_msg(&behavior);
-            }
-            // self.bhvr_msg(&json_parsed);
-        } else {
-            error!("json failed to load!");
-            error!("{}", json_unparsed);
-        }
-    }
+    //     if json_parsed != serde_json::Value::Null {
+    //         for behavior in json_parsed.as_array().expect("").into_iter() {
+    //             // debug!("Target ID: {}", cmd["targetEntityID"]);
+    //             // debug!("Cmd Type: {}", cmd["commandType"]);
+    //             // debug!("Data: {}", cmd["data"]);
+    //             self.bhvr_msg(&behavior);
+    //         }
+    //         // self.bhvr_msg(&json_parsed);
+    //     } else {
+    //         error!("json failed to load!");
+    //         error!("{}", json_unparsed);
+    //     }
+    // }
 
-    pub fn bhvr_msg(&mut self, json_parsed: &serde_json::Value) {
+    // pub fn bhvr_msg(&mut self, json_parsed: &serde_json::Value) {
 
-        // debug!("Target ID: {}", json_parsed["targetEntityID"]);
-        let target_entity_id = json_parsed["targetEntityID"].as_u64().unwrap() as usize;
+    //     // debug!("Target ID: {}", json_parsed["targetEntityID"]);
+    //     let target_entity_id = json_parsed["targetEntityID"].as_u64().unwrap() as usize;
 
-        let behavior = Behavior::load_from_json(json_parsed);
+    //     let behavior = Behavior::load_from_json(json_parsed);
 
-        self.get_entity(target_entity_id).expect("Out of bounds!").run_behavior(behavior);
-    }
+    //     self.get_entity(target_entity_id).expect("Out of bounds!").run_behavior(behavior);
+    // }
 
     fn load_scene_from_hdf5(filepath: &str, device: &wgpu::Device, model_bind_group_layout: &wgpu::BindGroupLayout) -> hdf5::Result<Scene> {
-        let file = File::open(filepath)?;
-        let vehicles = file.group("Vehicles")?;
-        let vehicles_vec = vehicles.groups()?;
+        let file = File::open(filepath).unwrap();
+        let vehicles = file.group("Vehicles").unwrap();
+        let vehicles_vec = vehicles.groups().unwrap();
         let mut entity_vec = vec![];
         for vehicle in vehicles_vec.iter() {
-            let name = vehicle.name();
-            let data = vehicle.dataset("states")?;
-            entity_vec.push(Entity::load_from_hdf5(name, data, device, model_bind_group_layout)?);
+            let name_full = vehicle.name();
+            let name = name_full["/Vehicles/".len()..].to_string();
+            let data = vehicle.dataset("states").unwrap();
+            entity_vec.push(Entity::load_from_hdf5(name, data, device, model_bind_group_layout).unwrap());
         }
+        println!("LOADED {} ENTITIES INTO SCENE", entity_vec.len());
 
         let axes = model::Axes::new(device);
 

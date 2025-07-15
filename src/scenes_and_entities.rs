@@ -82,7 +82,7 @@ impl Behavior {
     pub fn load_from_hdf5(data: &ndarray::Array1<[f32; 12]>) -> hdf5::Result<Behavior> {
         let behavior_type = BehaviorType::EntityChangePosition;
         let a = 0;
-        let b = 3;
+        let b = 9;
         let data_vec: Vec<f32> = data
             .iter()
             .flat_map(|arrs| arrs[a..b].iter().cloned())
@@ -187,7 +187,7 @@ impl Entity {
         println!("POSITION: {:?}", position);
 
         // rotation
-        let rotation = Vector3::<f32>::new(initial_transform[6], initial_transform[7], initial_transform[8]);
+        let rotation = Vector3::<f32>::new(initial_transform[7], initial_transform[6], initial_transform[8]);
         println!("ROTATION: {:?}", rotation);
 
         // scale
@@ -284,11 +284,16 @@ impl Entity {
             BehaviorType::EntityChangePosition => {
                 let counter = self.behaviors[behavior_index].data_counter.expect("Error in Entity::run_behavior : data counter is None");
                 // println!("counter = {}", counter);
+
                 let new_position = Point3::<f32>::new(self.behaviors[behavior_index].data[counter], self.behaviors[behavior_index].data[counter+1], self.behaviors[behavior_index].data[counter+2]);
-                // TODO: 15 is a magic number, referring to the milliseconds per timestep for the window refresh; figure out a better way to synchronize the timesteps
-                self.behaviors[behavior_index].data_counter = Some(counter+15+3);
-                // println!("data_counter = {}", behavior.data_counter.unwrap());
                 self.set_position(new_position);
+
+                let rotation = Vector3::<f32>::new(self.behaviors[behavior_index].data[counter+6], self.behaviors[behavior_index].data[counter+7], self.behaviors[behavior_index].data[counter+8]);
+                self.rotation = Quaternion::from_sv(1.0, rotation);
+
+                // TODO: 16 is a magic number, referring to the milliseconds per timestep for the window refresh; figure out a better way to synchronize the timesteps
+                self.behaviors[behavior_index].data_counter = Some(counter+9*16);
+                // println!("data_counter = {}", self.behaviors[behavior_index].data_counter.unwrap());
                 // println!("set position of entity {} to {:?} using counter {}", self.name, new_position, self.behaviors[behavior_index].data_counter.unwrap());
             }
 

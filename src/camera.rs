@@ -19,6 +19,7 @@ pub const OPENGL_TO_WGPU_MATRIX: Matrix4<f32> = Matrix4::new(
 );
 
 const SAFE_FRAC_PI_2: f32 = FRAC_PI_2 - 0.0001;
+const ORIGIN: Point3<f32> = Point3::new(0.0, 0.0, 0.0);
 
 #[derive(Debug)]
 pub enum CameraMode {
@@ -50,14 +51,30 @@ impl Camera {
     }
 
     pub fn calc_matrix(&self) -> Matrix4<f32> {
-        let (sin_pitch, cos_pitch) = self.pitch.0.sin_cos();
-        let (sin_yaw, cos_yaw) = self.yaw.0.sin_cos();
+        // compute quaternion
+        // println!("roll = {}, pitch = {}, yaw = {}", self.roll.0, self.pitch.0, self.yaw.0);
+        let roll_quat = Quaternion::from_angle_z(self.yaw);
+        let pitch_quat = Quaternion::from_angle_y(self.roll);
+        let yaw_quat = Quaternion::from_angle_x(self.pitch);
+        let rot_quat = roll_quat * pitch_quat * yaw_quat;
+        // println!("final rotation: {:?}", rot_quat);
 
-        Matrix4::look_to_rh(
-            self.position,
-            Vector3::new(cos_pitch * cos_yaw, cos_pitch * sin_yaw, sin_pitch).normalize(),
-            Matrix3::from_axis_angle(Vector3::unit_y(), self.roll) * Vector3::unit_z(),
-        )
+        // convert quaternion to matrix and adjust for the swapped axes (z=up, y=forward)
+        // also invert y-axis, as +y should be forward
+        let rot_default = Matrix4::from(rot_quat);
+        let rot_corrected = Matrix4::from_cols(
+            rot_default.x,
+            rot_default.z,
+            -rot_default.y,
+            Vector4::unit_w()
+        );
+
+        // transform world space into camera space
+        let rot_t = rot_corrected.transpose();
+        let pos_inv = Matrix4::from_translation(-self.position.to_vec());
+        let view = rot_t * pos_inv;
+        // println!("{:?}", view);
+        view
     }
 }
 

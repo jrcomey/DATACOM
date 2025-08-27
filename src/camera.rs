@@ -30,38 +30,24 @@ pub enum CameraMode {
 #[derive(Debug)]
 pub struct Camera {
     pub position: Point3<f32>,
-    roll: Rad<f32>,
-    yaw: Rad<f32>,
-    pitch: Rad<f32>,
+    rotation: Quaternion<f32>,
 }
 
 impl Camera {
-    pub fn new<V: Into<Point3<f32>>, R: Into<Rad<f32>>, Y: Into<Rad<f32>>, P: Into<Rad<f32>>>(
+    pub fn new<V: Into<Point3<f32>>, Q: Into<Quaternion<f32>>>(
         position: V,
-        roll: R,
-        yaw: Y,
-        pitch: P,
+        rotation: Q,
     ) -> Self {
         Self {
             position: position.into(),
-            roll: roll.into(),
-            yaw: yaw.into(),
-            pitch: pitch.into(),
+            rotation: rotation.into(),
         }
     }
 
     pub fn calc_matrix(&self) -> Matrix4<f32> {
-        // compute quaternion
-        // println!("roll = {}, pitch = {}, yaw = {}", self.roll.0, self.pitch.0, self.yaw.0);
-        let roll_quat = Quaternion::from_angle_z(self.yaw);
-        let pitch_quat = Quaternion::from_angle_y(self.roll);
-        let yaw_quat = Quaternion::from_angle_x(self.pitch);
-        let rot_quat = roll_quat * pitch_quat * yaw_quat;
-        // println!("final rotation: {:?}", rot_quat);
-
         // convert quaternion to matrix and adjust for the swapped axes (z=up, y=forward)
         // also invert y-axis, as +y should be forward
-        let rot_default = Matrix4::from(rot_quat);
+        let rot_default = Matrix4::from(self.rotation);
         let rot_corrected = Matrix4::from_cols(
             rot_default.x,
             rot_default.z,
@@ -123,6 +109,7 @@ pub struct CameraController {
     radius: Option<f32>,
     h_angle: Option<Rad<f32>>,
     v_angle: Option<Rad<f32>>,
+    roll: Option<Rad<f32>>,
 }
 
 impl CameraController {
@@ -145,6 +132,7 @@ impl CameraController {
             radius: None,
             h_angle: None,
             v_angle: None,
+            roll: None,
         }
     }
 
@@ -181,12 +169,20 @@ impl CameraController {
             &KeyCode::ArrowLeft,
         );
 
-        self.v_translate_step = CameraController::process_opposite_keys(
+        self.l_translate_step = CameraController::process_opposite_keys(
             &self.pressed_keys,
             &KeyCode::KeyW,
             &KeyCode::ArrowUp,
             &KeyCode::KeyS,
             &KeyCode::ArrowDown,
+        );
+
+        self.v_translate_step = CameraController::process_opposite_keys(
+            &self.pressed_keys,
+            &KeyCode::Space,
+            &KeyCode::Space,
+            &KeyCode::ShiftLeft,
+            &KeyCode::ShiftLeft
         );
 
         self.l_rotate_step = CameraController::process_opposite_keys(
@@ -223,6 +219,7 @@ impl CameraController {
                 self.radius = Some((self.camera.position - point).magnitude());
                 self.h_angle = Some(Rad(PI));
                 self.v_angle = Some(Rad(0.0));
+                self.roll = Some(Rad(0.0));
                 
                 // self.v_angle = Some(Rad(1.5751947));
                 // let forward = (point - self.camera.position).normalize();
@@ -234,6 +231,7 @@ impl CameraController {
                 self.radius = None;
                 self.h_angle = None;
                 self.v_angle = None;
+                self.roll = None;
             }
         }
     }
@@ -248,35 +246,29 @@ impl CameraController {
     fn update_camera_freeroam(&mut self, dt: Duration) {
         let dt = dt.as_secs_f32();
 
-        // Move forward/backward and left/right
-        // self.camera.yaw += Rad(0.01);
-        let (yaw_sin, yaw_cos) = self.camera.yaw.0.sin_cos();
-        // let forward = Vector3::new(yaw_cos, yaw_sin, 0.0).normalize();
-        // let right = Vector3::new(-yaw_sin, yaw_cos, 0.0).normalize();
-        let forward = Vector3::new(yaw_cos, yaw_sin, 0.0).normalize();
-        let left = Vector3::new(-yaw_sin, yaw_cos, 0.0).normalize();
+        let forward = self.camera.rotation.rotate_vector(Vector3::unit_y()).normalize();
+        let up = self.camera.rotation.rotate_vector(Vector3::unit_z()).normalize();
+        let right = self.camera.rotation.rotate_vector(Vector3::unit_x()).normalize();
+        // println!("forward = {:?}, up = {:?}, right = {:?}", forward, up, right);
+
         self.camera.position += forward * (self.l_translate_step) * self.translate_speed * dt;
-        self.camera.position -= left * (self.h_translate_step) * self.translate_speed * dt;
+        self.camera.position += up * (self.v_translate_step) * self.translate_speed * dt;
+        self.camera.position += right * (self.h_translate_step) * self.translate_speed * dt;
 
         // Move in/out (aka. "zoom")
         // Note: this isn't an actual zoom. The camera's position
         // changes when zooming. I've added this to make it easier
         // to get closer to an object you want to focus on.
-        let (pitch_sin, pitch_cos) = self.camera.pitch.0.sin_cos();
-        let scrollward =
-            -1.0 * Vector3::new(pitch_cos * yaw_cos, pitch_cos * yaw_sin, pitch_sin).normalize();
-        // println!("scrollward: ({}, {}, {})", scrollward.x, scrollward.y, scrollward.z);
-        self.camera.position += scrollward * self.scroll * self.translate_speed * self.sensitivity * dt;
-        self.scroll = 0.0;
-
-        // Move up/down. Since we don't use roll, we can just
-        // modify the y coordinate directly.
-        self.camera.position.z += (self.v_translate_step) * self.translate_speed * dt;
+        // let scrollward =
+        //     -1.0 * Vector3::new(pitch_cos * yaw_cos, pitch_cos * yaw_sin, pitch_sin).normalize();
+        // // println!("scrollward: ({}, {}, {})", scrollward.x, scrollward.y, scrollward.z);
+        // self.camera.position += scrollward * self.scroll * self.translate_speed * self.sensitivity * dt;
+        // self.scroll = 0.0;
 
         // Rotate
-        self.camera.roll += Rad(self.l_rotate_step) * self.rotate_speed * dt;
-        self.camera.yaw += Rad(-self.rotate_horizontal) * self.sensitivity * dt;
-        self.camera.pitch += Rad(-self.rotate_vertical) * self.sensitivity * dt;
+        self.camera.rotation = self.camera.rotation * Quaternion::from_angle_z(Rad(-self.rotate_horizontal) * self.sensitivity * dt);
+        self.camera.rotation = self.camera.rotation * Quaternion::from_angle_x(Rad(-self.rotate_vertical) * self.sensitivity * dt);
+        self.camera.rotation = self.camera.rotation * Quaternion::from_angle_y(Rad(-self.l_rotate_step) * self.rotate_speed * dt);
         // println!("new camera rotation: ({}π, {}π, {}π)", self.camera.roll.0/PI, self.camera.pitch.0/PI, self.camera.yaw.0/PI);
 
         // If process_mouse isn't called every frame, these values
@@ -286,11 +278,11 @@ impl CameraController {
         self.rotate_vertical = 0.0;
 
         // Keep the camera's angle from going too high/low.
-        if self.camera.pitch < -Rad(SAFE_FRAC_PI_2) {
-            self.camera.pitch = -Rad(SAFE_FRAC_PI_2);
-        } else if self.camera.pitch > Rad(SAFE_FRAC_PI_2) {
-            self.camera.pitch = Rad(SAFE_FRAC_PI_2);
-        }
+        // if self.camera.pitch < -Rad(SAFE_FRAC_PI_2) {
+        //     self.camera.pitch = -Rad(SAFE_FRAC_PI_2);
+        // } else if self.camera.pitch > Rad(SAFE_FRAC_PI_2) {
+        //     self.camera.pitch = Rad(SAFE_FRAC_PI_2);
+        // }
 
         // println!("new camera position: ({}, {}, {})", self.camera.position[0], self.camera.position[1], self.camera.position[2]);
         // println!("new camera rotation: ({:?}, {:?}, {:?})", self.camera.roll, self.camera.pitch, self.camera.yaw);
@@ -303,21 +295,33 @@ impl CameraController {
         let mut h_angle = self.h_angle.unwrap();
         let mut v_angle = self.v_angle.unwrap();
         let mut radius = self.radius.unwrap();
+        let mut roll = self.roll.unwrap();
         let dt = dt.as_secs_f32();
 
         // update the radius based on forward/backward movement
         // we subtract from the radius (ie forward = smaller radius, backward = larger radius)
-        // radius -= self.l_translate_step * self.translate_speed * dt;
-        radius += self.scroll * self.translate_speed * self.sensitivity * dt;
-        self.scroll = 0.0;
+        radius -= self.l_translate_step * self.translate_speed * dt;
+        // radius += self.scroll * self.translate_speed * self.sensitivity * dt;
+        // self.scroll = 0.0;
 
         // update the roll
-        self.camera.roll += Rad(self.l_rotate_step) * self.rotate_speed * dt;
+        let roll_step = Rad(self.l_rotate_step) * self.rotate_speed * dt;
+        // roll += roll_step;
+        roll = Rad(PI / 6.0);
+        let (sin_roll, cos_roll) = roll.0.sin_cos();
+        println!("roll: {}π", roll.0 / PI);
 
+        // let h_angle_step_base = self.h_translate_step * self.translate_speed/radius * dt;
+        // let v_angle_step_base = self.v_translate_step * self.translate_speed/radius * dt;
+        let h_angle_step_base = PI / 360.0;
+        let v_angle_step_base = 0.0;
+        let h_angle_step = Rad(cos_roll * h_angle_step_base + sin_roll * v_angle_step_base);
+        let v_angle_step = Rad(sin_roll * h_angle_step_base + cos_roll * v_angle_step_base);
+        println!("h base = {}, v base = {}, h step = {}, v step = {}", h_angle_step_base, v_angle_step_base, h_angle_step.0, v_angle_step.0);
 
-        h_angle += Rad(self.h_translate_step * self.translate_speed/radius * dt);
-        v_angle += Rad(self.v_translate_step * self.translate_speed/radius * dt);
-        // println!("radius = {}; angles = ({:?}, {:?})", radius, h_angle, v_angle);
+        h_angle += h_angle_step;
+        v_angle += v_angle_step;
+        println!("radius = {}; angles = ({}, {})", radius, h_angle.0, v_angle.0);
 
         let (sin_h, cos_h) = h_angle.0.sin_cos();
         let (sin_v, cos_v) = v_angle.0.sin_cos();
@@ -325,23 +329,20 @@ impl CameraController {
         let offset = Vector3::new(
             radius * cos_h * cos_v, 
             radius * sin_h * cos_v,
-            radius * sin_v,
+            radius * sin_v * sin_roll,
         );
-        // println!("new offset: ({}, {}, {})", offset[0], offset[1], offset[2]);
+        println!("new offset: ({}, {}, {})", offset[0], offset[1], offset[2]);
 
         self.camera.position = target + offset;
         self.radius = Some(radius);
         self.h_angle = Some(h_angle);
         self.v_angle = Some(v_angle);
+        self.roll = Some(roll);
 
-        let forward = (target - self.camera.position).normalize();
-        // println!("forward: {:?}", forward);
-        let pitch = Rad(forward.z.asin());
-        self.camera.pitch = pitch;
-        let yaw = Rad(forward.y.atan2(forward.x));
-        self.camera.yaw = yaw;
-        // println!("new camera rotation: ({}π, {}π, {}π)", self.camera.roll.0/PI, self.camera.pitch.0/PI, self.camera.yaw.0/PI);
-        // println!("");
+        // println!("H = {}, V = {}", h_angle_step.0, v_angle_step.0);
+        // self.camera.rotation = self.camera.rotation * Quaternion::from_angle_y(roll_step);
+        // self.camera.rotation = self.camera.rotation * Quaternion::from_angle_z(h_angle_step);
+        // self.camera.rotation = self.camera.rotation * Quaternion::from_angle_x(-v_angle_step);
     }
 }
 

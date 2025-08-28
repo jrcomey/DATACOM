@@ -472,7 +472,7 @@ impl<'a> State<'a> {
         };
 
         let camera_yaw = Quaternion::from_angle_z(Deg(-90.0));
-        let camera_roll = Quaternion::from_angle_y(Deg(-0.0));
+        let camera_roll = Quaternion::from_angle_y(Deg(0.0));
         let camera_pitch = Quaternion::from_angle_x(Deg(0.0));
         let camera_rotation = camera_yaw * camera_roll * camera_pitch;
         let camera = camera::Camera::new((-5.0, 0.0, 0.0), camera_rotation);

@@ -241,9 +241,9 @@ impl CameraController {
     fn update_camera_freeroam(&mut self, dt: Duration) {
         let dt = dt.as_secs_f32();
 
-        let forward = self.camera.rotation.rotate_vector(Vector3::unit_y()).normalize();
+        let mut forward = self.camera.rotation.rotate_vector(Vector3::unit_y()).normalize();
         let up = self.camera.rotation.rotate_vector(Vector3::unit_z()).normalize();
-        let right = self.camera.rotation.rotate_vector(Vector3::unit_x()).normalize();
+        let mut right = self.camera.rotation.rotate_vector(Vector3::unit_x()).normalize();
         // println!("forward = {:?}, up = {:?}, right = {:?}", forward, up, right);
 
         self.camera.position += forward * (self.l_translate_step) * self.translate_speed * dt;
@@ -260,11 +260,15 @@ impl CameraController {
         // self.camera.position += scrollward * self.scroll * self.translate_speed * self.sensitivity * dt;
         // self.scroll = 0.0;
 
-        // Rotate
-        self.camera.rotation = self.camera.rotation * Quaternion::from_angle_z(Rad(-self.rotate_horizontal) * self.sensitivity * dt);
-        self.camera.rotation = self.camera.rotation * Quaternion::from_angle_x(Rad(-self.rotate_vertical) * self.sensitivity * dt);
-        self.camera.rotation = self.camera.rotation * Quaternion::from_angle_y(Rad(-self.l_rotate_step) * self.rotate_speed * dt);
-        // println!("new camera rotation: {:?}", self.camera.rotation);
+        // rotate
+        right = self.camera.rotation * Vector3::unit_x();
+        forward = self.camera.rotation * Vector3::unit_y();
+        let yaw = Quaternion::from_axis_angle(Vector3::unit_z(), Rad(-self.rotate_horizontal) * self.sensitivity * dt);
+        let pitch = Quaternion::from_axis_angle(right, Rad(-self.rotate_vertical) * self.sensitivity * dt);
+        let roll = Quaternion::from_axis_angle(forward, Rad(-self.l_rotate_step * self.rotate_speed * dt));
+
+        // Apply them in order
+        self.camera.rotation = yaw * pitch * roll * self.camera.rotation;
 
         // If process_mouse isn't called every frame, these values
         // will not get set to zero, and the camera will rotate

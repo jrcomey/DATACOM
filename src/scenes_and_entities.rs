@@ -282,7 +282,8 @@ impl Entity {
 
             // Change position to input
             BehaviorType::EntityChangePosition => {
-                let counter = self.behaviors[behavior_index].data_counter.expect("Error in Entity::run_behavior : data counter is None");
+                let counter_raw = self.behaviors[behavior_index].data_counter.expect("Error in Entity::run_behavior : data counter is None");
+                let counter = std::cmp::min(counter_raw, self.behaviors[behavior_index].data.len()-9);
                 // println!("counter = {}", counter);
 
                 let new_position = Point3::<f32>::new(self.behaviors[behavior_index].data[counter], self.behaviors[behavior_index].data[counter+1], self.behaviors[behavior_index].data[counter+2]);

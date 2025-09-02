@@ -241,9 +241,9 @@ impl CameraController {
     fn update_camera_freeroam(&mut self, dt: Duration) {
         let dt = dt.as_secs_f32();
 
-        let mut forward = self.camera.rotation.rotate_vector(Vector3::unit_y()).normalize();
+        let forward = self.camera.rotation.rotate_vector(Vector3::unit_y()).normalize();
         let up = self.camera.rotation.rotate_vector(Vector3::unit_z()).normalize();
-        let mut right = self.camera.rotation.rotate_vector(Vector3::unit_x()).normalize();
+        let right = self.camera.rotation.rotate_vector(Vector3::unit_x()).normalize();
         // println!("forward = {:?}, up = {:?}, right = {:?}", forward, up, right);
 
         self.camera.position += forward * (self.l_translate_step) * self.translate_speed * dt;
@@ -261,8 +261,6 @@ impl CameraController {
         // self.scroll = 0.0;
 
         // rotate
-        right = self.camera.rotation * Vector3::unit_x();
-        forward = self.camera.rotation * Vector3::unit_y();
         let yaw = Quaternion::from_axis_angle(Vector3::unit_z(), Rad(-self.rotate_horizontal) * self.sensitivity * dt);
         let pitch = Quaternion::from_axis_angle(right, Rad(-self.rotate_vertical) * self.sensitivity * dt);
         let roll = Quaternion::from_axis_angle(forward, Rad(-self.l_rotate_step * self.rotate_speed * dt));

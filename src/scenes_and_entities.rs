@@ -9,14 +9,17 @@ use winit::{
 };
 use std::rc::Rc;
 use std::cell::RefCell;
-use log::error;
+// use log::error;
 use cgmath::{EuclideanSpace, Rotation3};
 use hdf5::{File, Selection};
-use ndarray::s;
+// use ndarray::s;
 
 use crate::{model, camera};
 
 use model::{DrawModel, Vertex};
+
+const DATA_ARR_WIDTH: usize = 9;
+const AVERAGE_REFRESH_RATE: usize = 16;
 
 #[derive(Copy, Clone)]
 pub enum BehaviorType {
@@ -49,15 +52,16 @@ impl BehaviorType {
 pub struct Behavior {
     pub behavior_type: BehaviorType,
     pub data: Vec<f32>,
-    pub data_counter: Option<usize>,
+    pub is_constant_behavior: bool,
 }
 
 impl Behavior {
-    pub fn new(behavior_type: BehaviorType, data: Vec<f32>, data_counter: Option<usize>) -> Behavior {
+    pub fn new(behavior_type: BehaviorType, data: Vec<f32>) -> Behavior {
+        let is_constant_behavior = Behavior::determine_constant_behavior(behavior_type);
         Behavior {
-            behavior_type: behavior_type,
-            data: data,
-            data_counter: data_counter,
+            behavior_type,
+            data,
+            is_constant_behavior,
         }
     }
     pub fn load_from_json(json: &serde_json::Value) -> Behavior {
@@ -73,28 +77,28 @@ impl Behavior {
 
         let behavior_type: BehaviorType =
             BehaviorType::match_from_string(json["behaviorType"].as_str().unwrap());
-        
-        let data_counter = None;
 
-        Behavior::new(behavior_type, data, data_counter)
+        Behavior::new(behavior_type, data)
     }
 
     pub fn load_from_hdf5(data: &ndarray::Array1<[f32; 12]>) -> hdf5::Result<Behavior> {
         let behavior_type = BehaviorType::EntityChangePosition;
         let a = 0;
-        let b = 9;
+        let b = DATA_ARR_WIDTH;
         let data_vec: Vec<f32> = data
             .iter()
             .flat_map(|arrs| arrs[a..b].iter().cloned())
             .collect();
-        let data_counter = Some(0);
-        Ok(
-            Behavior {
-                behavior_type: behavior_type,
-                data: data_vec,
-                data_counter: data_counter,
-            }
-        )
+
+        Ok(Behavior::new(behavior_type, data_vec))
+    }
+
+    fn determine_constant_behavior(behavior_type: BehaviorType) -> bool {
+        match behavior_type {
+            BehaviorType::EntityTranslate => true,
+            BehaviorType::ComponentRotateConstantSpeed => true,
+            _ => false,
+        }
     }
 }
 
@@ -270,7 +274,7 @@ impl Entity {
         }
     }
 
-    pub fn run_behavior(&mut self, behavior_index: usize) {
+    pub fn run_behavior(&mut self, behavior_index: usize, data_counter: Option<usize>) {
         // the borrow checker means that we have to refer to the behavior with self.behaviors[behavior_index] every time
         match self.behaviors[behavior_index].behavior_type {
             // Translate entity by vector
@@ -282,9 +286,8 @@ impl Entity {
 
             // Change position to input
             BehaviorType::EntityChangePosition => {
-                let counter_raw = self.behaviors[behavior_index].data_counter.expect("Error in Entity::run_behavior : data counter is None");
-                let counter = std::cmp::min(counter_raw, self.behaviors[behavior_index].data.len()-9);
-                // println!("counter = {}", counter);
+                let counter = data_counter.expect("Error in Entity::run_behavior : data counter is None");
+                println!("counter = {}", counter);
 
                 let new_position = Point3::<f32>::new(self.behaviors[behavior_index].data[counter], self.behaviors[behavior_index].data[counter+1], self.behaviors[behavior_index].data[counter+2]);
                 self.set_position(new_position);
@@ -293,7 +296,7 @@ impl Entity {
                 self.rotation = Quaternion::from_sv(1.0, rotation);
 
                 // TODO: 16 is a magic number, referring to the milliseconds per timestep for the window refresh; figure out a better way to synchronize the timesteps
-                self.behaviors[behavior_index].data_counter = Some(counter+9*16);
+                // self.behaviors[behavior_index].data_counter = Some(counter+9*16);
                 // println!("data_counter = {}", self.behaviors[behavior_index].data_counter.unwrap());
                 // println!("set position of entity {} to {:?} using counter {}", self.name, new_position, self.behaviors[behavior_index].data_counter.unwrap());
             }
@@ -316,9 +319,9 @@ impl Entity {
         }
     }
 
-    pub fn run_behaviors(&mut self) {
+    pub fn run_behaviors(&mut self, data_counter: Option<usize>) {
         for i in 0..self.behaviors.len() {
-            self.run_behavior(i);
+            self.run_behavior(i, data_counter);
         }
     }
 
@@ -714,6 +717,8 @@ impl<'a> State<'a> {
 pub struct Scene {
     pub axes: model::Axes,
     entities: Vec<Entity>,
+    timesteps: Option<usize>,
+    data_counter: Option<usize>,
 }
 
 impl Scene {
@@ -737,7 +742,14 @@ impl Scene {
 
     pub fn run_behaviors(&mut self) {
         for entity in &mut self.entities {
-            entity.run_behaviors();
+            entity.run_behaviors(self.data_counter);
+            if let Some(c) = self.data_counter {
+                self.data_counter = Some(c + DATA_ARR_WIDTH * AVERAGE_REFRESH_RATE);
+                if self.data_counter > self.timesteps {
+                    println!("sim finished; time to save");
+                    panic!();
+                }
+            }
         }
     }
 
@@ -789,21 +801,47 @@ impl Scene {
             let name_full = vehicle.name();
             let name = name_full["/Vehicles/".len()..].to_string();
             let data = vehicle.dataset("states").unwrap();
-            entity_vec.push(Entity::load_from_hdf5(name, data, device, model_bind_group_layout).unwrap());
+            let entity = Entity::load_from_hdf5(name, data, device, model_bind_group_layout).unwrap();
+            entity_vec.push(entity);
         }
-        println!("LOADED {} ENTITIES INTO SCENE", entity_vec.len());
+
+        let num_entities = entity_vec.len();
+        println!("LOADED {} ENTITIES INTO SCENE", num_entities);
+
+        // set timesteps
+        let timesteps = Scene::find_timesteps(&entity_vec);
+        let data_counter = timesteps.map(|_| 0 as usize);
 
         let axes = model::Axes::new(device);
 
         Ok(Scene {
-            axes: axes,
+            axes,
             entities: entity_vec,
+            timesteps,
+            data_counter,
         })
+    }
+
+    fn find_timesteps(entity_vec: &Vec<Entity>) -> Option<usize>{
+        for entity in entity_vec.iter() {
+            for behavior in entity.behaviors.iter() {
+                if !behavior.is_constant_behavior {
+                    println!("found non-constant behavior");
+                    return Some(behavior.data.len())
+                }
+            }
+        }
+
+        println!("could only find constant behavior");
+        None
     }
 
     fn load_scene_from_json(filepath: &str, device: &wgpu::Device, model_bind_group_layout: &wgpu::BindGroupLayout) -> Scene {
         let json_unparsed = std::fs::read_to_string(filepath).unwrap();
         let json: serde_json::Value = serde_json::from_str(&json_unparsed).unwrap();
+        let timesteps = json["timesteps"].as_u64();
+        let timesteps = timesteps.map(|e| e as usize);
+        let data_counter = timesteps.map(|_| 0 as usize);
 
         let entity_temp: Vec<_> = json["entities"]
             .as_array()
@@ -818,14 +856,16 @@ impl Scene {
         let axes = model::Axes::new(device);
 
         Scene{
-            axes: axes,
+            axes,
             entities: entity_vec,
+            timesteps,
+            data_counter,
         }
     }
 
-    fn get_entity(&mut self, entity_id: usize) -> Option<&mut Entity> {
-        self.entities.get_mut(entity_id)
-    }
+    // fn get_entity(&mut self, entity_id: usize) -> Option<&mut Entity> {
+    //     self.entities.get_mut(entity_id)
+    // }
 
     // pub fn load_from_network(addr: &str) -> Result<Scene, Error> {
     //     // Open port

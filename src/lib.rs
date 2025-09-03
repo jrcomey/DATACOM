@@ -96,6 +96,7 @@ pub async fn run_scene_from_hdf5(args: Vec<String>) {
                             state.window().request_redraw();
                             let now = std::time::Instant::now();
                             let dt = now - last_render_time;
+                            println!("dt = {}", dt.as_millis());
                             last_render_time = now;
                             state.update(dt);
 

@@ -166,7 +166,7 @@ impl CameraController {
             &KeyCode::ArrowLeft,
         );
 
-        self.l_translate_step = CameraController::process_opposite_keys(
+        let w_s_up_down = CameraController::process_opposite_keys(
             &self.pressed_keys,
             &KeyCode::KeyW,
             &KeyCode::ArrowUp,
@@ -174,7 +174,7 @@ impl CameraController {
             &KeyCode::ArrowDown,
         );
 
-        self.v_translate_step = CameraController::process_opposite_keys(
+        let space_shift = CameraController::process_opposite_keys(
             &self.pressed_keys,
             &KeyCode::Space,
             &KeyCode::Space,
@@ -189,6 +189,16 @@ impl CameraController {
             &KeyCode::KeyK,
             &KeyCode::KeyK,
         );
+
+        self.l_translate_step = match self.mode {
+            CameraMode::FreeRoam => w_s_up_down,
+            CameraMode::OrbitPoint => space_shift,
+        };
+
+        self.v_translate_step = match self.mode {
+            CameraMode::FreeRoam => space_shift,
+            CameraMode::OrbitPoint => w_s_up_down,
+        };
 
         state == ElementState::Pressed
     }

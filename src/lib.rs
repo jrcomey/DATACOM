@@ -11,7 +11,7 @@ mod model;
 mod camera;
 mod com;
 
-pub async fn run_scene_from_hdf5(args: Vec<String>) {
+pub async fn run_scene_from_hdf5(args: Vec<String>, should_save_to_file: bool) {
     pretty_env_logger::init();
     info!("Program Start!");
 
@@ -98,7 +98,7 @@ pub async fn run_scene_from_hdf5(args: Vec<String>) {
                             let dt = now - last_render_time;
                             println!("dt = {}", dt.as_millis());
                             last_render_time = now;
-                            state.update(dt);
+                            state.update(dt, should_save_to_file);
 
                             match state.render() {
                                 Ok(_) => {}
@@ -184,7 +184,7 @@ pub async fn run_scene_from_json(args: Vec<String>) {                           
                             let now = std::time::Instant::now();
                             let dt = now - last_render_time;
                             last_render_time = now;
-                            state.update(dt);
+                            state.update(dt, false);
 
                             match state.render() {
                                 Ok(_) => {}

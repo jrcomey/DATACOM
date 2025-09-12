@@ -3,3 +3,4 @@
 /data/run_data.hdf5
 /src/read_hdf5.*
 /data/scene_loading/test_scene_2.json
+*.mp4

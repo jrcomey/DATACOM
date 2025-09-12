@@ -1,7 +1,7 @@
 use std::iter;
 
 use cgmath::{Deg, Point3, Vector3, Quaternion, Matrix4};
-use wgpu::util::DeviceExt;
+use wgpu::{util::DeviceExt, TextureUsages};
 use winit::{
     event::*,
     keyboard::PhysicalKey,
@@ -12,6 +12,8 @@ use std::cell::RefCell;
 // use log::error;
 use cgmath::{EuclideanSpace, Rotation3};
 use hdf5::{File, Selection};
+use std::process::{Command, Stdio};
+use std::io::Write;
 // use ndarray::s;
 
 use crate::{model, camera};
@@ -20,6 +22,40 @@ use model::{DrawModel, Vertex};
 
 const DATA_ARR_WIDTH: usize = 9;
 const AVERAGE_REFRESH_RATE: usize = 16;
+const NUM_CAPTURE_BUFFERS: usize = 3;
+const BYTES_PER_PIXEL: u64 = 4;
+
+struct CaptureBuffer {
+    buffers: Vec<wgpu::Buffer>,
+    buffer_size: wgpu::BufferAddress,
+    index: usize,
+}
+
+impl CaptureBuffer {
+    fn new(device: &wgpu::Device, num_buffers: usize, size: wgpu::BufferAddress) -> CaptureBuffer {
+        let buffers = (0..num_buffers)
+            .map(|_| {
+                device.create_buffer(&wgpu::BufferDescriptor {
+                    label: Some("Frame readback buffer"),
+                    size,
+                    usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+                    mapped_at_creation: false,
+                })
+            })
+            .collect();
+        CaptureBuffer {
+            buffers, 
+            buffer_size: size, 
+            index: 0
+        }
+    }
+
+    fn next(&mut self) -> &wgpu::Buffer {
+        let buf = &self.buffers[self.index];
+        self.index = (self.index + 1) % self.buffers.len();
+        buf
+    }
+}
 
 #[derive(Copy, Clone)]
 pub enum BehaviorType {
@@ -332,6 +368,7 @@ impl Entity {
 
 pub struct State<'a> {
     surface: wgpu::Surface<'a>,
+    offscreen_texture: wgpu::Texture,
     device: wgpu::Device,
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
@@ -411,6 +448,7 @@ impl<'a> State<'a> {
 
     pub async fn new(window: &'a Window, filepath: &str) -> State<'a> {
         let size = window.inner_size();
+        println!("window size: {} * {} = {}", size.width, size.height, size.width * size.height);
 
         // The instance is a handle to our GPU
         // BackendBit::PRIMARY => Vulkan + Metal + DX12 + Browser WebGPU
@@ -465,7 +503,7 @@ impl<'a> State<'a> {
             .find(|f| f.is_srgb())
             .unwrap_or(surface_caps.formats[0]);
         let config = wgpu::SurfaceConfiguration {
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_DST,
             format: surface_format,
             width: size.width,
             height: size.height,
@@ -474,6 +512,21 @@ impl<'a> State<'a> {
             view_formats: vec![],
             desired_maximum_frame_latency: 2,
         };
+
+        let offscreen_texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Offscreen Target"),
+            size: wgpu::Extent3d {
+                width: size.width, 
+                height: size.height, 
+                depth_or_array_layers: 1
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: config.format,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
 
         let camera_yaw = Quaternion::from_angle_z(Deg(-90.0));
         let camera_roll = Quaternion::from_angle_y(Deg(0.0));
@@ -532,9 +585,9 @@ impl<'a> State<'a> {
         });
 
         let scene = if filepath.ends_with(".hdf5"){
-            Scene::load_scene_from_hdf5(filepath, &device, &model_bind_group_layout).unwrap()
+            Scene::load_scene_from_hdf5(filepath, &device, &model_bind_group_layout, (size.width * size.height) as u64).unwrap()
         } else {
-            Scene::load_scene_from_json(filepath, &device, &model_bind_group_layout)
+            Scene::load_scene_from_json(filepath, &device, &model_bind_group_layout, (size.width * size.height) as u64)
         };
 
         let render_pipeline_layout: wgpu::PipelineLayout =
@@ -581,6 +634,7 @@ impl<'a> State<'a> {
 
         Self {
             surface,
+            offscreen_texture,
             device,
             queue,
             config,
@@ -611,7 +665,6 @@ impl<'a> State<'a> {
             self.surface.configure(&self.device, &self.config);
         }
     }
-
     
     pub fn input(&mut self, event: &WindowEvent) -> bool {
         match event {
@@ -640,7 +693,7 @@ impl<'a> State<'a> {
         }
     }
 
-    pub fn update(&mut self, dt: std::time::Duration) {
+    pub fn update(&mut self, dt: std::time::Duration, should_save_to_file: bool) {
         self.camera_controller.update_camera(dt);
         // log::info!("{:?}", self.camera);
 
@@ -648,16 +701,39 @@ impl<'a> State<'a> {
         log::info!("{:?}", self.camera_uniform);
 
         self.scene.run_behaviors();
+        self.scene.increment_frame_counter();
         
         self.queue.write_buffer(
             &self.camera_buffer,
             0,
             bytemuck::cast_slice(&[self.camera_uniform]),
         );
+
+        if should_save_to_file {
+            // write screen to vector
+            State::record_screen(
+                &self.device,
+                &self.queue,
+                &self.offscreen_texture,
+                &mut self.scene.capture_buffer,
+                self.size.width, 
+                self.size.height);
+            
+            if self.scene.capture_buffer.index == 0 && self.scene.frame_counter > self.scene.capture_buffer.buffers.len() {
+                let mut saved_frames = State::save_screen_buffer(
+                    &self.device, 
+                    &self.scene.capture_buffer, 
+                    self.size.width, 
+                    self.size.height
+                ).expect("Error in State::update(); failed to capture screen data in buffer");
+                self.scene.screen_recordings.append(&mut saved_frames);
+            }
+        }
     }
 
     pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
         let output = self.surface.get_current_texture()?;
+        let offscreen_view = self.offscreen_texture.create_view(&wgpu::TextureViewDescriptor::default());
         let view = output
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
@@ -672,7 +748,7 @@ impl<'a> State<'a> {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Render Pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
+                    view: &offscreen_view,
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color {
@@ -693,6 +769,9 @@ impl<'a> State<'a> {
             render_pass.draw_axes(&self.scene.axes, &self.camera_bind_group);
 
             render_pass.set_pipeline(&self.render_pipeline);
+            // set bind group
+            // set vertex buffer
+
             // render_pass.draw_mesh_instanced(
             //     &self.obj_mesh,
             //     0..self.instances.len() as u32,
@@ -706,10 +785,95 @@ impl<'a> State<'a> {
             self.scene.draw(&mut render_pass, &self.camera_bind_group, &self.queue);
         }
 
+        {
+            encoder.copy_texture_to_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &self.offscreen_texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::TexelCopyTextureInfo {
+                texture: &output.texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::Extent3d {
+                width: self.size.width,
+                height: self.size.height,
+                depth_or_array_layers: 1,
+            },
+        );
+        }
+
         self.queue.submit(iter::once(encoder.finish()));
         output.present();
 
         Ok(())
+    }
+
+    fn record_screen(device: &wgpu::Device, queue: &wgpu::Queue, texture: &wgpu::Texture, capture_buffer: &mut CaptureBuffer, width: u32, height: u32){
+        let bytes_per_pixel: u32 = 4;
+        let padded_bytes_per_row = ((width * bytes_per_pixel + 255) / 256) * 256;
+
+        let capture_buf: &wgpu::Buffer = capture_buffer.next();
+
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("CopyTextureToBuffer Encoder"),
+        });
+
+        encoder.copy_texture_to_buffer(
+            wgpu::TexelCopyTextureInfo {
+                texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::TexelCopyBufferInfo {
+                buffer: &capture_buf,
+                layout: wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(padded_bytes_per_row),
+                    rows_per_image: Some(height),
+                },
+            },
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1
+            },
+        );
+
+        println!("successfully copied some data");
+
+        queue.submit(Some(encoder.finish()));
+    }
+
+    fn save_screen_buffer(device: &wgpu::Device, capture_buffer: &CaptureBuffer, width: u32, height: u32) -> Result<Vec<Vec<u8>>, Box<dyn std::error::Error>> {
+        let bytes_per_pixel = 4u32;
+        let padded_bytes_per_row = ((width * bytes_per_pixel + 255) / 256) * 256;
+        let mut output = Vec::new();
+
+        let buffer = &capture_buffer.buffers[capture_buffer.index];
+        let buffer_slice = buffer.slice(..);
+        let (tx, rx) = std::sync::mpsc::channel();
+        buffer_slice.map_async(wgpu::MapMode::Read, move |v| tx.send(v).unwrap());
+        device.poll(wgpu::MaintainBase::Wait)?;
+        rx.recv().unwrap().unwrap();
+
+        let data = buffer_slice.get_mapped_range();
+        let mut pixels = Vec::with_capacity((width * height * bytes_per_pixel) as usize);
+
+        for chunk in data.chunks(padded_bytes_per_row as usize) {
+            pixels.extend_from_slice(&chunk[..(width * bytes_per_pixel) as usize]);
+        }
+
+        drop(data);
+        buffer.unmap();
+        output.push(pixels);
+
+        Ok(output)
     }
 }
 
@@ -719,6 +883,9 @@ pub struct Scene {
     entities: Vec<Entity>,
     timesteps: Option<usize>,
     data_counter: Option<usize>,
+    pub frame_counter: usize,
+    capture_buffer: CaptureBuffer,
+    pub screen_recordings: Vec<Vec<u8>>,
 }
 
 impl Scene {
@@ -740,6 +907,23 @@ impl Scene {
     //     self.entities[entity_id as usize].change_position(new_position);
     // }
 
+    pub fn new(entities: Vec<Entity>, timesteps: Option<usize>, data_counter: Option<usize>, device: &wgpu::Device, screen_size: u64) -> Self {
+        let axes = model::Axes::new(device);
+        let frame_counter: usize = 0;
+        let capture_buffer = CaptureBuffer::new(device, NUM_CAPTURE_BUFFERS, (BYTES_PER_PIXEL * screen_size) as wgpu::BufferAddress);
+        let screen_recordings = Vec::new();
+        Scene{
+            axes,
+            entities,
+            timesteps,
+            data_counter,
+            frame_counter,
+            capture_buffer,
+            screen_recordings,
+        }
+    }
+
+
     pub fn run_behaviors(&mut self) {
         for entity in &mut self.entities {
             entity.run_behaviors(self.data_counter);
@@ -747,10 +931,18 @@ impl Scene {
                 self.data_counter = Some(c + DATA_ARR_WIDTH * AVERAGE_REFRESH_RATE);
                 if self.data_counter > self.timesteps {
                     println!("sim finished; time to save");
+                    println!("{}", self.screen_recordings.len());
+                    Scene::save_screen_data_to_file(&self.screen_recordings);
+                    // send window close event instead of panicking
                     panic!();
                 }
             }
         }
+    }
+
+    pub fn increment_frame_counter(&mut self){
+        self.frame_counter += 1;
+        println!("frame {}", self.frame_counter);
     }
 
     // pub fn bhvr_msg_str(&mut self, json_unparsed: &str) {
@@ -792,7 +984,7 @@ impl Scene {
     //     self.get_entity(target_entity_id).expect("Out of bounds!").run_behavior(behavior);
     // }
 
-    fn load_scene_from_hdf5(filepath: &str, device: &wgpu::Device, model_bind_group_layout: &wgpu::BindGroupLayout) -> hdf5::Result<Scene> {
+    fn load_scene_from_hdf5(filepath: &str, device: &wgpu::Device, model_bind_group_layout: &wgpu::BindGroupLayout, screen_size: u64) -> hdf5::Result<Scene> {
         let file = File::open(filepath).unwrap();
         let vehicles = file.group("Vehicles").unwrap();
         let vehicles_vec = vehicles.groups().unwrap();
@@ -812,14 +1004,14 @@ impl Scene {
         let timesteps = Scene::find_timesteps(&entity_vec);
         let data_counter = timesteps.map(|_| 0 as usize);
 
-        let axes = model::Axes::new(device);
 
-        Ok(Scene {
-            axes,
-            entities: entity_vec,
+        Ok(Scene::new(
+            entity_vec,
             timesteps,
             data_counter,
-        })
+            device,
+            screen_size,
+        ))
     }
 
     fn find_timesteps(entity_vec: &Vec<Entity>) -> Option<usize>{
@@ -836,7 +1028,7 @@ impl Scene {
         None
     }
 
-    fn load_scene_from_json(filepath: &str, device: &wgpu::Device, model_bind_group_layout: &wgpu::BindGroupLayout) -> Scene {
+    fn load_scene_from_json(filepath: &str, device: &wgpu::Device, model_bind_group_layout: &wgpu::BindGroupLayout, screen_size: u64) -> Scene {
         let json_unparsed = std::fs::read_to_string(filepath).unwrap();
         let json: serde_json::Value = serde_json::from_str(&json_unparsed).unwrap();
         let timesteps = json["timesteps"].as_u64();
@@ -853,14 +1045,13 @@ impl Scene {
             entity_vec.push(Entity::load_from_json(*i, device, model_bind_group_layout));
         }
 
-        let axes = model::Axes::new(device);
-
-        Scene{
-            axes,
-            entities: entity_vec,
+        Scene::new(
+            entity_vec,
             timesteps,
             data_counter,
-        }
+            device,
+            screen_size,
+        )
     }
 
     // fn get_entity(&mut self, entity_id: usize) -> Option<&mut Entity> {
@@ -927,6 +1118,44 @@ impl Scene {
 
         for entity in &self.entities {
             entity.draw(render_pass, camera_bind_group, queue);
+        }
+    }
+
+    fn save_screen_data_to_file(screen_data: &Vec<Vec<u8>>){
+
+        let mut ffmpeg_process = Command::new("ffmpeg")
+            .args(&[
+                "-f", "rawvideo", //    input is raw video pixels
+                "-pix_fmt", "rgba", //  RGBA format
+                "-s", "1600x1200", //   dimensions
+                "-r", "60", //          fps
+                "-i", "pipe:0", //      read input from stdin
+                "-c:v", "libx264", //   specify video codex
+                "-pix_fmt", "yuv420p",
+                "-preset", "fast", // fast encoding preset
+                "-movflags", "faststart", // optimize for streaming
+                "-y", // overwrite output file
+                "output.mp4",
+            ])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::inherit())
+            .stderr(Stdio::inherit())
+            .spawn()
+            .expect("ffmpeg process failed to execute");
+
+        let mut stdin = ffmpeg_process.stdin.take().expect("failed to extract stdin from ffmpeg process");
+
+        for frame in screen_data {
+            stdin.write_all(frame).expect("failed to write input to ffmpeg process");
+        }
+        drop(stdin);
+
+        let status = ffmpeg_process.wait().unwrap();
+
+        if status.success() {
+            println!("video successfully converted!");
+        } else {
+            eprintln!("ffmpeg failed with status: {:?}", status)
         }
     }
 }

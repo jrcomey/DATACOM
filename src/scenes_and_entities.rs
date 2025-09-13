@@ -11,7 +11,7 @@ use std::rc::Rc;
 use std::cell::RefCell;
 // use log::error;
 use cgmath::{EuclideanSpace, Rotation3};
-use hdf5::{File, Selection};
+use hdf5::File;
 use std::process::{Command, Stdio};
 use std::io::Write;
 // use ndarray::s;
@@ -23,39 +23,7 @@ use model::{DrawModel, Vertex};
 const DATA_ARR_WIDTH: usize = 9;
 const AVERAGE_REFRESH_RATE: usize = 16;
 const NUM_CAPTURE_BUFFERS: usize = 3;
-const BYTES_PER_PIXEL: u64 = 4;
-
-struct CaptureBuffer {
-    buffers: Vec<wgpu::Buffer>,
-    buffer_size: wgpu::BufferAddress,
-    index: usize,
-}
-
-impl CaptureBuffer {
-    fn new(device: &wgpu::Device, num_buffers: usize, size: wgpu::BufferAddress) -> CaptureBuffer {
-        let buffers = (0..num_buffers)
-            .map(|_| {
-                device.create_buffer(&wgpu::BufferDescriptor {
-                    label: Some("Frame readback buffer"),
-                    size,
-                    usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-                    mapped_at_creation: false,
-                })
-            })
-            .collect();
-        CaptureBuffer {
-            buffers, 
-            buffer_size: size, 
-            index: 0
-        }
-    }
-
-    fn next(&mut self) -> &wgpu::Buffer {
-        let buf = &self.buffers[self.index];
-        self.index = (self.index + 1) % self.buffers.len();
-        buf
-    }
-}
+const BYTES_PER_PIXEL: u32 = 4;
 
 #[derive(Copy, Clone)]
 pub enum BehaviorType {
@@ -323,7 +291,7 @@ impl Entity {
             // Change position to input
             BehaviorType::EntityChangePosition => {
                 let counter = data_counter.expect("Error in Entity::run_behavior : data counter is None");
-                println!("counter = {}", counter);
+                // println!("counter = {}", counter);
 
                 let new_position = Point3::<f32>::new(self.behaviors[behavior_index].data[counter], self.behaviors[behavior_index].data[counter+1], self.behaviors[behavior_index].data[counter+2]);
                 self.set_position(new_position);
@@ -701,7 +669,6 @@ impl<'a> State<'a> {
         log::info!("{:?}", self.camera_uniform);
 
         self.scene.run_behaviors();
-        self.scene.increment_frame_counter();
         
         self.queue.write_buffer(
             &self.camera_buffer,
@@ -710,24 +677,40 @@ impl<'a> State<'a> {
         );
 
         if should_save_to_file {
-            // write screen to vector
-            State::record_screen(
-                &self.device,
-                &self.queue,
-                &self.offscreen_texture,
-                &mut self.scene.capture_buffer,
-                self.size.width, 
-                self.size.height);
-            
-            if self.scene.capture_buffer.index == 0 && self.scene.frame_counter > self.scene.capture_buffer.buffers.len() {
-                let mut saved_frames = State::save_screen_buffer(
+            let index = self.scene.frame_counter % NUM_CAPTURE_BUFFERS;
+            // read buf n
+            if self.scene.frame_counter > NUM_CAPTURE_BUFFERS {
+                let mut saved_frames = Scene::read_capture_buf(
                     &self.device, 
-                    &self.scene.capture_buffer, 
+                    &self.scene.capture_buffers, 
                     self.size.width, 
-                    self.size.height
+                    self.size.height,
+                    index,
                 ).expect("Error in State::update(); failed to capture screen data in buffer");
                 self.scene.screen_recordings.append(&mut saved_frames);
             }
+
+            // write to buf n
+            Scene::write_screen_to_capture_buf(
+                &self.device,
+                &self.queue,
+                &self.offscreen_texture,
+                &mut self.scene.capture_buffers,
+                self.size.width, 
+                self.size.height,
+                index,
+            );
+        }
+
+        self.scene.increment_frame_counter();
+        
+        if self.scene.data_counter > self.scene.timesteps {
+            println!("sim finished; time to save");
+            self.scene.read_remaining_buffers(&self.device, self.size.width, self.size.height);
+            println!("{} total frames recorded", self.scene.screen_recordings.len());
+            Scene::save_screen_data_to_file(&self.scene.screen_recordings);
+            // send window close event instead of panicking
+            panic!();
         }
     }
 
@@ -812,69 +795,6 @@ impl<'a> State<'a> {
 
         Ok(())
     }
-
-    fn record_screen(device: &wgpu::Device, queue: &wgpu::Queue, texture: &wgpu::Texture, capture_buffer: &mut CaptureBuffer, width: u32, height: u32){
-        let bytes_per_pixel: u32 = 4;
-        let padded_bytes_per_row = ((width * bytes_per_pixel + 255) / 256) * 256;
-
-        let capture_buf: &wgpu::Buffer = capture_buffer.next();
-
-        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("CopyTextureToBuffer Encoder"),
-        });
-
-        encoder.copy_texture_to_buffer(
-            wgpu::TexelCopyTextureInfo {
-                texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            wgpu::TexelCopyBufferInfo {
-                buffer: &capture_buf,
-                layout: wgpu::TexelCopyBufferLayout {
-                    offset: 0,
-                    bytes_per_row: Some(padded_bytes_per_row),
-                    rows_per_image: Some(height),
-                },
-            },
-            wgpu::Extent3d {
-                width,
-                height,
-                depth_or_array_layers: 1
-            },
-        );
-
-        println!("successfully copied some data");
-
-        queue.submit(Some(encoder.finish()));
-    }
-
-    fn save_screen_buffer(device: &wgpu::Device, capture_buffer: &CaptureBuffer, width: u32, height: u32) -> Result<Vec<Vec<u8>>, Box<dyn std::error::Error>> {
-        let bytes_per_pixel = 4u32;
-        let padded_bytes_per_row = ((width * bytes_per_pixel + 255) / 256) * 256;
-        let mut output = Vec::new();
-
-        let buffer = &capture_buffer.buffers[capture_buffer.index];
-        let buffer_slice = buffer.slice(..);
-        let (tx, rx) = std::sync::mpsc::channel();
-        buffer_slice.map_async(wgpu::MapMode::Read, move |v| tx.send(v).unwrap());
-        device.poll(wgpu::MaintainBase::Wait)?;
-        rx.recv().unwrap().unwrap();
-
-        let data = buffer_slice.get_mapped_range();
-        let mut pixels = Vec::with_capacity((width * height * bytes_per_pixel) as usize);
-
-        for chunk in data.chunks(padded_bytes_per_row as usize) {
-            pixels.extend_from_slice(&chunk[..(width * bytes_per_pixel) as usize]);
-        }
-
-        drop(data);
-        buffer.unmap();
-        output.push(pixels);
-
-        Ok(output)
-    }
 }
 
 // Define the scene structure
@@ -884,7 +804,7 @@ pub struct Scene {
     timesteps: Option<usize>,
     data_counter: Option<usize>,
     pub frame_counter: usize,
-    capture_buffer: CaptureBuffer,
+    capture_buffers: Vec<wgpu::Buffer>,
     pub screen_recordings: Vec<Vec<u8>>,
 }
 
@@ -910,7 +830,11 @@ impl Scene {
     pub fn new(entities: Vec<Entity>, timesteps: Option<usize>, data_counter: Option<usize>, device: &wgpu::Device, screen_size: u64) -> Self {
         let axes = model::Axes::new(device);
         let frame_counter: usize = 0;
-        let capture_buffer = CaptureBuffer::new(device, NUM_CAPTURE_BUFFERS, (BYTES_PER_PIXEL * screen_size) as wgpu::BufferAddress);
+        let capture_buffers = Scene::init_capture_buffers(
+            device, 
+            NUM_CAPTURE_BUFFERS, 
+            (Into::<u64>::into(BYTES_PER_PIXEL) * screen_size) as wgpu::BufferAddress
+        );
         let screen_recordings = Vec::new();
         Scene{
             axes,
@@ -918,7 +842,7 @@ impl Scene {
             timesteps,
             data_counter,
             frame_counter,
-            capture_buffer,
+            capture_buffers,
             screen_recordings,
         }
     }
@@ -929,20 +853,13 @@ impl Scene {
             entity.run_behaviors(self.data_counter);
             if let Some(c) = self.data_counter {
                 self.data_counter = Some(c + DATA_ARR_WIDTH * AVERAGE_REFRESH_RATE);
-                if self.data_counter > self.timesteps {
-                    println!("sim finished; time to save");
-                    println!("{}", self.screen_recordings.len());
-                    Scene::save_screen_data_to_file(&self.screen_recordings);
-                    // send window close event instead of panicking
-                    panic!();
-                }
             }
         }
     }
 
     pub fn increment_frame_counter(&mut self){
         self.frame_counter += 1;
-        println!("frame {}", self.frame_counter);
+        // println!("frame {}", self.frame_counter);
     }
 
     // pub fn bhvr_msg_str(&mut self, json_unparsed: &str) {
@@ -1118,6 +1035,98 @@ impl Scene {
 
         for entity in &self.entities {
             entity.draw(render_pass, camera_bind_group, queue);
+        }
+    }
+
+    fn init_capture_buffers(device: &wgpu::Device, num_buffers: usize, size: wgpu::BufferAddress) -> Vec<wgpu::Buffer> {
+        let buffers: Vec<wgpu::Buffer> = (0..num_buffers)
+            .map(|_| {
+                device.create_buffer(&wgpu::BufferDescriptor {
+                    label: Some("Frame readback buffer"),
+                    size,
+                    usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+                    mapped_at_creation: false,
+                })
+            })
+            .collect();
+        
+        buffers
+    }
+    
+    fn write_screen_to_capture_buf(device: &wgpu::Device, queue: &wgpu::Queue, texture: &wgpu::Texture, capture_buffers: &mut Vec<wgpu::Buffer>, width: u32, height: u32, index: usize){
+        let padded_bytes_per_row = ((width * BYTES_PER_PIXEL + 255) / 256) * 256;
+
+        let capture_buf = &capture_buffers[index];
+
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("CopyTextureToBuffer Encoder"),
+        });
+
+        encoder.copy_texture_to_buffer(
+            wgpu::TexelCopyTextureInfo {
+                texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::TexelCopyBufferInfo {
+                buffer: &capture_buf,
+                layout: wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(padded_bytes_per_row),
+                    rows_per_image: Some(height),
+                },
+            },
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1
+            },
+        );
+
+        // println!("wrote to buffer[{}]", index);
+        // println!("oldest buffer is now {}", (index+1) % NUM_CAPTURE_BUFFERS);
+
+        queue.submit(Some(encoder.finish()));
+    }
+
+    fn read_capture_buf(device: &wgpu::Device, capture_buffers: &Vec<wgpu::Buffer>, width: u32, height: u32, index: usize) -> Result<Vec<Vec<u8>>, Box<dyn std::error::Error>> {
+        let padded_bytes_per_row = ((width * BYTES_PER_PIXEL + 255) / 256) * 256;
+        let mut output = Vec::new();
+
+        let buffer = &capture_buffers[index];
+        let buffer_slice = buffer.slice(..);
+        let (tx, rx) = std::sync::mpsc::channel();
+        buffer_slice.map_async(wgpu::MapMode::Read, move |v| tx.send(v).unwrap());
+        device.poll(wgpu::MaintainBase::Wait)?;
+        rx.recv().unwrap().unwrap();
+
+        let data = buffer_slice.get_mapped_range();
+        let mut pixels = Vec::with_capacity((width * height * BYTES_PER_PIXEL) as usize);
+
+        for chunk in data.chunks(padded_bytes_per_row as usize) {
+            pixels.extend_from_slice(&chunk[..(width * BYTES_PER_PIXEL) as usize]);
+        }
+
+        drop(data);
+        buffer.unmap();
+        output.push(pixels);
+
+        // println!("read from buffer[{}]", index);
+
+        Ok(output)
+    }
+
+    fn read_remaining_buffers(&mut self, device: &wgpu::Device, width: u32, height: u32){
+        /*
+        final buffer write to index 0
+        read buffer[2]
+        read buffer
+         */
+        for i in 0..NUM_CAPTURE_BUFFERS {
+            let index = (self.frame_counter + i) % NUM_CAPTURE_BUFFERS;
+            let mut saved_frame = Scene::read_capture_buf(device, &self.capture_buffers, width, height, index).expect("problem with reading final few buffers");
+            self.screen_recordings.append(&mut saved_frame);
         }
     }
 

@@ -16,6 +16,7 @@ use std::process::{Command, Stdio};
 use std::io::Write;
 // use ndarray::s;
 
+use crate::text::GlyphVertex;
 use crate::{model, camera, com};
 
 use model::{DrawModel, Vertex};
@@ -343,6 +344,7 @@ pub struct State<'a> {
     pub size: winit::dpi::PhysicalSize<u32>,
     render_pipeline: wgpu::RenderPipeline,
     lines_render_pipeline: wgpu::RenderPipeline,
+    text_render_pipeline: wgpu::RenderPipeline,
     pub scene: Scene,
     projection: camera::Projection,
     pub camera_controller: camera::CameraController,
@@ -471,7 +473,7 @@ impl<'a> State<'a> {
             .find(|f| f.is_srgb())
             .unwrap_or(surface_caps.formats[0]);
         let config = wgpu::SurfaceConfiguration {
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_DST,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
             format: surface_format,
             width: size.width,
             height: size.height,
@@ -552,6 +554,28 @@ impl<'a> State<'a> {
             label: Some("Camera Bind Group"),
         });
 
+        let text_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        multisampled: false,
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+            ],
+            label: Some("Text Bind Group Layout"),
+        });
+
         let scene = if filepath.ends_with(".hdf5"){
             Scene::load_scene_from_hdf5(filepath, &device, &model_bind_group_layout, (size.width * size.height) as u64).unwrap()
         } else if filepath.ends_with(".json"){
@@ -566,6 +590,7 @@ impl<'a> State<'a> {
                 bind_group_layouts: &[
                     &camera_bind_group_layout,
                     &model_bind_group_layout,
+                    &text_bind_group_layout,
                     ],
                 push_constant_ranges: &[],
             });
@@ -599,6 +624,21 @@ impl<'a> State<'a> {
                 wgpu::PrimitiveTopology::LineList,
             )
         };
+
+        let text_render_pipeline = {
+            let shader = wgpu::ShaderModuleDescriptor {
+                label: Some("Text Shader"),
+                source: wgpu::ShaderSource::Wgsl(include_str!("shaders/text_shader.wgsl").into()),
+            };
+            State::create_render_pipeline(
+                &device, 
+                &render_pipeline_layout, 
+                config.format, 
+                &[GlyphVertex::desc()], 
+                shader, 
+                wgpu::PrimitiveTopology::TriangleList,
+            )
+        };
         
         surface.configure(&device, &config);
 
@@ -611,6 +651,7 @@ impl<'a> State<'a> {
             size,
             render_pipeline,
             lines_render_pipeline,
+            text_render_pipeline,
             scene,
             projection,
             camera_controller,

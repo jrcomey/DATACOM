@@ -10,6 +10,7 @@ mod scenes_and_entities;
 mod model;
 mod camera;
 mod com;
+mod text;
 
 pub async fn run_scene_from_hdf5(args: Vec<String>, should_save_to_file: bool) {
     pretty_env_logger::init();
@@ -218,5 +219,5 @@ pub async fn run_scene_from_json(args: Vec<String>) {
 }
 
 pub async fn run_scene_from_network(args: Vec<String>){
-    run_scene_from_json(args);
+    run_scene_from_json(args).await;
 }

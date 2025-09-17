@@ -1,7 +1,9 @@
-use glium::{debug, implement_vertex, Surface};
-use glium::{texture::RawImage2d, Display, Texture2d, glutin::{self, surface::WindowSurface}};
+use glium::{implement_vertex, Surface};
+use glium::{texture::RawImage2d, Display, Texture2d, glutin::surface::WindowSurface};
+use wgpu::Texture;
 use rusttype as rt;
 use image;
+use log::debug;
 use rt::{Font, Scale, point};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -96,21 +98,40 @@ pub fn load_font_atlas(path: &str, font_size: f32) -> (image::RgbaImage, HashMap
 }
 
 /// OpenGL vertex struct, differs from main one in that it has texture coordinates
-#[derive(Debug, Copy, Clone)]
-pub struct TextureVertex {
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct GlyphVertex {
     position: [f32; 3],
-    tex_coords: [f32; 2],
+    uv: [f32; 2],
+    color: [f32; 3]
 }
 
-impl TextureVertex {
-    fn new(position: [f32; 2], tex_coords: [f32;2]) -> Self {
-        TextureVertex {
-            position: [position[0], position[1], 0.0],
-            tex_coords: tex_coords,
+impl GlyphVertex {
+    fn desc() -> wgpu::VertexBufferLayout<'static> {
+        use std::mem;
+        wgpu::VertexBufferLayout {
+            array_stride: mem::size_of::<GlyphVertex>() as wgpu::BufferAddress,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &[
+                wgpu::VertexAttribute {
+                    offset: 0,
+                    shader_location: 0,
+                    format: wgpu::VertexFormat::Float32x3,
+                },
+                wgpu::VertexAttribute {
+                    offset: mem::size_of::<[f32; 3]>() as wgpu::BufferAddress,
+                    shader_location: 1,
+                    format: wgpu::VertexFormat::Float32x2,
+                },
+                wgpu::VertexAttribute {
+                    offset: mem::size_of::<[f32; 5]>() as wgpu::BufferAddress,
+                    shader_location: 2,
+                    format: wgpu::VertexFormat::Float32x3,
+                },
+            ],
         }
     }
 }
-implement_vertex!(TextureVertex, position, tex_coords);
 
 /// Creates texture from font atlas for OpenGL
 pub fn create_texture_atlas(display: &Display<WindowSurface>, atlas: image::RgbaImage) -> Texture2d {
@@ -238,34 +259,34 @@ impl Draw for TextDisplay {
 }
 
 
-pub struct Scope {
-    title: String,
-    x_label: String,
-    y_label: String, 
-    x_lim: [f32; 2],
-    y_lim: [f32; 2],
-    curves: Vec<Curve>,
-}
+// pub struct Scope {
+//     title: String,
+//     x_label: String,
+//     y_label: String, 
+//     x_lim: [f32; 2],
+//     y_lim: [f32; 2],
+//     curves: Vec<Curve>,
+// }
 
-impl Draw for Scope {
-    fn draw(&self, gui: &dc::GuiContainer, context: &dc::RenderContext, target: &mut glium::Frame) {
-        // Vector initialization and setup
-        let mut verticies: Vec<dc::Vertex> = vec![];
-        let mut indices: Vec<u32> = vec![];
+// impl Draw for Scope {
+//     fn draw(&self, gui: &dc::GuiContainer, context: &dc::RenderContext, target: &mut glium::Frame) {
+//         // Vector initialization and setup
+//         let mut verticies: Vec<dc::Vertex> = vec![];
+//         let mut indices: Vec<u32> = vec![];
 
-        // Axes should range from -1 to 1 in normalized device coordinates
-        // Axes should be moved to the center of the viewport, then scaled to the size of the viewport
-        // Text labels should be placed appropriately
+//         // Axes should range from -1 to 1 in normalized device coordinates
+//         // Axes should be moved to the center of the viewport, then scaled to the size of the viewport
+//         // Text labels should be placed appropriately
         
-    }
-}
+//     }
+// }
 
-/// Curve struct for scopes
-pub struct Curve {
-    x_data: Vec<f32>,
-    y_data: Vec<f32>,
-}
+// /// Curve struct for scopes
+// pub struct Curve {
+//     x_data: Vec<f32>,
+//     y_data: Vec<f32>,
+// }
 
-impl Curve {
+// impl Curve {
     
-}
+// }

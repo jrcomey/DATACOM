@@ -51,7 +51,7 @@
 
 // */
 
-use datacom::{run_scene_from_hdf5, run_scene_from_json};
+use datacom::{run_scene_from_hdf5, run_scene_from_json, run_scene_from_network};
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -65,6 +65,9 @@ fn main() {
         } else if args[1].ends_with(".json") {
             // run json code
             pollster::block_on(run_scene_from_json(args));
+        } else {
+            // assume user wants the scene constructed from a TCP connection
+            pollster::block_on(run_scene_from_network(args));
         }
     }
 }

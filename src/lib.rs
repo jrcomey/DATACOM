@@ -128,7 +128,7 @@ pub async fn run_scene_from_hdf5(args: Vec<String>, should_save_to_file: bool) {
 }
 
 
-pub async fn run_scene_from_json(args: Vec<String>) {                               // Initialize logger
+pub async fn run_scene_from_json(args: Vec<String>) {
     pretty_env_logger::init();
     info!("Program Start!");
 
@@ -215,4 +215,8 @@ pub async fn run_scene_from_json(args: Vec<String>) {                           
             }
         })
         .unwrap();
+}
+
+pub async fn run_scene_from_network(args: Vec<String>){
+    run_scene_from_json(args);
 }

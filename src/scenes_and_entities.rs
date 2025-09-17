@@ -9,14 +9,14 @@ use winit::{
 };
 use std::rc::Rc;
 use std::cell::RefCell;
-// use log::error;
+use log::{debug, info, error};
 use cgmath::{EuclideanSpace, Rotation3};
 use hdf5::File;
 use std::process::{Command, Stdio};
 use std::io::Write;
 // use ndarray::s;
 
-use crate::{model, camera};
+use crate::{model, camera, com};
 
 use model::{DrawModel, Vertex};
 
@@ -554,8 +554,10 @@ impl<'a> State<'a> {
 
         let scene = if filepath.ends_with(".hdf5"){
             Scene::load_scene_from_hdf5(filepath, &device, &model_bind_group_layout, (size.width * size.height) as u64).unwrap()
-        } else {
+        } else if filepath.ends_with(".json"){
             Scene::load_scene_from_json(filepath, &device, &model_bind_group_layout, (size.width * size.height) as u64)
+        } else {
+            Scene::load_scene_from_network(filepath, &device, &model_bind_group_layout, (size.width * size.height) as u64).unwrap()
         };
 
         let render_pipeline_layout: wgpu::PipelineLayout =
@@ -799,34 +801,16 @@ impl<'a> State<'a> {
 
 // Define the scene structure
 pub struct Scene {
-    pub axes: model::Axes,
+    axes: model::Axes,
     entities: Vec<Entity>,
     timesteps: Option<usize>,
     data_counter: Option<usize>,
-    pub frame_counter: usize,
+    frame_counter: usize,
     capture_buffers: Vec<wgpu::Buffer>,
-    pub screen_recordings: Vec<Vec<u8>>,
+    screen_recordings: Vec<Vec<u8>>,
 }
 
 impl Scene {
-    // Method to add an entity to the scene
-    // pub fn add_entity(&mut self, entity: Entity) {
-    //     self.entities.push(entity);
-    // }
-
-    // Other scene-related methods...
-    // pub fn new() -> Scene {
-    //     Scene { entities: vec![] }
-    // }
-
-    // pub fn new_entities(entities: Vec<Entity>) -> Scene {
-    //     Scene { entities: entities }
-    // }
-
-    // pub fn change_entity_position(&mut self, entity_id: u64, new_position: Point3<f64>) {
-    //     self.entities[entity_id as usize].change_position(new_position);
-    // }
-
     pub fn new(entities: Vec<Entity>, timesteps: Option<usize>, data_counter: Option<usize>, device: &wgpu::Device, screen_size: u64) -> Self {
         let axes = model::Axes::new(device);
         let frame_counter: usize = 0;
@@ -846,7 +830,6 @@ impl Scene {
             screen_recordings,
         }
     }
-
 
     pub fn run_behaviors(&mut self) {
         for entity in &mut self.entities {
@@ -947,6 +930,10 @@ impl Scene {
 
     fn load_scene_from_json(filepath: &str, device: &wgpu::Device, model_bind_group_layout: &wgpu::BindGroupLayout, screen_size: u64) -> Scene {
         let json_unparsed = std::fs::read_to_string(filepath).unwrap();
+        Scene::load_scene_from_json_str(json_unparsed, device, model_bind_group_layout, screen_size)
+    }
+
+    fn load_scene_from_json_str(json_unparsed: String, device: &wgpu::Device, model_bind_group_layout: &wgpu::BindGroupLayout, screen_size: u64) -> Scene {
         let json: serde_json::Value = serde_json::from_str(&json_unparsed).unwrap();
         let timesteps = json["timesteps"].as_u64();
         let timesteps = timesteps.map(|e| e as usize);
@@ -971,59 +958,50 @@ impl Scene {
         )
     }
 
-    // fn get_entity(&mut self, entity_id: usize) -> Option<&mut Entity> {
-    //     self.entities.get_mut(entity_id)
-    // }
-
-    // pub fn load_from_network(addr: &str) -> Result<Scene, Error> {
-    //     // Open port
-    //     let listener = TcpListener::bind(addr).unwrap();
-    //     let mut num_attempt = 0;
+    pub fn load_scene_from_network(addr: &str, device: &wgpu::Device, model_bind_group_layout: &wgpu::BindGroupLayout, screen_size: u64) -> Result<Scene, Box<dyn std::error::Error>> {
+        // Open port
+        let listener = std::net::TcpListener::bind(addr).unwrap();
+        let mut num_attempt = 0;
         
-    //     // Attempt to recieve initialization packet and parse when successful.
-    //     let initialization_packet = loop {
-    //         match listener.accept() {
-    //             Ok((stream, _)) => {
-    //                 // debug!("{}", com::from_network(&stream));
-    //                 break com::from_network(&stream)
-    //             },
-    //             _ => {
-    //                 num_attempt += 1;
-    //                 debug!("No packet recieved. Trying attempt {}...", num_attempt);
-    //                 std::thread::sleep(Duration::from_millis(100));
-    //             },
-    //         }
-    //     };
-    //     info!("Received initialization file");
-    //     // debug!("Initialization file: {}", initialization_packet);
+        // Attempt to recieve initialization packet and parse when successful.
+        let initialization_packet = loop {
+            match listener.accept() {
+                Ok((stream, _)) => {
+                    // debug!("{}", com::from_network(&stream));
+                    break com::from_network(&stream)
+                },
+                _ => {
+                    num_attempt += 1;
+                    debug!("No packet recieved. Trying attempt {}...", num_attempt);
+                    std::thread::sleep(std::time::Duration::from_millis(100));
+                },
+            }
+        };
+        info!("Received initialization file");
+        // debug!("Initialization file: {}", initialization_packet);
 
-    //     // Receive and save model files
-    //     for stream in listener.incoming() {
+        // Receive and save model files
+        for stream in listener.incoming() {
 
-    //         let mut local_stream = stream.unwrap();
-    //         match com::from_network_with_protocol(&mut local_stream) {
-    //             Ok(_) => {},
-    //             Err("END") => {
-    //                 debug!("Finished recieving files!");
-    //             }
-    //             _ => {break}
-    //         }
-    //     }
+            let mut local_stream = stream.unwrap();
+            match com::from_network_with_protocol(&mut local_stream) {
+                Ok(_) => {},
+                Err("END") => {
+                    debug!("Finished recieving files!");
+                }
+                _ => {break}
+            }
+        }
 
-    //     info!("All files recieved.");
+        info!("All files recieved.");
 
-    //     //
+        //
         
-    //     // Load Scene from initialization packet
+        // Load Scene from initialization packet
 
-    //     Ok(Scene::load_from_json_str(&initialization_packet))
+        Ok(Scene::load_scene_from_json_str(initialization_packet, device, model_bind_group_layout, screen_size))
         
-    // }
-
-    /// Clear all entities 
-    // pub fn clear_all(&mut self) {
-    //     self.entities = vec![];
-    // }
+    }
 
     pub fn draw<'a>(
         &'a self,
@@ -1031,8 +1009,6 @@ impl Scene {
         camera_bind_group: &'a wgpu::BindGroup,
         queue: &wgpu::Queue,
     ){
-        // render_pass.draw_axes(&self.axes, camera_bind_group);
-
         for entity in &self.entities {
             entity.draw(render_pass, camera_bind_group, queue);
         }
@@ -1118,11 +1094,6 @@ impl Scene {
     }
 
     fn read_remaining_buffers(&mut self, device: &wgpu::Device, width: u32, height: u32){
-        /*
-        final buffer write to index 0
-        read buffer[2]
-        read buffer
-         */
         for i in 0..NUM_CAPTURE_BUFFERS {
             let index = (self.frame_counter + i) % NUM_CAPTURE_BUFFERS;
             let mut saved_frame = Scene::read_capture_buf(device, &self.capture_buffers, width, height, index).expect("problem with reading final few buffers");

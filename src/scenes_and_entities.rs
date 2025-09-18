@@ -17,9 +17,10 @@ use std::io::Write;
 // use ndarray::s;
 
 use crate::text::GlyphVertex;
-use crate::{model, camera, com};
+use crate::{model, camera, com, text};
 
 use model::{DrawModel, Vertex};
+use text::{TextDisplay};
 
 const DATA_ARR_WIDTH: usize = 9;
 const AVERAGE_REFRESH_RATE: usize = 16;
@@ -844,6 +845,7 @@ impl<'a> State<'a> {
 pub struct Scene {
     axes: model::Axes,
     entities: Vec<Entity>,
+    text_boxes: Vec<text::TextDisplay>,
     timesteps: Option<usize>,
     data_counter: Option<usize>,
     frame_counter: usize,
@@ -852,8 +854,16 @@ pub struct Scene {
 }
 
 impl Scene {
-    pub fn new(entities: Vec<Entity>, timesteps: Option<usize>, data_counter: Option<usize>, device: &wgpu::Device, screen_size: u64) -> Self {
+    pub fn new(
+        entities: Vec<Entity>, 
+        timesteps: Option<usize>, 
+        data_counter: Option<usize>, 
+        device: &wgpu::Device, 
+        text_bind_group_layout: &wgpu::BindGroupLayout,
+        screen_size: u64
+    ) -> Self {
         let axes = model::Axes::new(device);
+        let text_boxes = Scene::init_text_boxes(device, text_bind_group_layout);
         let frame_counter: usize = 0;
         let capture_buffers = Scene::init_capture_buffers(
             device, 
@@ -864,12 +874,27 @@ impl Scene {
         Scene{
             axes,
             entities,
+            text_boxes,
             timesteps,
             data_counter,
             frame_counter,
             capture_buffers,
             screen_recordings,
         }
+    }
+
+    fn init_text_boxes(device: &wgpu::Device, text_bind_group_layout: &wgpu::BindGroupLayout) -> Vec<TextDisplay> {
+        let dummy_text = text::TextDisplay::new(
+            content: "Dummy Text",
+            glyph_map: ,
+            0,
+            0,
+            color: cgmath::Vector3(255.0, 255.0, 255.0),
+            device: device,
+            bind_group_layout: text_bind_group_layout,
+        );
+
+        vec![dummy_text]
     }
 
     pub fn run_behaviors(&mut self) {
@@ -925,7 +950,13 @@ impl Scene {
     //     self.get_entity(target_entity_id).expect("Out of bounds!").run_behavior(behavior);
     // }
 
-    fn load_scene_from_hdf5(filepath: &str, device: &wgpu::Device, model_bind_group_layout: &wgpu::BindGroupLayout, screen_size: u64) -> hdf5::Result<Scene> {
+    fn load_scene_from_hdf5(
+        filepath: &str, 
+        device: &wgpu::Device, 
+        model_bind_group_layout: &wgpu::BindGroupLayout, 
+        text_bind_group_layout: &wgpu::BindGroupLayout,
+        screen_size: u64
+    ) -> hdf5::Result<Scene> {
         let file = File::open(filepath).unwrap();
         let vehicles = file.group("Vehicles").unwrap();
         let vehicles_vec = vehicles.groups().unwrap();
@@ -951,6 +982,7 @@ impl Scene {
             timesteps,
             data_counter,
             device,
+            text_bind_group_layout,
             screen_size,
         ))
     }
@@ -974,7 +1006,13 @@ impl Scene {
         Scene::load_scene_from_json_str(json_unparsed, device, model_bind_group_layout, screen_size)
     }
 
-    fn load_scene_from_json_str(json_unparsed: String, device: &wgpu::Device, model_bind_group_layout: &wgpu::BindGroupLayout, screen_size: u64) -> Scene {
+    fn load_scene_from_json_str(
+        json_unparsed: String, 
+        device: &wgpu::Device, 
+        model_bind_group_layout: &wgpu::BindGroupLayout, 
+        text_bind_group_layout: &wgpu::BindGroupLayout,
+        screen_size: u64,
+    ) -> Scene {
         let json: serde_json::Value = serde_json::from_str(&json_unparsed).unwrap();
         let timesteps = json["timesteps"].as_u64();
         let timesteps = timesteps.map(|e| e as usize);
@@ -995,6 +1033,7 @@ impl Scene {
             timesteps,
             data_counter,
             device,
+            text_bind_group_layout,
             screen_size,
         )
     }

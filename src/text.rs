@@ -1,15 +1,10 @@
-use glium::{implement_vertex, Surface};
-use glium::{texture::RawImage2d, Display, Texture2d, glutin::surface::WindowSurface};
-use wgpu::Texture;
+use wgpu::util::DeviceExt;
 use rusttype as rt;
 use image;
 use log::debug;
 use rt::{Font, Scale, point};
 use std::collections::HashMap;
 use std::sync::Arc;
-use dc::Rgba;
-
-use crate::dc::{self, uniformify_mat4, uniformify_vec4, Draw};
 
 /// Single character in the font. Has texture coordinates, size, bearing, and an advance.
 pub struct Glyph {
@@ -103,11 +98,19 @@ pub fn load_font_atlas(path: &str, font_size: f32) -> (image::RgbaImage, HashMap
 pub struct GlyphVertex {
     position: [f32; 3],
     uv: [f32; 2],
-    color: [f32; 3]
+    color: [f32; 4]
 }
 
 impl GlyphVertex {
-    fn desc() -> wgpu::VertexBufferLayout<'static> {
+    fn new(pos: [f32; 2], uv: [f32; 2]) -> Self {
+        GlyphVertex {
+            position: [pos[0], pos[1], 0.0],
+            uv,
+            color: [255.0, 255.0, 255.0, 0.0],
+        }
+    }
+
+    pub fn desc() -> wgpu::VertexBufferLayout<'static> {
         use std::mem;
         wgpu::VertexBufferLayout {
             array_stride: mem::size_of::<GlyphVertex>() as wgpu::BufferAddress,
@@ -126,7 +129,7 @@ impl GlyphVertex {
                 wgpu::VertexAttribute {
                     offset: mem::size_of::<[f32; 5]>() as wgpu::BufferAddress,
                     shader_location: 2,
-                    format: wgpu::VertexFormat::Float32x3,
+                    format: wgpu::VertexFormat::Float32x4,
                 },
             ],
         }
@@ -134,7 +137,7 @@ impl GlyphVertex {
 }
 
 /// Creates texture from font atlas for OpenGL
-pub fn create_texture_atlas(display: &Display<WindowSurface>, atlas: image::RgbaImage) -> Texture2d {
+pub fn create_texture_atlas(device: &wgpu::Device, queue: &wgpu::Queue, config: &wgpu::SurfaceConfiguration, atlas: image::RgbaImage) -> wgpu::Texture {
     let image_dimensions = atlas.dimensions();
     let raw_data = atlas.clone().into_raw(); // Convert to Vec<u8>
 
@@ -147,54 +150,68 @@ pub fn create_texture_atlas(display: &Display<WindowSurface>, atlas: image::Rgba
         expected_size,
         raw_data.len()
     );
-    debug!("Texture sample: {:?}", atlas.iter().take(20).collect::<Vec<_>>());
+    // debug!("Texture sample: {:?}", atlas.iter().take(20).collect::<Vec<_>>());
     // Checks it's in the correct format
-    let raw = RawImage2d::from_raw_rgba_reversed(&raw_data, image_dimensions);
-    let texture = Texture2d::with_format(
-            display, 
-            raw,
-        glium::texture::UncompressedFloatFormat::U8U8U8U8,
-        glium::texture::MipmapsOption::NoMipmap,
-    ).expect("Failed to create texture atlas");
-    return texture;
+    // let raw = RawImage2d::from_raw_rgba_reversed(&raw_data, image_dimensions);
+
+    // let texture = device.create_texture(&wgpu::TextureDescriptor {
+    //         label: Some("Texture Atlas"),
+    //         size: wgpu::Extent3d {
+    //             width: image_dimensions.0, 
+    //             height: image_dimensions.1, 
+    //             depth_or_array_layers: 1
+    //         },
+    //         mip_level_count: 1,
+    //         sample_count: 1,
+    //         dimension: wgpu::TextureDimension::D2,
+    //         format: config.format,
+    //         usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_SRC,
+    //         view_formats: &[],
+    //     });
+    
+    let texture = device.create_texture_with_data(
+        queue, 
+        &wgpu::TextureDescriptor {
+            label: Some("Texture Atlas"),
+            size: wgpu::Extent3d {
+                width: image_dimensions.0, 
+                height: image_dimensions.1, 
+                depth_or_array_layers: 1
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: config.format,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        }, 
+        wgpu::wgt::TextureDataOrder::LayerMajor, // not sure if this is correct 
+        &raw_data[..],
+    );
+
+    // let texture = Texture2d::with_format(
+    //         display, 
+    //         raw,
+    //     glium::texture::UncompressedFloatFormat::U8U8U8U8,
+    //     glium::texture::MipmapsOption::NoMipmap,
+    // ).expect("Failed to create texture atlas");
+    texture
 }
 
-// Struct for DATACOM to display text.
-pub struct TextDisplay {
-    content: String,
-    glyph_map: Arc<HashMap<char, Glyph>>,
-    texture_ref: Arc<Texture2d>,
-    x_start: f32,
-    y_start: f32,
-    color: Rgba,
+pub struct TextMesh {
+    vertex_buffer: wgpu::Buffer,
+    index_buffer: wgpu::Buffer,
+    num_elements: u32,
 }
 
-impl TextDisplay {
-    pub fn new(content: String, glyph_map: Arc<HashMap<char, Glyph>>, texture_ref: Arc<Texture2d>, x_start: f32, y_start: f32, color: Rgba) -> Self {
-        TextDisplay {
-            content: content,
-            glyph_map: glyph_map,
-            texture_ref: texture_ref, 
-            x_start: x_start,
-            y_start: y_start,
-            color: color,
-        }
-    }
-
-    /// Function to change text in string.
-    pub fn change_text(&mut self, new_string: String) {
-        self.content = new_string;
-    }
-}
-
-impl Draw for TextDisplay {
-    fn draw(&self, gui: &crate::dc::GuiContainer, context: &crate::dc::RenderContext, target: &mut glium::Frame) {
+impl TextMesh {
+    fn init_buffers(device: &wgpu::Device, content: &String, glyph_map: &Arc<HashMap<char, Glyph>>) -> Self {
         let mut vertices = vec![];
         let mut indices = vec![];
         let mut cursor_x = 0.0;
         // debug!("Drawing text");
-        for (i, c) in (&self).content.chars().enumerate() {
-            if let Some(glyph) = self.glyph_map.get(&c) {
+        for (i, c) in content.chars().enumerate() {
+            if let Some(glyph) = glyph_map.get(&c) {
                 let x0 = cursor_x + glyph.bearing[0];
                 let y0 = 0.0 - glyph.bearing[1];
                 let x1 = x0 + glyph.size[0];
@@ -202,10 +219,10 @@ impl Draw for TextDisplay {
 
                 let tex_coords = glyph.tex_coords;
                 let base = (i * 4) as u16;
-                vertices.push(TextureVertex::new([x0, y0], [tex_coords[0], 1.0 - tex_coords[1]]));
-                vertices.push(TextureVertex::new([x1, y0], [tex_coords[2], 1.0 - tex_coords[1]]));
-                vertices.push(TextureVertex::new([x1, y1], [tex_coords[2], 1.0 - tex_coords[3]]));
-                vertices.push(TextureVertex::new([x0, y1], [tex_coords[0], 1.0 - tex_coords[3]]));
+                vertices.push(GlyphVertex::new([x0, y0], [tex_coords[0], 1.0 - tex_coords[1]]));
+                vertices.push(GlyphVertex::new([x1, y0], [tex_coords[2], 1.0 - tex_coords[1]]));
+                vertices.push(GlyphVertex::new([x1, y1], [tex_coords[2], 1.0 - tex_coords[3]]));
+                vertices.push(GlyphVertex::new([x0, y1], [tex_coords[0], 1.0 - tex_coords[3]]));
 
                 indices.extend_from_slice(&[
                     base, base+1, base+2, 
@@ -215,46 +232,165 @@ impl Draw for TextDisplay {
             }
         }
 
-        // debug!("Text vertices: {:?}", vertices);
-        let vertex_buffer = glium::VertexBuffer::new(&gui.display, &vertices).unwrap();
-        let index_buffer = glium::IndexBuffer::new(&gui.display, glium::index::PrimitiveType::TrianglesList, &indices).unwrap();
+        let vertex_data = bytemuck::cast_slice(&vertices);
+        let index_data = bytemuck::cast_slice(&indices);
 
-        let draw_params = glium::DrawParameters {
-            depth: glium::Depth {
-                test: glium::DepthTest::IfLess,
-                write: false,
-                ..Default::default()
-            },
-            blend: glium::Blend {
-                color: glium::BlendingFunction::Addition {
-                    source: glium::LinearBlendingFactor::SourceAlpha,
-                    destination: glium::LinearBlendingFactor::OneMinusSourceAlpha,
-                },
-                alpha: glium::BlendingFunction::Addition {
-                    source: glium::LinearBlendingFactor::One,
-                    destination: glium::LinearBlendingFactor::OneMinusSourceAlpha,
-                },
-                ..Default::default()
-            },
-            ..Default::default()
-        };
+        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Text Vertex Buffer"),
+            contents: vertex_data,
+            usage: wgpu::BufferUsages::VERTEX,
+        });
+
+        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Text Index Buffer"),
+            contents: index_data,
+            usage: wgpu::BufferUsages::INDEX,
+        });
+
+        let num_elements = indices.len() as u32;
+
+        TextMesh {
+            vertex_buffer,
+            index_buffer,
+            num_elements,
+        }
+    }
+}
+
+// Struct for DATACOM to display text.
+pub struct TextDisplay {
+    content: String,
+    glyph_map: Arc<HashMap<char, Glyph>>,
+    mesh: TextMesh,
+    x_start: f32,
+    y_start: f32,
+    color: cgmath::Vector3<f32>,
+    bind_group: wgpu::BindGroup,
+}
+
+impl TextDisplay {
+    pub fn new(
+        content: String, 
+        glyph_map: Arc<HashMap<char, Glyph>>, 
+        x_start: f32, 
+        y_start: f32, 
+        color: cgmath::Vector3<f32>,
+        device: &wgpu::Device,
+        bind_group_layout: &wgpu::BindGroupLayout,
+    ) -> Self {
+        let mesh = TextMesh::init_buffers(device, &content, &glyph_map);
+
+        let uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("TextDisplay Uniform Buffer"),
+            size: std::mem::size_of::<[[f32; 4]; 4]>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        let text_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: uniform_buffer.as_entire_binding(),
+            }],
+            label: Some("TextDisplay Bind Group"),
+        });
+
+        TextDisplay {
+            content: content,
+            glyph_map: glyph_map,
+            x_start: x_start,
+            y_start: y_start,
+            color: color,
+            mesh: mesh,
+            bind_group: text_bind_group,
+        }
+    }
+
+    /// Function to change text in string.
+    pub fn change_text(&mut self, new_string: String) {
+        self.content = new_string;
+    }
+}
+
+pub trait DrawText<'a> {
+    fn draw_text(
+        &mut self,
+        text: &'a TextDisplay,
+        camera_bind_group: &'a wgpu::BindGroup,
+        text_bind_group: &'a wgpu::BindGroup,
+    );
+}
+
+impl<'a, 'b> DrawText<'b> for wgpu::RenderPass<'a> 
+where 
+    'b: 'a,
+{
+    fn draw_text(
+        &mut self, 
+        text: &'b TextDisplay,
+        camera_bind_group: &'b wgpu::BindGroup,
+        text_bind_group: &'b wgpu::BindGroup,
+    ) {
+        // goal: create a vertex buffer
+        // the buffer is composed of GlyphVertex, which have a position, tex coords, and color
+        // the positions are derived from TextDisplay coords and offset/advance of the Glyphs
+        // 
         
-        // let uniforms = glium::uniform! { tex: &*self.texture_ref, color_obj: uniformify_vec4(dc::green_vec()) };
-        let screen_size = [gui.display.get_framebuffer_dimensions().0 as f32, gui.display.get_framebuffer_dimensions().1 as f32];
 
-        let model = na::Matrix4::new_translation(&na::Vector3::new(self.x_start, self.y_start, 0.0));
-        let projection = na::Matrix4::new_orthographic(0.0, screen_size[0], 0.0, screen_size[1], 0.1, 1000.0);
+        // // debug!("Text vertices: {:?}", vertices);
+        // let vertex_buffer = glium::VertexBuffer::new(&gui.display, &vertices).unwrap();
+        // let index_buffer = glium::IndexBuffer::new(&gui.display, glium::index::PrimitiveType::TrianglesList, &indices).unwrap();
 
-        let uniforms = glium::uniform! {
-            tex: &*self.texture_ref,
-            color_obj: uniformify_vec4(self.color),
-            model: uniformify_mat4(model),
-            projection: uniformify_mat4(projection),
-            screen_size: screen_size,
-        };
+        // let draw_params = glium::DrawParameters {
+        //     depth: glium::Depth {
+        //         test: glium::DepthTest::IfLess,
+        //         write: false,
+        //         ..Default::default()
+        //     },
+        //     blend: glium::Blend {
+        //         color: glium::BlendingFunction::Addition {
+        //             source: glium::LinearBlendingFactor::SourceAlpha,
+        //             destination: glium::LinearBlendingFactor::OneMinusSourceAlpha,
+        //         },
+        //         alpha: glium::BlendingFunction::Addition {
+        //             source: glium::LinearBlendingFactor::One,
+        //             destination: glium::LinearBlendingFactor::OneMinusSourceAlpha,
+        //         },
+        //         ..Default::default()
+        //     },
+        //     ..Default::default()
+        // };
+        
+        // // let uniforms = glium::uniform! { tex: &*self.texture_ref, color_obj: uniformify_vec4(dc::green_vec()) };
+        // let screen_size = [gui.display.get_framebuffer_dimensions().0 as f32, gui.display.get_framebuffer_dimensions().1 as f32];
+
+        // let model = na::Matrix4::new_translation(&na::Vector3::new(self.x_start, self.y_start, 0.0));
+        // let projection = na::Matrix4::new_orthographic(0.0, screen_size[0], 0.0, screen_size[1], 0.1, 1000.0);
+
+        // let uniforms = glium::uniform! {
+        //     tex: &*self.texture_ref,
+        //     color_obj: uniformify_vec4(self.color),
+        //     model: uniformify_mat4(model),
+        //     projection: uniformify_mat4(projection),
+        //     screen_size: screen_size,
+        // };
         
 
-        target.draw(&vertex_buffer, &index_buffer, &gui.text_shaders, &uniforms, &draw_params).unwrap();
+        // target.draw(&vertex_buffer, &index_buffer, &gui.text_shaders, &uniforms, &draw_params).unwrap();
+        
+
+        // queue.write_buffer(&vertex_buffer, 0, bytemuck::cast_slice(&vertices));
+
+        // create vertex buffer
+        // create index buffer
+        // create bind group
+
+        self.set_bind_group(0, camera_bind_group, &[]);
+        self.set_bind_group(1, text_bind_group, &[]);
+        self.set_vertex_buffer(0, text.mesh.vertex_buffer.slice(..));
+        self.set_index_buffer(text.mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+        self.draw_indexed(0..text.mesh.num_elements, 0, 0..1);
     }
 }
 

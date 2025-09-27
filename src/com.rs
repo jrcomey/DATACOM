@@ -199,23 +199,6 @@ pub fn create_sender_thread() -> Result<thread::JoinHandle<()>, Box<dyn std::err
 
 }
 
-pub fn get_font() -> String{
-    #[cfg(target_os="macos")]
-    {
-        "/Library/Fonts/Arial Unicode.ttf".to_string()
-    }
-
-    #[cfg(target_os="windows")]
-    {
-        "/usr/share/fonts/truetype/futura/JetBrainsMono-Bold.ttf".to_string()
-    }
-
-    #[cfg(target_os="linux")]
-    {
-        "/usr/share/fonts/truetype/futura/JetBrainsMono-Bold.ttf".to_string()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::{path::Path, net::{SocketAddr, TcpListener, TcpStream}, sync::mpsc, thread};

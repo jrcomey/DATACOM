@@ -9,6 +9,7 @@ use winit::{
 };
 use std::rc::Rc;
 use std::cell::RefCell;
+use std::sync::Arc;
 use log::{debug, info, error};
 use cgmath::{EuclideanSpace, Rotation3};
 use hdf5::File;
@@ -16,7 +17,7 @@ use std::process::{Command, Stdio};
 use std::io::Write;
 // use ndarray::s;
 
-use crate::text::GlyphVertex;
+use crate::text::{get_font, GlyphVertex};
 use crate::{model, camera, com, text};
 
 use model::{DrawModel, Vertex};
@@ -352,6 +353,9 @@ pub struct State<'a> {
     camera_uniform: camera::CameraUniform,
     camera_buffer: wgpu::Buffer,
     camera_bind_group: wgpu::BindGroup,
+    ortho_transform_matrix: cgmath::Matrix4<f32>,
+    ortho_transform_buffer: wgpu::Buffer,
+    ortho_matrix_bind_group: wgpu::BindGroup,
     // #[allow(dead_code)]
     // instances: Vec<Instance>,
     // #[allow(dead_code)]
@@ -474,7 +478,7 @@ impl<'a> State<'a> {
             .find(|f| f.is_srgb())
             .unwrap_or(surface_caps.formats[0]);
         let config = wgpu::SurfaceConfiguration {
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_DST,
             format: surface_format,
             width: size.width,
             height: size.height,
@@ -555,6 +559,40 @@ impl<'a> State<'a> {
             label: Some("Camera Bind Group"),
         });
 
+        let ortho_transform_matrix: Matrix4<f32> = cgmath::ortho(0.0, size.width as f32, size.height as f32, 0.0, -1.0, 1.0);
+        let ortho_transform_arr: [[f32; 4]; 4] = ortho_transform_matrix.into();
+
+        let ortho_transform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Ortho transform matrix buffer"),
+            contents: bytemuck::cast_slice(&ortho_transform_arr),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+
+        let ortho_matrix_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("Ortho Transformation Matrix"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }
+            ]
+        });
+
+        let ortho_matrix_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Ortho Matrix Bind Group"),
+            layout: &ortho_matrix_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: ortho_transform_buffer.as_entire_binding(),
+            }],
+        });
+
         let text_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             entries: &[
                 wgpu::BindGroupLayoutEntry {
@@ -578,11 +616,38 @@ impl<'a> State<'a> {
         });
 
         let scene = if filepath.ends_with(".hdf5"){
-            Scene::load_scene_from_hdf5(filepath, &device, &model_bind_group_layout, (size.width * size.height) as u64).unwrap()
+            Scene::load_scene_from_hdf5(
+                filepath, 
+                &device, 
+                &queue, 
+                &config, 
+                &model_bind_group_layout, 
+                &text_bind_group_layout, 
+                size.width, 
+                size.height, 
+            ).unwrap()
         } else if filepath.ends_with(".json"){
-            Scene::load_scene_from_json(filepath, &device, &model_bind_group_layout, (size.width * size.height) as u64)
+            Scene::load_scene_from_json(
+                filepath, 
+                &device, 
+                &queue, 
+                &config, 
+                &model_bind_group_layout, 
+                &text_bind_group_layout, 
+                size.width, 
+                size.height, 
+            )
         } else {
-            Scene::load_scene_from_network(filepath, &device, &model_bind_group_layout, (size.width * size.height) as u64).unwrap()
+            Scene::load_scene_from_network(
+                filepath, 
+                &device, 
+                &queue,
+                &config,
+                &model_bind_group_layout, 
+                &text_bind_group_layout, 
+                size.width, 
+                size.height, 
+            ).unwrap()
         };
 
         let render_pipeline_layout: wgpu::PipelineLayout =
@@ -591,6 +656,15 @@ impl<'a> State<'a> {
                 bind_group_layouts: &[
                     &camera_bind_group_layout,
                     &model_bind_group_layout,
+                    ],
+                push_constant_ranges: &[],
+            });
+
+        let text_render_pipeline_layout: wgpu::PipelineLayout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Render Pipeline Layout"),
+                bind_group_layouts: &[
+                    &ortho_matrix_bind_group_layout,
                     &text_bind_group_layout,
                     ],
                 push_constant_ranges: &[],
@@ -633,7 +707,7 @@ impl<'a> State<'a> {
             };
             State::create_render_pipeline(
                 &device, 
-                &render_pipeline_layout, 
+                &text_render_pipeline_layout, 
                 config.format, 
                 &[GlyphVertex::desc()], 
                 shader, 
@@ -659,6 +733,9 @@ impl<'a> State<'a> {
             camera_buffer,
             camera_bind_group,
             camera_uniform,
+            ortho_transform_matrix,
+            ortho_transform_buffer,
+            ortho_matrix_bind_group,
             window,
             mouse_pressed: false,
         }
@@ -674,6 +751,12 @@ impl<'a> State<'a> {
             self.size = new_size;
             self.config.width = new_size.width;
             self.config.height = new_size.height;
+            let ortho_transform_arr: [[f32; 4]; 4] = self.ortho_transform_matrix.into();
+            self.queue.write_buffer(
+                &self.ortho_transform_buffer, 
+                0, 
+                bytemuck::cast_slice(&ortho_transform_arr)
+            );
             self.surface.configure(&self.device, &self.config);
         }
     }
@@ -809,29 +892,30 @@ impl<'a> State<'a> {
             // a Vec<[[f32; 4]; 4]>
             // each matrix contains entity_transform * model_transform
             //
-            self.scene.draw(&mut render_pass, &self.camera_bind_group, &self.queue);
+            // println!("ortho matrix: {:?}", self.ortho_transform_matrix);
+            self.scene.draw(&mut render_pass, &self.camera_bind_group, &self.ortho_matrix_bind_group, &self.text_render_pipeline, &self.queue);
         }
 
         {
             encoder.copy_texture_to_texture(
+                wgpu::TexelCopyTextureInfo {
+                    texture: &self.offscreen_texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
             wgpu::TexelCopyTextureInfo {
-                texture: &self.offscreen_texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            wgpu::TexelCopyTextureInfo {
-                texture: &output.texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
+                    texture: &output.texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
             wgpu::Extent3d {
-                width: self.size.width,
-                height: self.size.height,
-                depth_or_array_layers: 1,
-            },
-        );
+                    width: self.size.width,
+                    height: self.size.height,
+                    depth_or_array_layers: 1,
+                },
+            );
         }
 
         self.queue.submit(iter::once(encoder.finish()));
@@ -859,17 +943,21 @@ impl Scene {
         timesteps: Option<usize>, 
         data_counter: Option<usize>, 
         device: &wgpu::Device, 
+        queue: &wgpu::Queue,
+        config: &wgpu::SurfaceConfiguration,
         text_bind_group_layout: &wgpu::BindGroupLayout,
-        screen_size: u64
+        screen_width: u32,
+        screen_height: u32,
     ) -> Self {
         let axes = model::Axes::new(device);
-        let text_boxes = Scene::init_text_boxes(device, text_bind_group_layout);
+        let text_boxes = Scene::init_text_boxes(device, queue, config, text_bind_group_layout);
         let frame_counter: usize = 0;
         let capture_buffers = Scene::init_capture_buffers(
             device, 
             NUM_CAPTURE_BUFFERS, 
-            (Into::<u64>::into(BYTES_PER_PIXEL) * screen_size) as wgpu::BufferAddress
+            (Into::<u64>::into(BYTES_PER_PIXEL) * ((screen_width * screen_height) as u64)) as wgpu::BufferAddress
         );
+
         let screen_recordings = Vec::new();
         Scene{
             axes,
@@ -883,18 +971,45 @@ impl Scene {
         }
     }
 
-    fn init_text_boxes(device: &wgpu::Device, text_bind_group_layout: &wgpu::BindGroupLayout) -> Vec<TextDisplay> {
-        let dummy_text = text::TextDisplay::new(
-            content: "Dummy Text",
-            glyph_map: ,
-            0,
-            0,
-            color: cgmath::Vector3(255.0, 255.0, 255.0),
-            device: device,
-            bind_group_layout: text_bind_group_layout,
-        );
+    fn init_text_boxes(
+        device: &wgpu::Device, 
+        queue: &wgpu::Queue,
+        config: &wgpu::SurfaceConfiguration,
+        text_bind_group_layout: &wgpu::BindGroupLayout
+    ) -> Vec<TextDisplay> {
+        let (image_atlas, glyph_map) = text::load_font_atlas(&text::get_font(), 100.0);
+        let glyph_map = Arc::new(glyph_map);
+        let texture_atlas = Arc::new(text::create_texture_atlas(device, queue, config, image_atlas));
+        let atlas_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Nearest,
+            mipmap_filter: wgpu::FilterMode::Nearest,
+            ..Default::default()
+        });
 
-        vec![dummy_text]
+        let text_objects: Vec<TextDisplay> = vec![
+            TextDisplay::new(
+                "Hello World!".to_string(), 
+                glyph_map.clone(), 
+                0.5, 
+                0.5, 
+                cgmath::Vector3::new(0.0, 255.0, 0.0),
+                device,
+                &texture_atlas,
+                &atlas_sampler,
+                text_bind_group_layout,
+            )
+        ];
+
+        // TextDisplay::new("Hello World!".to_string(), glyph_map.clone(), texture_atlas.clone(), 0.0, 0.0, green_vec()),
+        // TextDisplay::new("DATACOM VER 0.1.0".to_string(), glyph_map.clone(), texture_atlas.clone(), -1.0, 0.90, green_vec()),
+        // TextDisplay::new((' '..='~').collect(), glyph_map.clone(), texture_atlas.clone(), -1.0, -1.0, green_vec()),
+        // TextDisplay::new("FPS Counter: 0.0".to_string(), glyph_map.clone(), texture_atlas.clone(), 0.6, 0.9, cyan_vec()),
+
+        text_objects
     }
 
     pub fn run_behaviors(&mut self) {
@@ -953,9 +1068,12 @@ impl Scene {
     fn load_scene_from_hdf5(
         filepath: &str, 
         device: &wgpu::Device, 
+        queue: &wgpu::Queue,
+        config: &wgpu::SurfaceConfiguration, 
         model_bind_group_layout: &wgpu::BindGroupLayout, 
         text_bind_group_layout: &wgpu::BindGroupLayout,
-        screen_size: u64
+        screen_width: u32,
+        screen_height: u32,
     ) -> hdf5::Result<Scene> {
         let file = File::open(filepath).unwrap();
         let vehicles = file.group("Vehicles").unwrap();
@@ -982,8 +1100,11 @@ impl Scene {
             timesteps,
             data_counter,
             device,
+            queue,
+            config,
             text_bind_group_layout,
-            screen_size,
+            screen_width, 
+            screen_height,
         ))
     }
 
@@ -1001,17 +1122,38 @@ impl Scene {
         None
     }
 
-    fn load_scene_from_json(filepath: &str, device: &wgpu::Device, model_bind_group_layout: &wgpu::BindGroupLayout, screen_size: u64) -> Scene {
+    fn load_scene_from_json(
+        filepath: &str, 
+        device: &wgpu::Device, 
+        queue: &wgpu::Queue,
+        config: &wgpu::SurfaceConfiguration, 
+        model_bind_group_layout: &wgpu::BindGroupLayout, 
+        text_bind_group_layout: &wgpu::BindGroupLayout,
+        screen_width: u32,
+        screen_height: u32,
+    ) -> Scene {
         let json_unparsed = std::fs::read_to_string(filepath).unwrap();
-        Scene::load_scene_from_json_str(json_unparsed, device, model_bind_group_layout, screen_size)
+        Scene::load_scene_from_json_str(
+            json_unparsed, 
+            device, 
+            queue, 
+            config, 
+            model_bind_group_layout, 
+            text_bind_group_layout, 
+            screen_width, 
+            screen_height,
+        )
     }
 
     fn load_scene_from_json_str(
         json_unparsed: String, 
         device: &wgpu::Device, 
+        queue: &wgpu::Queue,
+        config: &wgpu::SurfaceConfiguration, 
         model_bind_group_layout: &wgpu::BindGroupLayout, 
         text_bind_group_layout: &wgpu::BindGroupLayout,
-        screen_size: u64,
+        screen_width: u32,
+        screen_height: u32,
     ) -> Scene {
         let json: serde_json::Value = serde_json::from_str(&json_unparsed).unwrap();
         let timesteps = json["timesteps"].as_u64();
@@ -1033,12 +1175,24 @@ impl Scene {
             timesteps,
             data_counter,
             device,
+            queue,
+            config,
             text_bind_group_layout,
-            screen_size,
+            screen_width, 
+            screen_height,
         )
     }
 
-    pub fn load_scene_from_network(addr: &str, device: &wgpu::Device, model_bind_group_layout: &wgpu::BindGroupLayout, screen_size: u64) -> Result<Scene, Box<dyn std::error::Error>> {
+    pub fn load_scene_from_network(
+        addr: &str, 
+        device: &wgpu::Device, 
+        queue: &wgpu::Queue,
+        config: &wgpu::SurfaceConfiguration, 
+        model_bind_group_layout: &wgpu::BindGroupLayout, 
+        text_bind_group_layout: &wgpu::BindGroupLayout, 
+        screen_width: u32,
+        screen_height: u32,
+    ) -> Result<Scene, Box<dyn std::error::Error>> {
         // Open port
         let listener = std::net::TcpListener::bind(addr).unwrap();
         let mut num_attempt = 0;
@@ -1079,7 +1233,18 @@ impl Scene {
         
         // Load Scene from initialization packet
 
-        Ok(Scene::load_scene_from_json_str(initialization_packet, device, model_bind_group_layout, screen_size))
+        Ok(
+            Scene::load_scene_from_json_str(
+                initialization_packet, 
+                device, 
+                queue,
+                config,
+                model_bind_group_layout, 
+                text_bind_group_layout,
+                screen_width, 
+                screen_height,
+            )
+        )
         
     }
 
@@ -1087,10 +1252,19 @@ impl Scene {
         &'a self,
         render_pass: &mut wgpu::RenderPass<'a>,
         camera_bind_group: &'a wgpu::BindGroup,
+        ortho_matrix_bind_group: &'a wgpu::BindGroup,
+        text_render_pipeline: &'a wgpu::RenderPipeline,
         queue: &wgpu::Queue,
     ){
         for entity in &self.entities {
             entity.draw(render_pass, camera_bind_group, queue);
+        }
+
+        // println!("preparing to draw text");
+        render_pass.set_pipeline(text_render_pipeline);
+        for text_box in &self.text_boxes {
+            // println!("drawing text");
+            text_box.draw(ortho_matrix_bind_group, render_pass);
         }
     }
 

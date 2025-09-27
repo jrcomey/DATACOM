@@ -205,15 +205,16 @@ pub struct TextMesh {
 }
 
 impl TextMesh {
-    fn init_buffers(device: &wgpu::Device, content: &String, glyph_map: &Arc<HashMap<char, Glyph>>) -> Self {
+    fn init_buffers(device: &wgpu::Device, content: &String, glyph_map: &Arc<HashMap<char, Glyph>>, x_offset: f32, y_offset: f32) -> Self {
         let mut vertices = vec![];
         let mut indices = vec![];
         let mut cursor_x = 0.0;
+        // let ortho_transform_matrix: cgmath::Matrix4<f32> = cgmath::ortho(0.0, 800.0, 600.0, 0.0, -1.0, 1.0);
         // debug!("Drawing text");
         for (i, c) in content.chars().enumerate() {
             if let Some(glyph) = glyph_map.get(&c) {
-                let x0 = cursor_x + glyph.bearing[0];
-                let y0 = 0.0 - glyph.bearing[1];
+                let x0 = x_offset + cursor_x + glyph.bearing[0];
+                let y0 = y_offset - glyph.bearing[1];
                 let x1 = x0 + glyph.size[0];
                 let y1 = y0 - glyph.size[1];
 
@@ -223,6 +224,11 @@ impl TextMesh {
                 vertices.push(GlyphVertex::new([x1, y0], [tex_coords[2], 1.0 - tex_coords[1]]));
                 vertices.push(GlyphVertex::new([x1, y1], [tex_coords[2], 1.0 - tex_coords[3]]));
                 vertices.push(GlyphVertex::new([x0, y1], [tex_coords[0], 1.0 - tex_coords[3]]));
+                // println!("Coords for glyph {i}: {x0}, {y0}, {x1}, {y1}");
+                // let vec1 = cgmath::Vector2::new(x0, y0);
+                // let vec2 = cgmath::Vector2::new(x1, y1);
+                // println!("transform 1 = {:?}", ortho_transform_matrix * vec1);
+                // println!("transform 2 = {:?}", ortho_transform_matrix * vec2);
 
                 indices.extend_from_slice(&[
                     base, base+1, base+2, 
@@ -276,33 +282,36 @@ impl TextDisplay {
         y_start: f32, 
         color: cgmath::Vector3<f32>,
         device: &wgpu::Device,
+        texture_atlas: &wgpu::Texture,
+        atlas_sampler: &wgpu::Sampler,
         bind_group_layout: &wgpu::BindGroupLayout,
     ) -> Self {
-        let mesh = TextMesh::init_buffers(device, &content, &glyph_map);
+        let mesh = TextMesh::init_buffers(device, &content, &glyph_map, x_start, y_start);
 
-        let uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("TextDisplay Uniform Buffer"),
-            size: std::mem::size_of::<[[f32; 4]; 4]>() as u64,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
+        let texture_atlas_view = texture_atlas.create_view(&wgpu::TextureViewDescriptor::default());
 
         let text_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: uniform_buffer.as_entire_binding(),
-            }],
             label: Some("TextDisplay Bind Group"),
+            layout: bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&texture_atlas_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&atlas_sampler),
+                },
+            ],
         });
 
         TextDisplay {
-            content: content,
-            glyph_map: glyph_map,
-            x_start: x_start,
-            y_start: y_start,
-            color: color,
-            mesh: mesh,
+            content,
+            glyph_map,
+            x_start,
+            y_start,
+            color,
+            mesh,
             bind_group: text_bind_group,
         }
     }
@@ -311,13 +320,21 @@ impl TextDisplay {
     pub fn change_text(&mut self, new_string: String) {
         self.content = new_string;
     }
+
+    pub fn draw<'a>(
+        &'a self,
+        ortho_matrix_bind_group: &'a wgpu::BindGroup,
+        render_pass: &mut wgpu::RenderPass<'a>,
+    ) {
+        render_pass.draw_text(&self, ortho_matrix_bind_group, &self.bind_group);
+    }
 }
 
 pub trait DrawText<'a> {
     fn draw_text(
         &mut self,
         text: &'a TextDisplay,
-        camera_bind_group: &'a wgpu::BindGroup,
+        ortho_matrix_bind_group: &'a wgpu::BindGroup,
         text_bind_group: &'a wgpu::BindGroup,
     );
 }
@@ -329,7 +346,7 @@ where
     fn draw_text(
         &mut self, 
         text: &'b TextDisplay,
-        camera_bind_group: &'b wgpu::BindGroup,
+        ortho_matrix_bind_group: &'b wgpu::BindGroup,
         text_bind_group: &'b wgpu::BindGroup,
     ) {
         // goal: create a vertex buffer
@@ -386,7 +403,7 @@ where
         // create index buffer
         // create bind group
 
-        self.set_bind_group(0, camera_bind_group, &[]);
+        self.set_bind_group(0, ortho_matrix_bind_group, &[]);
         self.set_bind_group(1, text_bind_group, &[]);
         self.set_vertex_buffer(0, text.mesh.vertex_buffer.slice(..));
         self.set_index_buffer(text.mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
@@ -426,3 +443,20 @@ where
 // impl Curve {
     
 // }
+
+pub fn get_font() -> String{
+    #[cfg(target_os="macos")]
+    {
+        "/Library/Fonts/Arial Unicode.ttf".to_string()
+    }
+
+    #[cfg(target_os="windows")]
+    {
+        "/usr/share/fonts/truetype/futura/JetBrainsMono-Bold.ttf".to_string()
+    }
+
+    #[cfg(target_os="linux")]
+    {
+        "/usr/share/fonts/truetype/futura/JetBrainsMono-Bold.ttf".to_string()
+    }
+}

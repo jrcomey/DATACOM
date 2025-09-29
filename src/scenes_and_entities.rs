@@ -371,6 +371,7 @@ impl<'a> State<'a> {
         vertex_layouts: &[wgpu::VertexBufferLayout],
         shader: wgpu::ShaderModuleDescriptor,
         topology: wgpu::PrimitiveTopology,
+        polygon_mode: wgpu::PolygonMode,
     ) -> wgpu::RenderPipeline {
         let shader = device.create_shader_module(shader);
 
@@ -402,7 +403,7 @@ impl<'a> State<'a> {
                 front_face: wgpu::FrontFace::Ccw,
                 cull_mode: Some(wgpu::Face::Back),
                 // Setting this to anything other than Fill requires Features::NON_FILL_POLYGON_MODE
-                polygon_mode: wgpu::PolygonMode::Line,
+                polygon_mode: polygon_mode,
                 // Requires Features::DEPTH_CLIP_CONTROL
                 unclipped_depth: false,
                 // Requires Features::CONSERVATIVE_RASTERIZATION
@@ -682,6 +683,7 @@ impl<'a> State<'a> {
                 &[model::ModelVertex::desc()],
                 shader,
                 wgpu::PrimitiveTopology::TriangleList,
+                wgpu::PolygonMode::Line,
             )
         };
 
@@ -697,6 +699,7 @@ impl<'a> State<'a> {
                 &[model::ModelVertex::desc()],
                 shader,
                 wgpu::PrimitiveTopology::LineList,
+                wgpu::PolygonMode::Line,
             )
         };
 
@@ -712,6 +715,7 @@ impl<'a> State<'a> {
                 &[GlyphVertex::desc()], 
                 shader, 
                 wgpu::PrimitiveTopology::TriangleList,
+                wgpu::PolygonMode::Fill,
             )
         };
         
@@ -782,6 +786,14 @@ impl<'a> State<'a> {
                 ..
             } => {
                 self.mouse_pressed = *state == ElementState::Pressed;
+                true
+            }
+            WindowEvent::CursorMoved {
+                position,
+                ..
+            } if self.mouse_pressed => {
+                println!("mouse pressed");
+                println!("({}, {})", position.x, position.y);
                 true
             }
             _ => false,
@@ -994,8 +1006,8 @@ impl Scene {
             TextDisplay::new(
                 "Hello World!".to_string(), 
                 glyph_map.clone(), 
-                0.5, 
-                0.5, 
+                50.0, 
+                200.0, 
                 cgmath::Vector3::new(0.0, 255.0, 0.0),
                 device,
                 &texture_atlas,

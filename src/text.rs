@@ -1,8 +1,7 @@
 use wgpu::util::DeviceExt;
-use rusttype as rt;
 use image;
 use log::debug;
-use rt::{Font, Scale, point};
+use rusttype::{Font, Scale, point};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -21,7 +20,6 @@ pub fn load_font_atlas(path: &str, font_size: f32) -> (image::RgbaImage, HashMap
     debug!("Font info: {:?}", font);
 
     let scale = Scale::uniform(font_size);
-    let v_metrics = font.v_metrics(scale);
 
     let chars: Vec<char> = (' '..='~').collect(); // ASCII range
     let mut glyph_infos = HashMap::new();
@@ -106,7 +104,7 @@ impl GlyphVertex {
         GlyphVertex {
             position: [pos[0], pos[1], 0.0],
             uv,
-            color: [255.0, 255.0, 255.0, 0.0],
+            color: [255.0, 255.0, 255.0, 255.0],
         }
     }
 
@@ -137,9 +135,17 @@ impl GlyphVertex {
 }
 
 /// Creates texture from font atlas for OpenGL
-pub fn create_texture_atlas(device: &wgpu::Device, queue: &wgpu::Queue, config: &wgpu::SurfaceConfiguration, atlas: image::RgbaImage) -> wgpu::Texture {
+pub fn create_texture_atlas(
+    device: &wgpu::Device, 
+    queue: &wgpu::Queue, 
+    config: &wgpu::SurfaceConfiguration, 
+    atlas: image::RgbaImage
+) -> wgpu::Texture {
+
     let image_dimensions = atlas.dimensions();
+    println!("image dimensions: {}, {}", image_dimensions.0, image_dimensions.1);
     let raw_data = atlas.clone().into_raw(); // Convert to Vec<u8>
+    // println!("raw data: {:?}", raw_data);
 
     // Validates data size 
     let expected_size = (image_dimensions.0 * image_dimensions.1 * 4) as usize; // 4 bytes per pixel (RGBA)
@@ -150,25 +156,7 @@ pub fn create_texture_atlas(device: &wgpu::Device, queue: &wgpu::Queue, config: 
         expected_size,
         raw_data.len()
     );
-    // debug!("Texture sample: {:?}", atlas.iter().take(20).collect::<Vec<_>>());
-    // Checks it's in the correct format
-    // let raw = RawImage2d::from_raw_rgba_reversed(&raw_data, image_dimensions);
 
-    // let texture = device.create_texture(&wgpu::TextureDescriptor {
-    //         label: Some("Texture Atlas"),
-    //         size: wgpu::Extent3d {
-    //             width: image_dimensions.0, 
-    //             height: image_dimensions.1, 
-    //             depth_or_array_layers: 1
-    //         },
-    //         mip_level_count: 1,
-    //         sample_count: 1,
-    //         dimension: wgpu::TextureDimension::D2,
-    //         format: config.format,
-    //         usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_SRC,
-    //         view_formats: &[],
-    //     });
-    
     let texture = device.create_texture_with_data(
         queue, 
         &wgpu::TextureDescriptor {
@@ -181,21 +169,48 @@ pub fn create_texture_atlas(device: &wgpu::Device, queue: &wgpu::Queue, config: 
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: config.format,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_SRC,
+            // format: wgpu::TextureFormat::Rgba8Unorm,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            // format: config.format,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
         }, 
         wgpu::wgt::TextureDataOrder::LayerMajor, // not sure if this is correct 
         &raw_data[..],
     );
 
-    // let texture = Texture2d::with_format(
-    //         display, 
-    //         raw,
-    //     glium::texture::UncompressedFloatFormat::U8U8U8U8,
-    //     glium::texture::MipmapsOption::NoMipmap,
-    // ).expect("Failed to create texture atlas");
     texture
+
+    // let checker_pixels: [u8; 16] = [
+    //     255, 0, 0, 255,   // red
+    //     0, 255, 0, 255,   // green
+    //     0, 0, 255, 255,   // blue
+    //     255, 255, 255, 255, // white
+    // ];
+
+    // let tex_size = wgpu::Extent3d {
+    //     width: 2,
+    //     height: 2,
+    //     depth_or_array_layers: 1,
+    // };
+
+    // let checker_tex = device.create_texture_with_data(
+    //     &queue,
+    //     &wgpu::TextureDescriptor {
+    //         label: Some("checkerboard tex"),
+    //         size: tex_size,
+    //         mip_level_count: 1,
+    //         sample_count: 1,
+    //         dimension: wgpu::TextureDimension::D2,
+    //         format: wgpu::TextureFormat::Rgba8UnormSrgb,
+    //         usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+    //         view_formats: &[],
+    //     },
+    //     wgpu::util::TextureDataOrder::MipMajor,
+    //     &checker_pixels,
+    // );
+
+    // checker_tex
 }
 
 pub struct TextMesh {
@@ -209,7 +224,6 @@ impl TextMesh {
         let mut vertices = vec![];
         let mut indices = vec![];
         let mut cursor_x = 0.0;
-        // let ortho_transform_matrix: cgmath::Matrix4<f32> = cgmath::ortho(0.0, 800.0, 600.0, 0.0, -1.0, 1.0);
         // debug!("Drawing text");
         for (i, c) in content.chars().enumerate() {
             if let Some(glyph) = glyph_map.get(&c) {
@@ -217,13 +231,28 @@ impl TextMesh {
                 let y0 = y_offset - glyph.bearing[1];
                 let x1 = x0 + glyph.size[0];
                 let y1 = y0 - glyph.size[1];
+                println!("x-offset = {}, y-offset = {}", x_offset, y_offset);
+                println!("h-bearing = {}, v-bearing = {}", glyph.bearing[0], glyph.bearing[1]);
+                println!("width = {}, height = {}", glyph.size[0], glyph.size[1]);
+                println!("coords: ({x0}, {y0}), ({x1}, {y0}), ({x1}, {y1}), ({x0}, {y1})");
 
                 let tex_coords = glyph.tex_coords;
+                println!("tex coords: {:?}", tex_coords);
+                let u0 = tex_coords[0];
+                let v0 = 1.0 - tex_coords[1];
+                let u1 = tex_coords[2];
+                let v1 = 1.0 - tex_coords[3];
+                // let v0 = 1.0;
+                // let v1 = 0.0;
                 let base = (i * 4) as u16;
-                vertices.push(GlyphVertex::new([x0, y0], [tex_coords[0], 1.0 - tex_coords[1]]));
-                vertices.push(GlyphVertex::new([x1, y0], [tex_coords[2], 1.0 - tex_coords[1]]));
-                vertices.push(GlyphVertex::new([x1, y1], [tex_coords[2], 1.0 - tex_coords[3]]));
-                vertices.push(GlyphVertex::new([x0, y1], [tex_coords[0], 1.0 - tex_coords[3]]));
+                vertices.push(GlyphVertex::new([x0, y0], [u0, v0]));
+                vertices.push(GlyphVertex::new([x1, y0], [u1, v0]));
+                vertices.push(GlyphVertex::new([x1, y1], [u1, v1]));
+                vertices.push(GlyphVertex::new([x0, y1], [u0, v1]));
+                println!("vertex 1 UV: {}, {}", u0, v0);
+                println!("vertex 2 UV: {}, {}", u1, v0);
+                println!("vertex 3 UV: {}, {}", u1, v1);
+                println!("vertex 4 UV: {}, {}", u0, v1);
                 // println!("Coords for glyph {i}: {x0}, {y0}, {x1}, {y1}");
                 // let vec1 = cgmath::Vector2::new(x0, y0);
                 // let vec2 = cgmath::Vector2::new(x1, y1);
@@ -403,10 +432,10 @@ where
         // create index buffer
         // create bind group
 
-        self.set_bind_group(0, ortho_matrix_bind_group, &[]);
-        self.set_bind_group(1, text_bind_group, &[]);
         self.set_vertex_buffer(0, text.mesh.vertex_buffer.slice(..));
         self.set_index_buffer(text.mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+        self.set_bind_group(0, ortho_matrix_bind_group, &[]);
+        self.set_bind_group(1, text_bind_group, &[]);
         self.draw_indexed(0..text.mesh.num_elements, 0, 0..1);
     }
 }

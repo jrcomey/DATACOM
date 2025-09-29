@@ -25,18 +25,11 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     return out;
 }
 
-// @vertex
-// fn vs_main(@location(0) pos: vec2<f32>) -> @builtin(position) vec4<f32> {
-//     return vec4<f32>(pos, 0.0, 1.0);
-// }
-
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let sample = textureSample(glyph_tex, glyph_sampler, in.v_uv);
-    return vec4<f32>(in.v_color.rgb, in.v_color.a * sample.r);
+    // return sample;
+    // return vec4<f32>(in.v_color.rgb, in.v_color.a * sample.r);
+    // return vec4<f32>(in.v_uv, 0.0, 1.0);
+    return vec4<f32>(in.v_uv.x, in.v_uv.y, sample.r, 1.0);
 }
-
-// @fragment
-// fn fs_main() -> @location(0) vec4<f32> {
-//     return vec4<f32>(1.0, 0.0, 1.0, 1.0);
-// }

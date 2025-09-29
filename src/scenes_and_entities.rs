@@ -989,7 +989,7 @@ impl Scene {
         config: &wgpu::SurfaceConfiguration,
         text_bind_group_layout: &wgpu::BindGroupLayout
     ) -> Vec<TextDisplay> {
-        let (image_atlas, glyph_map) = text::load_font_atlas(&text::get_font(), 200.0);
+        let (image_atlas, glyph_map) = text::load_font_atlas(&text::get_font(), 40.0);
         let glyph_map = Arc::new(glyph_map);
         let texture_atlas = Arc::new(text::create_texture_atlas(device, queue, config, image_atlas));
         let atlas_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
@@ -1004,7 +1004,7 @@ impl Scene {
 
         let text_objects: Vec<TextDisplay> = vec![
             TextDisplay::new(
-                "Hello, World!".to_string(), 
+                "The quick brown fox jumped over a lazy dog".to_string(), 
                 glyph_map.clone(), 
                 50.0, 
                 200.0, 

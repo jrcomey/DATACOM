@@ -46,6 +46,7 @@ pub fn load_font_atlas(path: &str, font_size: f32) -> (image::RgbaImage, HashMap
             
             let glyph_width = bb.width();
             let glyph_height = bb.height();
+            println!("'{}': min = ({}, {}), max = ({}, {}), width = {}, height = {}", chars[i], bb.min.x, bb.min.y, bb.max.x, bb.max.y, bb.width(), bb.height());
 
             let mut glyph_bitmap = image::RgbaImage::new(glyph_width as u32, glyph_height as u32);
             glyph.draw(|x, y, v| {
@@ -63,7 +64,7 @@ pub fn load_font_atlas(path: &str, font_size: f32) -> (image::RgbaImage, HashMap
                     glyph_height as f32 / atlas.height() as f32,
                 ],
                 size: [glyph_width as f32, glyph_height as f32],
-                bearing: [bb.min.x as f32, bb.min.y as f32],
+                bearing: [bb.min.x as f32, bb.max.y as f32],
                 advance: glyph.unpositioned().h_metrics().advance_width,
             });
 
@@ -228,35 +229,33 @@ impl TextMesh {
         for (i, c) in content.chars().enumerate() {
             if let Some(glyph) = glyph_map.get(&c) {
                 let x0 = x_offset + cursor_x + glyph.bearing[0];
-                let y0 = y_offset - glyph.bearing[1];
+                let y0 = y_offset + glyph.bearing[1];
                 // let y0 = y_offset;
                 let x1 = x0 + glyph.size[0];
                 let y1 = y0 - glyph.size[1];
                 // let y1 = y1 * 0.7;
-                println!("INFO FOR '{}'", c);
-                println!("x-offset = {}, y-offset = {}", x_offset, y_offset);
-                println!("h-bearing = {}, v-bearing = {}", glyph.bearing[0], glyph.bearing[1]);
-                println!("width = {}, height = {}", glyph.size[0], glyph.size[1]);
-                println!("coords: ({x0}, {y0}), ({x1}, {y0}), ({x1}, {y1}), ({x0}, {y1})");
+                // println!("INFO FOR '{}'", c);
+                // println!("x-offset = {}, y-offset = {}", x_offset, y_offset);
+                // println!("h-bearing = {}, v-bearing = {}", glyph.bearing[0], glyph.bearing[1]);
+                // println!("width = {}, height = {}", glyph.size[0], glyph.size[1]);
+                // println!("coords: ({x0}, {y0}), ({x1}, {y0}), ({x1}, {y1}), ({x0}, {y1})");
 
                 let tex_coords = glyph.tex_coords;
-                println!("tex coords: {:?}", tex_coords);
+                // println!("tex coords: {:?}", tex_coords);
                 let u0 = tex_coords[0];
-                let v0 = 1.0 - tex_coords[1];
+                let v0 = tex_coords[3];
                 let u1 = tex_coords[2];
-                let v1 = 1.0 - tex_coords[3];
+                let v1 = 0.0;
                 // let u0 = 0.0;
                 // let u1 = 1.0;
-                let v0 = tex_coords[3];
-                let v1 = 0.0;
                 vertices.push(GlyphVertex::new([x0, y0], [u0, v0]));
                 vertices.push(GlyphVertex::new([x1, y0], [u1, v0]));
                 vertices.push(GlyphVertex::new([x1, y1], [u1, v1]));
                 vertices.push(GlyphVertex::new([x0, y1], [u0, v1]));
-                println!("vertex 1 UV: {}, {}", u0, v0);
-                println!("vertex 2 UV: {}, {}", u1, v0);
-                println!("vertex 3 UV: {}, {}", u1, v1);
-                println!("vertex 4 UV: {}, {}", u0, v1);
+                // println!("vertex 1 UV: {}, {}", u0, v0);
+                // println!("vertex 2 UV: {}, {}", u1, v0);
+                // println!("vertex 3 UV: {}, {}", u1, v1);
+                // println!("vertex 4 UV: {}, {}", u0, v1);
                 // println!("Coords for glyph {i}: {x0}, {y0}, {x1}, {y1}");
                 // let vec1 = cgmath::Vector2::new(x0, y0);
                 // let vec2 = cgmath::Vector2::new(x1, y1);

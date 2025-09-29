@@ -17,6 +17,7 @@ pub struct Glyph {
 pub fn load_font_atlas(path: &str, font_size: f32) -> (image::RgbaImage, HashMap<char, Glyph>) {
     let font_data = std::fs::read(path).expect("Failed to read font file");
     let font = Font::try_from_vec(font_data).expect("Failed to load font");
+    let GLYPH_SPACING = 1;
     debug!("Font info: {:?}", font);
 
     let scale = Scale::uniform(font_size);
@@ -34,7 +35,7 @@ pub fn load_font_atlas(path: &str, font_size: f32) -> (image::RgbaImage, HashMap
     for glyph in &glyphs {
         if let Some(bb) = glyph.pixel_bounding_box() {
             max_height = max_height.max(bb.height());
-            total_width += bb.width();
+            total_width += bb.width() + GLYPH_SPACING;
         }
     }
 
@@ -46,7 +47,7 @@ pub fn load_font_atlas(path: &str, font_size: f32) -> (image::RgbaImage, HashMap
             
             let glyph_width = bb.width();
             let glyph_height = bb.height();
-            println!("'{}': min = ({}, {}), max = ({}, {}), width = {}, height = {}", chars[i], bb.min.x, bb.min.y, bb.max.x, bb.max.y, bb.width(), bb.height());
+            // println!("'{}': min = ({}, {}), max = ({}, {}), width = {}, height = {}", chars[i], bb.min.x, bb.min.y, bb.max.x, bb.max.y, bb.width(), bb.height());
 
             let mut glyph_bitmap = image::RgbaImage::new(glyph_width as u32, glyph_height as u32);
             glyph.draw(|x, y, v| {
@@ -58,9 +59,9 @@ pub fn load_font_atlas(path: &str, font_size: f32) -> (image::RgbaImage, HashMap
 
             glyph_infos.insert(chars[i], Glyph {
                 tex_coords: [
-                    x_offset as f32 / atlas.width() as f32,
+                    (x_offset + 0) as f32 / atlas.width() as f32,
                     0.0,
-                    (x_offset + glyph_width) as f32 / atlas.width() as f32,
+                    (x_offset + glyph_width - 0) as f32 / atlas.width() as f32,
                     glyph_height as f32 / atlas.height() as f32,
                 ],
                 size: [glyph_width as f32, glyph_height as f32],
@@ -68,7 +69,7 @@ pub fn load_font_atlas(path: &str, font_size: f32) -> (image::RgbaImage, HashMap
                 advance: glyph.unpositioned().h_metrics().advance_width,
             });
 
-            x_offset += glyph_width;
+            x_offset += glyph_width + GLYPH_SPACING;
             debug!("Glyph: {}, Width: {}", chars[i], glyph_width)
         }
     }

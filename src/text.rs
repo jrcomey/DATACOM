@@ -229,8 +229,11 @@ impl TextMesh {
             if let Some(glyph) = glyph_map.get(&c) {
                 let x0 = x_offset + cursor_x + glyph.bearing[0];
                 let y0 = y_offset - glyph.bearing[1];
+                // let y0 = y_offset;
                 let x1 = x0 + glyph.size[0];
                 let y1 = y0 - glyph.size[1];
+                // let y1 = y1 * 0.7;
+                println!("INFO FOR '{}'", c);
                 println!("x-offset = {}, y-offset = {}", x_offset, y_offset);
                 println!("h-bearing = {}, v-bearing = {}", glyph.bearing[0], glyph.bearing[1]);
                 println!("width = {}, height = {}", glyph.size[0], glyph.size[1]);
@@ -242,9 +245,10 @@ impl TextMesh {
                 let v0 = 1.0 - tex_coords[1];
                 let u1 = tex_coords[2];
                 let v1 = 1.0 - tex_coords[3];
-                // let v0 = 1.0;
-                // let v1 = 0.0;
-                let base = (i * 4) as u16;
+                // let u0 = 0.0;
+                // let u1 = 1.0;
+                let v0 = tex_coords[3];
+                let v1 = 0.0;
                 vertices.push(GlyphVertex::new([x0, y0], [u0, v0]));
                 vertices.push(GlyphVertex::new([x1, y0], [u1, v0]));
                 vertices.push(GlyphVertex::new([x1, y1], [u1, v1]));
@@ -259,6 +263,7 @@ impl TextMesh {
                 // println!("transform 1 = {:?}", ortho_transform_matrix * vec1);
                 // println!("transform 2 = {:?}", ortho_transform_matrix * vec2);
 
+                let base = (i * 4) as u16;
                 indices.extend_from_slice(&[
                     base, base+1, base+2, 
                     base, base+2, base+3]);

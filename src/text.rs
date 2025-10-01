@@ -145,7 +145,7 @@ pub fn create_texture_atlas(
 ) -> wgpu::Texture {
 
     let image_dimensions = atlas.dimensions();
-    println!("image dimensions: {}, {}", image_dimensions.0, image_dimensions.1);
+    // println!("image dimensions: {}, {}", image_dimensions.0, image_dimensions.1);
     let raw_data = atlas.clone().into_raw(); // Convert to Vec<u8>
     // println!("raw data: {:?}", raw_data);
 
@@ -358,8 +358,9 @@ impl TextDisplay {
     }
 
     /// Function to change text in string.
-    pub fn change_text(&mut self, new_string: String) {
+    pub fn change_text(&mut self, device: &wgpu::Device, new_string: String) {
         self.content = new_string;
+        self.mesh = TextMesh::init_buffers(device, &self.content, &self.glyph_map, self.x_start, self.y_start, self.color);
     }
 
     pub fn draw<'a>(

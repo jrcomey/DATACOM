@@ -347,7 +347,7 @@ pub struct State<'a> {
     render_pipeline: wgpu::RenderPipeline,
     lines_render_pipeline: wgpu::RenderPipeline,
     text_render_pipeline: wgpu::RenderPipeline,
-    pub scene: Scene,
+    scene: Scene,
     projection: camera::Projection,
     pub camera_controller: camera::CameraController,
     camera_uniform: camera::CameraUniform,
@@ -356,11 +356,8 @@ pub struct State<'a> {
     ortho_transform_matrix: cgmath::Matrix4<f32>,
     ortho_transform_buffer: wgpu::Buffer,
     ortho_matrix_bind_group: wgpu::BindGroup,
-    // #[allow(dead_code)]
-    // instances: Vec<Instance>,
-    // #[allow(dead_code)]
-    // instance_buffer: wgpu::Buffer, 
     window: &'a Window,
+    pub framerate: f32,
     pub mouse_pressed: bool,
 }
 impl<'a> State<'a> {
@@ -424,7 +421,7 @@ impl<'a> State<'a> {
 
     pub async fn new(window: &'a Window, filepath: &str) -> State<'a> {
         let size = window.inner_size();
-        println!("window size: {} * {} = {}", size.width, size.height, size.width * size.height);
+        // println!("window size: {} * {} = {}", size.width, size.height, size.width * size.height);
 
         // The instance is a handle to our GPU
         // BackendBit::PRIMARY => Vulkan + Metal + DX12 + Browser WebGPU
@@ -741,6 +738,7 @@ impl<'a> State<'a> {
             ortho_transform_buffer,
             ortho_matrix_bind_group,
             window,
+            framerate: 60.0,
             mouse_pressed: false,
         }
     }
@@ -792,8 +790,8 @@ impl<'a> State<'a> {
                 position,
                 ..
             } if self.mouse_pressed => {
-                println!("mouse pressed");
-                println!("({}, {})", position.x, position.y);
+                // println!("mouse pressed");
+                // println!("({}, {})", position.x, position.y);
                 true
             }
             _ => false,
@@ -802,7 +800,9 @@ impl<'a> State<'a> {
 
     pub fn update(&mut self, dt: std::time::Duration, should_save_to_file: bool) {
         self.camera_controller.update_camera(dt);
-        // log::info!("{:?}", self.camera);
+        self.framerate = dt.as_secs_f32().recip();
+        let fr_str = format!("{:.1} fps", self.framerate);
+        self.scene.text_boxes[0].change_text(&self.device, fr_str);
 
         self.camera_uniform.update_view_proj(&self.camera_controller.camera(), &self.projection);
         log::info!("{:?}", self.camera_uniform);
@@ -962,7 +962,7 @@ impl Scene {
         screen_height: u32,
     ) -> Self {
         let axes = model::Axes::new(device);
-        let text_boxes = Scene::init_text_boxes(device, queue, format, text_bind_group_layout);
+        let text_boxes = Scene::init_text_boxes(device, queue, format, text_bind_group_layout, 60.0);
         let frame_counter: usize = 0;
         let capture_buffers = Scene::init_capture_buffers(
             device, 
@@ -987,9 +987,10 @@ impl Scene {
         device: &wgpu::Device, 
         queue: &wgpu::Queue,
         format: &wgpu::TextureFormat,
-        text_bind_group_layout: &wgpu::BindGroupLayout
+        text_bind_group_layout: &wgpu::BindGroupLayout, 
+        framerate: f32,
     ) -> Vec<TextDisplay> {
-        let (image_atlas, glyph_map) = text::load_font_atlas(&text::get_font(), 150.0);
+        let (image_atlas, glyph_map) = text::load_font_atlas(&text::get_font(), 100.0);
         let glyph_map = Arc::new(glyph_map);
         let texture_atlas = Arc::new(text::create_texture_atlas(device, queue, format, image_atlas));
         let atlas_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
@@ -1004,7 +1005,7 @@ impl Scene {
 
         let text_objects: Vec<TextDisplay> = vec![
             TextDisplay::new(
-                "Hello, World!".to_string(), 
+                framerate.to_string(), 
                 glyph_map.clone(), 
                 30.0, 
                 100.0, 

@@ -621,7 +621,7 @@ impl<'a> State<'a> {
                 filepath, 
                 &device, 
                 &queue, 
-                &config, 
+                &config.format, 
                 &model_bind_group_layout, 
                 &text_bind_group_layout, 
                 size.width, 
@@ -632,7 +632,7 @@ impl<'a> State<'a> {
                 filepath, 
                 &device, 
                 &queue, 
-                &config, 
+                &config.format, 
                 &model_bind_group_layout, 
                 &text_bind_group_layout, 
                 size.width, 
@@ -643,7 +643,7 @@ impl<'a> State<'a> {
                 filepath, 
                 &device, 
                 &queue,
-                &config,
+                &config.format,
                 &model_bind_group_layout, 
                 &text_bind_group_layout, 
                 size.width, 
@@ -956,13 +956,13 @@ impl Scene {
         data_counter: Option<usize>, 
         device: &wgpu::Device, 
         queue: &wgpu::Queue,
-        config: &wgpu::SurfaceConfiguration,
+        format: &wgpu::TextureFormat,
         text_bind_group_layout: &wgpu::BindGroupLayout,
         screen_width: u32,
         screen_height: u32,
     ) -> Self {
         let axes = model::Axes::new(device);
-        let text_boxes = Scene::init_text_boxes(device, queue, config, text_bind_group_layout);
+        let text_boxes = Scene::init_text_boxes(device, queue, format, text_bind_group_layout);
         let frame_counter: usize = 0;
         let capture_buffers = Scene::init_capture_buffers(
             device, 
@@ -986,12 +986,12 @@ impl Scene {
     fn init_text_boxes(
         device: &wgpu::Device, 
         queue: &wgpu::Queue,
-        config: &wgpu::SurfaceConfiguration,
+        format: &wgpu::TextureFormat,
         text_bind_group_layout: &wgpu::BindGroupLayout
     ) -> Vec<TextDisplay> {
         let (image_atlas, glyph_map) = text::load_font_atlas(&text::get_font(), 150.0);
         let glyph_map = Arc::new(glyph_map);
-        let texture_atlas = Arc::new(text::create_texture_atlas(device, queue, config, image_atlas));
+        let texture_atlas = Arc::new(text::create_texture_atlas(device, queue, format, image_atlas));
         let atlas_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
@@ -1005,7 +1005,6 @@ impl Scene {
         let text_objects: Vec<TextDisplay> = vec![
             TextDisplay::new(
                 "Hello, World!".to_string(), 
-                // !\"#$%'()*+'/0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^`
                 glyph_map.clone(), 
                 30.0, 
                 100.0, 
@@ -1082,7 +1081,7 @@ impl Scene {
         filepath: &str, 
         device: &wgpu::Device, 
         queue: &wgpu::Queue,
-        config: &wgpu::SurfaceConfiguration, 
+        format: &wgpu::TextureFormat, 
         model_bind_group_layout: &wgpu::BindGroupLayout, 
         text_bind_group_layout: &wgpu::BindGroupLayout,
         screen_width: u32,
@@ -1114,7 +1113,7 @@ impl Scene {
             data_counter,
             device,
             queue,
-            config,
+            format,
             text_bind_group_layout,
             screen_width, 
             screen_height,
@@ -1139,7 +1138,7 @@ impl Scene {
         filepath: &str, 
         device: &wgpu::Device, 
         queue: &wgpu::Queue,
-        config: &wgpu::SurfaceConfiguration, 
+        format: &wgpu::TextureFormat, 
         model_bind_group_layout: &wgpu::BindGroupLayout, 
         text_bind_group_layout: &wgpu::BindGroupLayout,
         screen_width: u32,
@@ -1150,7 +1149,7 @@ impl Scene {
             json_unparsed, 
             device, 
             queue, 
-            config, 
+            format, 
             model_bind_group_layout, 
             text_bind_group_layout, 
             screen_width, 
@@ -1162,7 +1161,7 @@ impl Scene {
         json_unparsed: String, 
         device: &wgpu::Device, 
         queue: &wgpu::Queue,
-        config: &wgpu::SurfaceConfiguration, 
+        format: &wgpu::TextureFormat, 
         model_bind_group_layout: &wgpu::BindGroupLayout, 
         text_bind_group_layout: &wgpu::BindGroupLayout,
         screen_width: u32,
@@ -1189,7 +1188,7 @@ impl Scene {
             data_counter,
             device,
             queue,
-            config,
+            format,
             text_bind_group_layout,
             screen_width, 
             screen_height,
@@ -1200,7 +1199,7 @@ impl Scene {
         addr: &str, 
         device: &wgpu::Device, 
         queue: &wgpu::Queue,
-        config: &wgpu::SurfaceConfiguration, 
+        format: &wgpu::TextureFormat, 
         model_bind_group_layout: &wgpu::BindGroupLayout, 
         text_bind_group_layout: &wgpu::BindGroupLayout, 
         screen_width: u32,
@@ -1251,7 +1250,7 @@ impl Scene {
                 initialization_packet, 
                 device, 
                 queue,
-                config,
+                format,
                 model_bind_group_layout, 
                 text_bind_group_layout,
                 screen_width, 

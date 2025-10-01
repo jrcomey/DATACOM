@@ -102,11 +102,11 @@ pub struct GlyphVertex {
 }
 
 impl GlyphVertex {
-    fn new(pos: [f32; 2], uv: [f32; 2]) -> Self {
+    fn new(pos: [f32; 2], uv: [f32; 2], color: cgmath::Vector3<f32>) -> Self {
         GlyphVertex {
             position: [pos[0], pos[1], 0.0],
             uv,
-            color: [255.0, 255.0, 255.0, 255.0],
+            color: [color.x, color.y, color.z, 255.0],
         }
     }
 
@@ -140,7 +140,7 @@ impl GlyphVertex {
 pub fn create_texture_atlas(
     device: &wgpu::Device, 
     queue: &wgpu::Queue, 
-    config: &wgpu::SurfaceConfiguration, 
+    format: &wgpu::TextureFormat,
     atlas: image::RgbaImage
 ) -> wgpu::Texture {
 
@@ -172,7 +172,7 @@ pub fn create_texture_atlas(
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             // format: wgpu::TextureFormat::Rgba8Unorm,
-            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            format: *format,
             // format: config.format,
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
@@ -222,7 +222,14 @@ pub struct TextMesh {
 }
 
 impl TextMesh {
-    fn init_buffers(device: &wgpu::Device, content: &String, glyph_map: &Arc<HashMap<char, Glyph>>, x_offset: f32, y_offset: f32) -> Self {
+    fn init_buffers(
+        device: &wgpu::Device, 
+        content: &String, 
+        glyph_map: &Arc<HashMap<char, Glyph>>, 
+        x_offset: f32, 
+        y_offset: f32, 
+        color: cgmath::Vector3<f32>, 
+    ) -> Self {
         let mut vertices = vec![];
         let mut indices = vec![];
         let mut cursor_x = 0.0;
@@ -249,10 +256,10 @@ impl TextMesh {
                 let v1 = 0.0;
                 // let u0 = 0.0;
                 // let u1 = 1.0;
-                vertices.push(GlyphVertex::new([x0, y0], [u0, v0]));
-                vertices.push(GlyphVertex::new([x1, y0], [u1, v0]));
-                vertices.push(GlyphVertex::new([x1, y1], [u1, v1]));
-                vertices.push(GlyphVertex::new([x0, y1], [u0, v1]));
+                vertices.push(GlyphVertex::new([x0, y0], [u0, v0], color));
+                vertices.push(GlyphVertex::new([x1, y0], [u1, v0], color));
+                vertices.push(GlyphVertex::new([x1, y1], [u1, v1], color));
+                vertices.push(GlyphVertex::new([x0, y1], [u0, v1], color));
                 // println!("vertex 1 UV: {}, {}", u0, v0);
                 // println!("vertex 2 UV: {}, {}", u1, v0);
                 // println!("vertex 3 UV: {}, {}", u1, v1);
@@ -320,7 +327,7 @@ impl TextDisplay {
         atlas_sampler: &wgpu::Sampler,
         bind_group_layout: &wgpu::BindGroupLayout,
     ) -> Self {
-        let mesh = TextMesh::init_buffers(device, &content, &glyph_map, x_start, y_start);
+        let mesh = TextMesh::init_buffers(device, &content, &glyph_map, x_start, y_start, color);
 
         let texture_atlas_view = texture_atlas.create_view(&wgpu::TextureViewDescriptor::default());
 

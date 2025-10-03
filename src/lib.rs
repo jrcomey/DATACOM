@@ -97,11 +97,11 @@ pub async fn run_scene_from_hdf5(args: Vec<String>, should_save_to_file: bool) {
                             state.window().request_redraw();
                             let now = std::time::Instant::now();
                             let dt = now - last_render_time;
-                            println!("dt = {}", dt.as_millis());
+                            // println!("dt = {}", dt.as_millis());
                             last_render_time = now;
                             state.update(dt, should_save_to_file);
 
-                            match state.render() {
+                            match state.render(should_save_to_file) {
                                 Ok(_) => {}
                                 // Reconfigure the surface if it's lost or outdated
                                 Err(
@@ -187,7 +187,7 @@ pub async fn run_scene_from_json(args: Vec<String>) {
                             last_render_time = now;
                             state.update(dt, false);
 
-                            match state.render() {
+                            match state.render(false) {
                                 Ok(_) => {}
                                 // Reconfigure the surface if it's lost or outdated
                                 Err(

@@ -17,7 +17,7 @@ pub struct Glyph {
 pub fn load_font_atlas(path: &str, font_size: f32) -> (image::RgbaImage, HashMap<char, Glyph>) {
     let font_data = std::fs::read(path).expect("Failed to read font file");
     let font = Font::try_from_vec(font_data).expect("Failed to load font");
-    let GLYPH_SPACING = 1;
+    let glyph_spacing = 1;  // space the glyphs out a bit so there is no bleeding when sampled
     debug!("Font info: {:?}", font);
 
     let scale = Scale::uniform(font_size);
@@ -35,7 +35,7 @@ pub fn load_font_atlas(path: &str, font_size: f32) -> (image::RgbaImage, HashMap
     for glyph in &glyphs {
         if let Some(bb) = glyph.pixel_bounding_box() {
             max_height = max_height.max(bb.height());
-            total_width += bb.width() + GLYPH_SPACING;
+            total_width += bb.width() + glyph_spacing;
         }
     }
 
@@ -69,7 +69,7 @@ pub fn load_font_atlas(path: &str, font_size: f32) -> (image::RgbaImage, HashMap
                 advance: glyph.unpositioned().h_metrics().advance_width,
             });
 
-            x_offset += glyph_width + GLYPH_SPACING;
+            x_offset += glyph_width + glyph_spacing;
             debug!("Glyph: {}, Width: {}", chars[i], glyph_width)
         }
     }
@@ -92,7 +92,7 @@ pub fn load_font_atlas(path: &str, font_size: f32) -> (image::RgbaImage, HashMap
     (atlas, glyph_infos)
 }
 
-/// OpenGL vertex struct, differs from main one in that it has texture coordinates
+/// WGPU vertex struct, differs from main one in that it has texture coordinates
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct GlyphVertex {
@@ -171,9 +171,7 @@ pub fn create_texture_atlas(
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            // format: wgpu::TextureFormat::Rgba8Unorm,
             format: *format,
-            // format: config.format,
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
         }, 
@@ -182,37 +180,6 @@ pub fn create_texture_atlas(
     );
 
     texture
-
-    // let checker_pixels: [u8; 16] = [
-    //     255, 0, 0, 255,   // red
-    //     0, 255, 0, 255,   // green
-    //     0, 0, 255, 255,   // blue
-    //     255, 255, 255, 255, // white
-    // ];
-
-    // let tex_size = wgpu::Extent3d {
-    //     width: 2,
-    //     height: 2,
-    //     depth_or_array_layers: 1,
-    // };
-
-    // let checker_tex = device.create_texture_with_data(
-    //     &queue,
-    //     &wgpu::TextureDescriptor {
-    //         label: Some("checkerboard tex"),
-    //         size: tex_size,
-    //         mip_level_count: 1,
-    //         sample_count: 1,
-    //         dimension: wgpu::TextureDimension::D2,
-    //         format: wgpu::TextureFormat::Rgba8UnormSrgb,
-    //         usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-    //         view_formats: &[],
-    //     },
-    //     wgpu::util::TextureDataOrder::MipMajor,
-    //     &checker_pixels,
-    // );
-
-    // checker_tex
 }
 
 pub struct TextMesh {
@@ -238,10 +205,8 @@ impl TextMesh {
             if let Some(glyph) = glyph_map.get(&c) {
                 let x0 = x_offset + cursor_x + glyph.bearing[0];
                 let y0 = y_offset + glyph.bearing[1];
-                // let y0 = y_offset;
                 let x1 = x0 + glyph.size[0];
                 let y1 = y0 - glyph.size[1];
-                // let y1 = y1 * 0.7;
                 // println!("INFO FOR '{}'", c);
                 // println!("x-offset = {}, y-offset = {}", x_offset, y_offset);
                 // println!("h-bearing = {}, v-bearing = {}", glyph.bearing[0], glyph.bearing[1]);
@@ -254,8 +219,6 @@ impl TextMesh {
                 let v0 = tex_coords[3];
                 let u1 = tex_coords[2];
                 let v1 = 0.0;
-                // let u0 = 0.0;
-                // let u1 = 1.0;
                 vertices.push(GlyphVertex::new([x0, y0], [u0, v0], color));
                 vertices.push(GlyphVertex::new([x1, y0], [u1, v0], color));
                 vertices.push(GlyphVertex::new([x1, y1], [u1, v1], color));
@@ -391,60 +354,6 @@ where
         ortho_matrix_bind_group: &'b wgpu::BindGroup,
         text_bind_group: &'b wgpu::BindGroup,
     ) {
-        // goal: create a vertex buffer
-        // the buffer is composed of GlyphVertex, which have a position, tex coords, and color
-        // the positions are derived from TextDisplay coords and offset/advance of the Glyphs
-        // 
-        
-
-        // // debug!("Text vertices: {:?}", vertices);
-        // let vertex_buffer = glium::VertexBuffer::new(&gui.display, &vertices).unwrap();
-        // let index_buffer = glium::IndexBuffer::new(&gui.display, glium::index::PrimitiveType::TrianglesList, &indices).unwrap();
-
-        // let draw_params = glium::DrawParameters {
-        //     depth: glium::Depth {
-        //         test: glium::DepthTest::IfLess,
-        //         write: false,
-        //         ..Default::default()
-        //     },
-        //     blend: glium::Blend {
-        //         color: glium::BlendingFunction::Addition {
-        //             source: glium::LinearBlendingFactor::SourceAlpha,
-        //             destination: glium::LinearBlendingFactor::OneMinusSourceAlpha,
-        //         },
-        //         alpha: glium::BlendingFunction::Addition {
-        //             source: glium::LinearBlendingFactor::One,
-        //             destination: glium::LinearBlendingFactor::OneMinusSourceAlpha,
-        //         },
-        //         ..Default::default()
-        //     },
-        //     ..Default::default()
-        // };
-        
-        // // let uniforms = glium::uniform! { tex: &*self.texture_ref, color_obj: uniformify_vec4(dc::green_vec()) };
-        // let screen_size = [gui.display.get_framebuffer_dimensions().0 as f32, gui.display.get_framebuffer_dimensions().1 as f32];
-
-        // let model = na::Matrix4::new_translation(&na::Vector3::new(self.x_start, self.y_start, 0.0));
-        // let projection = na::Matrix4::new_orthographic(0.0, screen_size[0], 0.0, screen_size[1], 0.1, 1000.0);
-
-        // let uniforms = glium::uniform! {
-        //     tex: &*self.texture_ref,
-        //     color_obj: uniformify_vec4(self.color),
-        //     model: uniformify_mat4(model),
-        //     projection: uniformify_mat4(projection),
-        //     screen_size: screen_size,
-        // };
-        
-
-        // target.draw(&vertex_buffer, &index_buffer, &gui.text_shaders, &uniforms, &draw_params).unwrap();
-        
-
-        // queue.write_buffer(&vertex_buffer, 0, bytemuck::cast_slice(&vertices));
-
-        // create vertex buffer
-        // create index buffer
-        // create bind group
-
         self.set_vertex_buffer(0, text.mesh.vertex_buffer.slice(..));
         self.set_index_buffer(text.mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
         self.set_bind_group(0, ortho_matrix_bind_group, &[]);
@@ -452,39 +361,6 @@ where
         self.draw_indexed(0..text.mesh.num_elements, 0, 0..1);
     }
 }
-
-
-// pub struct Scope {
-//     title: String,
-//     x_label: String,
-//     y_label: String, 
-//     x_lim: [f32; 2],
-//     y_lim: [f32; 2],
-//     curves: Vec<Curve>,
-// }
-
-// impl Draw for Scope {
-//     fn draw(&self, gui: &dc::GuiContainer, context: &dc::RenderContext, target: &mut glium::Frame) {
-//         // Vector initialization and setup
-//         let mut verticies: Vec<dc::Vertex> = vec![];
-//         let mut indices: Vec<u32> = vec![];
-
-//         // Axes should range from -1 to 1 in normalized device coordinates
-//         // Axes should be moved to the center of the viewport, then scaled to the size of the viewport
-//         // Text labels should be placed appropriately
-        
-//     }
-// }
-
-// /// Curve struct for scopes
-// pub struct Curve {
-//     x_data: Vec<f32>,
-//     y_data: Vec<f32>,
-// }
-
-// impl Curve {
-    
-// }
 
 pub fn get_font() -> String{
     #[cfg(target_os="macos")]

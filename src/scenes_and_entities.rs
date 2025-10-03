@@ -15,7 +15,7 @@ use cgmath::{EuclideanSpace, Rotation3};
 use hdf5::File;
 use std::process::{Command, Stdio};
 use std::io::Write;
-// use ndarray::s;
+use ndarray::{ArrayBase, OwnedRepr, Dim};
 
 use crate::text::{get_font, GlyphVertex};
 use crate::{model, camera, com, text};
@@ -88,7 +88,7 @@ impl Behavior {
         Behavior::new(behavior_type, data)
     }
 
-    pub fn load_from_hdf5(data: &ndarray::Array1<[f32; 12]>) -> hdf5::Result<Behavior> {
+    pub fn load_from_hdf5(data: &ArrayBase<OwnedRepr<[f32; 12]>, Dim<[usize; 1]>>) -> hdf5::Result<Behavior> {
         let behavior_type = BehaviorType::EntityChangePosition;
         let a = 0;
         let b = DATA_ARR_WIDTH;
@@ -192,7 +192,7 @@ impl Entity {
         println!("NAME: {}", name);
 
         // position
-        let data_array: ndarray::Array1<[f32; 12]> = data.read()?;
+        let data_array: ArrayBase<OwnedRepr<[f32; 12]>, Dim<[usize; 1]>>  = data.read()?;
         let initial_transform: [f32; 12] = data_array[0];
         let position = Point3::<f32>::new(initial_transform[0], initial_transform[1], initial_transform[2]);
         println!("POSITION: {:?}", position);
@@ -839,26 +839,32 @@ impl<'a> State<'a> {
                 self.size.height,
                 index,
             );
-        }
 
-        self.scene.increment_frame_counter();
-        
-        if self.scene.data_counter > self.scene.timesteps {
-            println!("sim finished; time to save");
-            self.scene.read_remaining_buffers(&self.device, self.size.width, self.size.height);
-            println!("{} total frames recorded", self.scene.screen_recordings.len());
-            Scene::save_screen_data_to_file(&self.scene.screen_recordings);
-            // send window close event instead of panicking
-            panic!();
+            self.scene.increment_frame_counter();
+            
+            if self.scene.data_counter > self.scene.timesteps {
+                println!("sim finished; time to save");
+                self.scene.read_remaining_buffers(&self.device, self.size.width, self.size.height);
+                println!("{} total frames recorded", self.scene.screen_recordings.len());
+                Scene::save_screen_data_to_file(&self.scene.screen_recordings);
+                // send window close event instead of panicking
+                panic!();
+            }
         }
     }
 
-    pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
+    pub fn render(&mut self, should_save_to_file: bool) -> Result<(), wgpu::SurfaceError> {
         let output = self.surface.get_current_texture()?;
         let offscreen_view = self.offscreen_texture.create_view(&wgpu::TextureViewDescriptor::default());
         let view = output
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
+
+        let target = if should_save_to_file {
+            offscreen_view
+        } else {
+            view
+        };
 
         let mut encoder = self
             .device
@@ -870,7 +876,7 @@ impl<'a> State<'a> {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Render Pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &offscreen_view,
+                    view: &target,
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color {
@@ -891,24 +897,10 @@ impl<'a> State<'a> {
             render_pass.draw_axes(&self.scene.axes, &self.camera_bind_group);
 
             render_pass.set_pipeline(&self.render_pipeline);
-            // set bind group
-            // set vertex buffer
-
-            // render_pass.draw_mesh_instanced(
-            //     &self.obj_mesh,
-            //     0..self.instances.len() as u32,
-            //     &self.camera_bind_group,
-            // );
-
-            // we want a wgpu::Buffer derived from vertex_data
-            // a Vec<[[f32; 4]; 4]>
-            // each matrix contains entity_transform * model_transform
-            //
-            // println!("ortho matrix: {:?}", self.ortho_transform_matrix);
             self.scene.draw(&mut render_pass, &self.camera_bind_group, &self.ortho_matrix_bind_group, &self.text_render_pipeline, &self.queue);
         }
 
-        {
+        if should_save_to_file {
             encoder.copy_texture_to_texture(
                 wgpu::TexelCopyTextureInfo {
                     texture: &self.offscreen_texture,

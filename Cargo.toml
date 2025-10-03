@@ -24,5 +24,5 @@ bytemuck = { version = "1.16", features = ["derive"]}
 cgmath = "0.18.0"
 anyhow = "1.0"
 pollster = "0.4.0"
-ndarray = "0.15"
 hdf5 = {package = "hdf5-metno", version = "0.10.0", features = ["static"]}
+ndarray = "0.16.1"

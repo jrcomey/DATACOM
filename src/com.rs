@@ -431,7 +431,7 @@ irrelevant = content";
     }
 
     fn create_listener_thread_template(toml_name: &str, toml_contents: &str){
-        pretty_env_logger::init();
+        let _ = pretty_env_logger::try_init();
         let (tx, rx) = mpsc::channel();
 
         let file_name_string = format!("{}{}", toml_name, ".toml");

@@ -7,6 +7,7 @@ use std::sync::mpsc;
 use log::info;
 
 mod scenes_and_entities;
+mod state;
 mod model;
 mod camera;
 mod com;
@@ -27,7 +28,7 @@ pub async fn run_scene_from_hdf5(args: Vec<String>, should_save_to_file: bool) {
     scene_file_string.push_str(&args[1]);
     let scene_file = scene_file_string.as_str();
 
-    let mut state = scenes_and_entities::State::new(&window, scene_file).await;
+    let mut state = state::State::new(&window, scene_file).await;
     let mut last_render_time = std::time::Instant::now();
 
     // State::update() calls scene.run_behaviors(), which calls entity.run_behaviors() on every entity
@@ -147,7 +148,7 @@ pub async fn run_scene_from_json(args: Vec<String>) {
     let scene_file = scene_file_string.as_str();
 
     // State::new uses async code, so we're going to wait for it to finish
-    let mut state = scenes_and_entities::State::new(&window, scene_file).await;
+    let mut state = state::State::new(&window, scene_file).await;
     let mut last_render_time = std::time::Instant::now();
 
     com::create_listener_thread(tx, "cargo/config.toml".to_string()).unwrap();

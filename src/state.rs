@@ -15,6 +15,65 @@ use crate::text::GlyphVertex;
 
 use model::{Vertex, DrawModel};
 
+pub struct Viewport {
+    x: f32,
+    y: f32,
+    width: f32,
+    height: f32,
+    pub camera_controller: camera::CameraController,
+    projection: camera::Projection,
+    camera_uniform: camera::CameraUniform,
+    camera_buffer: wgpu::Buffer,
+    camera_bind_group: wgpu::BindGroup,
+    border_color: cgmath::Vector3<f32>,
+}
+
+impl Viewport {
+    fn new(
+        x: f32, 
+        y: f32, 
+        w: f32, 
+        h: f32, 
+        camera: camera::Camera, 
+        device: &wgpu::Device, 
+        camera_bind_group_layout: &wgpu::BindGroupLayout, 
+        border_color: cgmath::Vector3<f32>, 
+    ) -> Self {
+        let projection = camera::Projection::new(w as u32, h as u32, Deg(45.0), 0.1, 100.0);
+        let mut camera_uniform = camera::CameraUniform::new();
+        camera_uniform.update_view_proj(&camera, &projection);
+        let camera_controller = camera::CameraController::new(8.0, 0.4, camera);
+
+        let camera_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Camera Buffer"),
+            contents: bytemuck::cast_slice(&[camera_uniform]),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+
+        let camera_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &camera_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: camera_buffer.as_entire_binding(),
+            }],
+            label: Some("Camera Bind Group"),
+        });
+
+        Viewport {
+            x,
+            y,
+            width: w,
+            height: h,
+            camera_controller,
+            projection,
+            camera_uniform,
+            camera_buffer,
+            camera_bind_group,
+            border_color,
+        }
+    }
+}
+
 pub struct State<'a> {
     surface: wgpu::Surface<'a>,
     offscreen_texture: wgpu::Texture,
@@ -26,11 +85,7 @@ pub struct State<'a> {
     lines_render_pipeline: wgpu::RenderPipeline,
     text_render_pipeline: wgpu::RenderPipeline,
     scene: Scene,
-    projection: camera::Projection,
-    pub camera_controller: camera::CameraController,
-    camera_uniform: camera::CameraUniform,
-    camera_buffer: wgpu::Buffer,
-    camera_bind_group: wgpu::BindGroup,
+    pub viewports: Vec<Viewport>,
     ortho_transform_matrix: cgmath::Matrix4<f32>,
     ortho_transform_buffer: wgpu::Buffer,
     ortho_matrix_bind_group: wgpu::BindGroup,
@@ -180,37 +235,14 @@ impl<'a> State<'a> {
             view_formats: &[],
         });
 
-        let camera_yaw = Quaternion::from_angle_z(Deg(-90.0));
+        let camera_yaw_front = Quaternion::from_angle_z(Deg(-90.0));
+        let camera_yaw_side = Quaternion::from_angle_z(Deg(0.0));
         let camera_roll = Quaternion::from_angle_y(Deg(0.0));
         let camera_pitch = Quaternion::from_angle_x(Deg(0.0));
-        let camera_rotation = camera_yaw * camera_roll * camera_pitch;
-        let camera = camera::Camera::new((-5.0, 0.0, 0.0), camera_rotation);
-        let projection = camera::Projection::new(config.width, config.height, Deg(45.0), 0.1, 100.0);
-        let mut camera_uniform = camera::CameraUniform::new();
-        camera_uniform.update_view_proj(&camera, &projection);
-        let camera_controller = camera::CameraController::new(8.0, 0.4, camera);
-
-
-        let camera_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Camera Buffer"),
-            contents: bytemuck::cast_slice(&[camera_uniform]),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        });
-
-        let model_bind_group_layout = 
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                }],
-                label: Some("Model Bind Group Layout"),
-        });
+        let camera_rotation_front = camera_yaw_front * camera_roll * camera_pitch;
+        let camera_rotation_side = camera_yaw_side * camera_roll * camera_pitch;
+        let camera_front = camera::Camera::new((-5.0, 0.0, 0.0), camera_rotation_front);
+        let camera_side = camera::Camera::new((0.0, -5.0, 0.0), camera_rotation_side);
 
         let camera_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -227,13 +259,24 @@ impl<'a> State<'a> {
                 label: Some("Camera Bind Group Layout"),
             });
 
-        let camera_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &camera_bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: camera_buffer.as_entire_binding(),
-            }],
-            label: Some("Camera Bind Group"),
+        let viewports = vec![
+            Viewport::new(0.0, 0.0, (size.width/2) as f32, size.height as f32, camera_front, &device, &camera_bind_group_layout, cgmath::Vector3::<f32>::new(0.0, 255.0, 0.0)),
+            Viewport::new((size.width/2) as f32, 0.0, (size.width/2) as f32, size.height as f32, camera_side, &device, &camera_bind_group_layout, cgmath::Vector3::<f32>::new(0.0, 0.0, 255.0)),
+        ];
+
+        let model_bind_group_layout = 
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+                label: Some("Model Bind Group Layout"),
         });
 
         let ortho_transform_matrix: Matrix4<f32> = cgmath::ortho(0.0, size.width as f32, size.height as f32, 0.0, -1.0, 1.0);
@@ -408,11 +451,7 @@ impl<'a> State<'a> {
             lines_render_pipeline,
             text_render_pipeline,
             scene,
-            projection,
-            camera_controller,
-            camera_buffer,
-            camera_bind_group,
-            camera_uniform,
+            viewports,
             ortho_transform_matrix,
             ortho_transform_buffer,
             ortho_matrix_bind_group,
@@ -428,7 +467,9 @@ impl<'a> State<'a> {
 
     pub fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
         if new_size.width > 0 && new_size.height > 0 {
-            self.projection.resize(new_size.width, new_size.height);
+            for viewport in &mut self.viewports {
+                viewport.projection.resize(new_size.width, new_size.height);
+            }
             self.size = new_size;
             self.config.width = new_size.width;
             self.config.height = new_size.height;
@@ -452,9 +493,9 @@ impl<'a> State<'a> {
                         ..
                     },
                 ..
-            } => self.camera_controller.process_keyboard(*key, *state, &self.scene.entities),
+            } => self.viewports[0].camera_controller.process_keyboard(*key, *state, &self.scene.entities),
             WindowEvent::MouseWheel { delta, .. } => {
-                self.camera_controller.process_scroll(delta);
+                self.viewports[0].camera_controller.process_scroll(delta);
                 true
             }
             WindowEvent::MouseInput {
@@ -478,21 +519,23 @@ impl<'a> State<'a> {
     }
 
     pub fn update(&mut self, dt: std::time::Duration, should_save_to_file: bool) {
-        self.camera_controller.update_camera(dt);
+        for viewport in &mut self.viewports {
+            viewport.camera_controller.update_camera(dt);
+            viewport.camera_uniform.update_view_proj(&viewport.camera_controller.camera(), &viewport.projection);
+            log::info!("{:?}", viewport.camera_uniform);
+        
+            self.queue.write_buffer(
+                &viewport.camera_buffer,
+                0,
+                bytemuck::cast_slice(&[viewport.camera_uniform]),
+            );
+        }
         self.framerate = dt.as_secs_f32().recip();
         let fr_str = format!("{:.1} fps", self.framerate);
         self.scene.text_boxes[0].change_text(&self.device, fr_str);
 
-        self.camera_uniform.update_view_proj(&self.camera_controller.camera(), &self.projection);
-        log::info!("{:?}", self.camera_uniform);
 
         self.scene.run_behaviors();
-        
-        self.queue.write_buffer(
-            &self.camera_buffer,
-            0,
-            bytemuck::cast_slice(&[self.camera_uniform]),
-        );
 
         if should_save_to_file {
             self.scene.read_and_write_capture_buffers(
@@ -544,12 +587,16 @@ impl<'a> State<'a> {
                 occlusion_query_set: None,
                 timestamp_writes: None,
             });
-            
-            render_pass.set_pipeline(&self.lines_render_pipeline);
-            render_pass.draw_axes(&self.scene.axes, &self.camera_bind_group);
 
-            render_pass.set_pipeline(&self.render_pipeline);
-            self.scene.draw(&mut render_pass, &self.camera_bind_group, &self.ortho_matrix_bind_group, &self.text_render_pipeline, &self.queue);
+            for viewport in self.viewports.iter() {
+                render_pass.set_viewport(viewport.x, viewport.y, viewport.width, viewport.height, 0.0, 1.0);
+
+                render_pass.set_pipeline(&self.lines_render_pipeline);
+                render_pass.draw_axes(&self.scene.axes, &viewport.camera_bind_group);
+
+                render_pass.set_pipeline(&self.render_pipeline);
+                self.scene.draw(&mut render_pass, &viewport.camera_bind_group, &self.ortho_matrix_bind_group, &self.text_render_pipeline, &self.queue);
+            }
         }
 
         if should_save_to_file {

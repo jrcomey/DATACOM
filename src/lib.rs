@@ -73,7 +73,7 @@ pub async fn run_scene_from_hdf5(args: Vec<String>, should_save_to_file: bool) {
                     event: DeviceEvent::MouseMotion{ delta, },
                     .. // We're not using device_id currently
                 } => if state.mouse_pressed {
-                    state.camera_controller.process_mouse(delta.0, delta.1)
+                    state.viewports[0].camera_controller.process_mouse(delta.0, delta.1)
                 }
                 Event::WindowEvent {
                     ref event,
@@ -160,7 +160,7 @@ pub async fn run_scene_from_json(args: Vec<String>) {
                     event: DeviceEvent::MouseMotion{ delta, },
                     .. // We're not using device_id currently
                 } => if state.mouse_pressed {
-                    state.camera_controller.process_mouse(delta.0, delta.1)
+                    state.viewports[0].camera_controller.process_mouse(delta.0, delta.1)
                 }
                 Event::WindowEvent {
                     ref event,

@@ -6,7 +6,7 @@ use winit::{
     window::Window,
 };
 use wgpu::{util::DeviceExt, TextureUsages};
-use cgmath::{Deg, Quaternion, Matrix4, Rotation3};
+use cgmath::{Deg, Quaternion, Matrix4, Rotation3, SquareMatrix};
 
 use crate::scenes_and_entities::Scene;
 use crate::model;
@@ -14,6 +14,101 @@ use crate::camera;
 use crate::text::GlyphVertex;
 
 use model::{Vertex, DrawModel};
+
+pub struct Border {
+    vertex_buffer: wgpu::Buffer,
+    identity_camera_bind_group: wgpu::BindGroup,
+    identity_transform_bind_group: wgpu::BindGroup,
+    num_vertices: u32,
+}
+
+impl Border {
+    fn new(
+        x: f32, 
+        y: f32, 
+        w: f32, 
+        h: f32, 
+        color: cgmath::Vector3<f32>, 
+        device: &wgpu::Device,
+        camera_bind_group_layout: &wgpu::BindGroupLayout, 
+    ) -> Self {
+        let color_arr = [color.x, color.y, color.z];
+
+        let border = vec![
+            model::ModelVertex { position: [x, y, 0.0], color: color_arr },
+            model::ModelVertex { position: [x+w, y, 0.0], color: color_arr },
+
+            model::ModelVertex { position: [x+w, y, 0.0], color: color_arr },
+            model::ModelVertex { position: [x+w, y+h, 0.0], color: color_arr },
+
+            model::ModelVertex { position: [x+w, y+h, 0.0], color: color_arr },
+            model::ModelVertex { position: [x, y+h, 0.0], color: color_arr },
+
+            model::ModelVertex { position: [x, y+h, 0.0], color: color_arr },
+            model::ModelVertex { position: [x, y, 0.0], color: color_arr },
+        ];
+
+        let num_vertices = border.len() as u32;
+
+        let border_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Border Buffer"),
+            contents: bytemuck::cast_slice(&border),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
+
+        let identity_camera = camera::CameraUniform::new();
+
+        let identity_camera_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Identity Camera Buffer"),
+            contents: bytemuck::cast_slice(&[identity_camera]),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+
+        let identity_camera_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &camera_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: identity_camera_buffer.as_entire_binding(),
+            }],
+            label: Some("Border Bind Group"),
+        });
+
+        let identity_matrix: [[f32; 4]; 4] = cgmath::Matrix4::<f32>::identity().into();
+        let uniform_matrix: &[u8] = bytemuck::cast_slice(&identity_matrix);
+
+        let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Uniform Buffer"),
+            contents: uniform_matrix,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+
+        let border_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &camera_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: uniform_buffer.as_entire_binding(),
+            }],
+            label: Some("Border Bind Group"),
+        });
+
+        Border {
+            vertex_buffer: border_buffer,
+            identity_camera_bind_group,
+            identity_transform_bind_group: border_bind_group,
+            num_vertices,
+        }
+    }
+
+    fn draw_border<'a>(
+        &'a self,
+        render_pass: &mut wgpu::RenderPass<'a>,
+    ) {
+        render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+        render_pass.set_bind_group(0, &self.identity_camera_bind_group, &[]);
+        render_pass.set_bind_group(1, &self.identity_transform_bind_group, &[]);
+        render_pass.draw(0..self.num_vertices, 0..1);
+    }
+}
 
 pub struct Viewport {
     x: f32,
@@ -25,7 +120,7 @@ pub struct Viewport {
     camera_uniform: camera::CameraUniform,
     camera_buffer: wgpu::Buffer,
     camera_bind_group: wgpu::BindGroup,
-    border_color: cgmath::Vector3<f32>,
+    border: Border,
 }
 
 impl Viewport {
@@ -59,6 +154,8 @@ impl Viewport {
             label: Some("Camera Bind Group"),
         });
 
+        let border = Border::new(x, y, w, h, border_color, &device, &camera_bind_group_layout);
+
         Viewport {
             x,
             y,
@@ -69,7 +166,7 @@ impl Viewport {
             camera_uniform,
             camera_buffer,
             camera_bind_group,
-            border_color,
+            border,
         }
     }
 }
@@ -260,8 +357,8 @@ impl<'a> State<'a> {
             });
 
         let viewports = vec![
-            Viewport::new(0.0, 0.0, (size.width/2) as f32, size.height as f32, camera_front, &device, &camera_bind_group_layout, cgmath::Vector3::<f32>::new(0.0, 255.0, 0.0)),
-            Viewport::new((size.width/2) as f32, 0.0, (size.width/2) as f32, size.height as f32, camera_side, &device, &camera_bind_group_layout, cgmath::Vector3::<f32>::new(0.0, 0.0, 255.0)),
+            Viewport::new(0.0, 0.0, size.width as f32, size.height as f32, camera_front, &device, &camera_bind_group_layout, cgmath::Vector3::<f32>::new(0.0, 255.0, 0.0)),
+            Viewport::new((size.width/2) as f32, 0.0, (size.width/2) as f32, (size.height/2) as f32, camera_side, &device, &camera_bind_group_layout, cgmath::Vector3::<f32>::new(0.0, 0.0, 255.0)),
         ];
 
         let model_bind_group_layout = 
@@ -592,6 +689,7 @@ impl<'a> State<'a> {
                 render_pass.set_viewport(viewport.x, viewport.y, viewport.width, viewport.height, 0.0, 1.0);
 
                 render_pass.set_pipeline(&self.lines_render_pipeline);
+                viewport.border.draw_border(&mut render_pass);
                 render_pass.draw_axes(&self.scene.axes, &viewport.camera_bind_group);
 
                 render_pass.set_pipeline(&self.render_pipeline);

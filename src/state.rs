@@ -17,12 +17,13 @@ use model::{Vertex, DrawModel};
 
 pub struct Border {
     vertex_buffer: wgpu::Buffer,
+    color: cgmath::Vector3<f32>,
     identity_camera_bind_group: wgpu::BindGroup,
     identity_transform_bind_group: wgpu::BindGroup,
-    num_vertices: u32,
 }
 
 impl Border {
+    const NUM_VERTICES: u32 = 8;
     fn new(
         x: f32, 
         y: f32, 
@@ -32,29 +33,7 @@ impl Border {
         device: &wgpu::Device,
         camera_bind_group_layout: &wgpu::BindGroupLayout, 
     ) -> Self {
-        let color_arr = [color.x, color.y, color.z];
-
-        let border = vec![
-            model::ModelVertex { position: [x, y, 0.0], color: color_arr },
-            model::ModelVertex { position: [x+w, y, 0.0], color: color_arr },
-
-            model::ModelVertex { position: [x+w, y, 0.0], color: color_arr },
-            model::ModelVertex { position: [x+w, y+h, 0.0], color: color_arr },
-
-            model::ModelVertex { position: [x+w, y+h, 0.0], color: color_arr },
-            model::ModelVertex { position: [x, y+h, 0.0], color: color_arr },
-
-            model::ModelVertex { position: [x, y+h, 0.0], color: color_arr },
-            model::ModelVertex { position: [x, y, 0.0], color: color_arr },
-        ];
-
-        let num_vertices = border.len() as u32;
-
-        let border_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Border Buffer"),
-            contents: bytemuck::cast_slice(&border),
-            usage: wgpu::BufferUsages::VERTEX,
-        });
+        let border_buffer = Border::resize(x, y, w, h, color, device);
 
         let identity_camera = camera::CameraUniform::new();
 
@@ -93,9 +72,9 @@ impl Border {
 
         Border {
             vertex_buffer: border_buffer,
+            color,
             identity_camera_bind_group,
             identity_transform_bind_group: border_bind_group,
-            num_vertices,
         }
     }
 
@@ -106,7 +85,30 @@ impl Border {
         render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
         render_pass.set_bind_group(0, &self.identity_camera_bind_group, &[]);
         render_pass.set_bind_group(1, &self.identity_transform_bind_group, &[]);
-        render_pass.draw(0..self.num_vertices, 0..1);
+        render_pass.draw(0..Border::NUM_VERTICES, 0..1);
+    }
+
+    fn resize(x: f32, y: f32, w: f32, h: f32, color: cgmath::Vector3<f32>, device: &wgpu::Device) -> wgpu::Buffer {
+        let color_arr = [color.x, color.y, color.z];
+        let border = vec![
+            model::ModelVertex { position: [x, y, 0.0], color: color_arr },
+            model::ModelVertex { position: [x+w, y, 0.0], color: color_arr },
+
+            model::ModelVertex { position: [x+w, y, 0.0], color: color_arr },
+            model::ModelVertex { position: [x+w, y+h, 0.0], color: color_arr },
+
+            model::ModelVertex { position: [x+w, y+h, 0.0], color: color_arr },
+            model::ModelVertex { position: [x, y+h, 0.0], color: color_arr },
+
+            model::ModelVertex { position: [x, y+h, 0.0], color: color_arr },
+            model::ModelVertex { position: [x, y, 0.0], color: color_arr },
+        ];
+
+        device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Border Buffer"),
+            contents: bytemuck::cast_slice(&border),
+            usage: wgpu::BufferUsages::VERTEX,
+        })
     }
 }
 
@@ -168,6 +170,19 @@ impl Viewport {
             camera_bind_group,
             border,
         }
+    }
+
+    fn resize(&mut self, w: f32, h: f32, device: &wgpu::Device){
+        self.width = w;
+        self.height = h;
+        self.border.vertex_buffer = Border::resize(
+            self.x, 
+            self.y, 
+            w, 
+            h,
+            self.border.color,
+            device,
+        );
     }
 }
 
@@ -565,6 +580,11 @@ impl<'a> State<'a> {
     pub fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
         if new_size.width > 0 && new_size.height > 0 {
             for viewport in &mut self.viewports {
+                // viewport.resize(
+                //     new_size.width as f32, 
+                //     new_size.height as f32, 
+                //     &self.device
+                // );
                 viewport.projection.resize(new_size.width, new_size.height);
             }
             self.size = new_size;
@@ -607,8 +627,8 @@ impl<'a> State<'a> {
                 position,
                 ..
             } if self.mouse_pressed => {
-                // println!("mouse pressed");
-                // println!("({}, {})", position.x, position.y);
+                println!("mouse pressed at ({}, {})", position.x, position.y);
+
                 true
             }
             _ => false,

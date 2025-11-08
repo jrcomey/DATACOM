@@ -15,102 +15,45 @@ use crate::text::GlyphVertex;
 
 use model::{Vertex, DrawModel};
 
-pub struct Border {
-    vertex_buffer: wgpu::Buffer,
-    color: cgmath::Vector3<f32>,
-    identity_camera_bind_group: wgpu::BindGroup,
-    identity_transform_bind_group: wgpu::BindGroup,
+enum BorderAlignment {
+    Free,
+    TopLeft,
+    TopRight,
+    BottomRight,
+    BottomLeft,
+    FullScreen,
 }
 
-impl Border {
-    const NUM_VERTICES: u32 = 8;
-    fn new(
-        x: f32, 
-        y: f32, 
-        w: f32, 
-        h: f32, 
-        color: cgmath::Vector3<f32>, 
-        device: &wgpu::Device,
-        camera_bind_group_layout: &wgpu::BindGroupLayout, 
-    ) -> Self {
-        let border_buffer = Border::resize(x, y, w, h, color, device);
+// pub struct Border {
+//     vertex_buffer: wgpu::Buffer,
+//     color: cgmath::Vector3<f32>,
+//     identity_camera_bind_group: wgpu::BindGroup,
+//     identity_transform_bind_group: wgpu::BindGroup,
+//     alignment: BorderAlignment,
+// }
 
-        let identity_camera = camera::CameraUniform::new();
+// impl Border {
+//     fn new(
+//         x: f32, 
+//         y: f32, 
+//         w: f32, 
+//         h: f32, 
+//         color: cgmath::Vector3<f32>, 
+//         alignment: BorderAlignment,
+//         device: &wgpu::Device,
+//         camera_bind_group_layout: &wgpu::BindGroupLayout, 
+//     ) -> Self {
+//         let border_buffer = Border::resize(x, y, w, h, color, device);
 
-        let identity_camera_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Identity Camera Buffer"),
-            contents: bytemuck::cast_slice(&[identity_camera]),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        });
-
-        let identity_camera_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &camera_bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: identity_camera_buffer.as_entire_binding(),
-            }],
-            label: Some("Border Bind Group"),
-        });
-
-        let identity_matrix: [[f32; 4]; 4] = cgmath::Matrix4::<f32>::identity().into();
-        let uniform_matrix: &[u8] = bytemuck::cast_slice(&identity_matrix);
-
-        let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Uniform Buffer"),
-            contents: uniform_matrix,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        });
-
-        let border_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &camera_bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: uniform_buffer.as_entire_binding(),
-            }],
-            label: Some("Border Bind Group"),
-        });
-
-        Border {
-            vertex_buffer: border_buffer,
-            color,
-            identity_camera_bind_group,
-            identity_transform_bind_group: border_bind_group,
-        }
-    }
-
-    fn draw_border<'a>(
-        &'a self,
-        render_pass: &mut wgpu::RenderPass<'a>,
-    ) {
-        render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-        render_pass.set_bind_group(0, &self.identity_camera_bind_group, &[]);
-        render_pass.set_bind_group(1, &self.identity_transform_bind_group, &[]);
-        render_pass.draw(0..Border::NUM_VERTICES, 0..1);
-    }
-
-    fn resize(x: f32, y: f32, w: f32, h: f32, color: cgmath::Vector3<f32>, device: &wgpu::Device) -> wgpu::Buffer {
-        let color_arr = [color.x, color.y, color.z];
-        let border = vec![
-            model::ModelVertex { position: [x, y, 0.0], color: color_arr },
-            model::ModelVertex { position: [x+w, y, 0.0], color: color_arr },
-
-            model::ModelVertex { position: [x+w, y, 0.0], color: color_arr },
-            model::ModelVertex { position: [x+w, y+h, 0.0], color: color_arr },
-
-            model::ModelVertex { position: [x+w, y+h, 0.0], color: color_arr },
-            model::ModelVertex { position: [x, y+h, 0.0], color: color_arr },
-
-            model::ModelVertex { position: [x, y+h, 0.0], color: color_arr },
-            model::ModelVertex { position: [x, y, 0.0], color: color_arr },
-        ];
-
-        device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Border Buffer"),
-            contents: bytemuck::cast_slice(&border),
-            usage: wgpu::BufferUsages::VERTEX,
-        })
-    }
-}
+//         Border {
+//             vertex_buffer: border_buffer,
+//             color,
+//             alignment,
+//             identity_camera_bind_group,
+//             identity_transform_bind_group: border_bind_group,
+//         }
+//     }
+// }
 
 pub struct Viewport {
     x: f32,
@@ -122,10 +65,15 @@ pub struct Viewport {
     camera_uniform: camera::CameraUniform,
     camera_buffer: wgpu::Buffer,
     camera_bind_group: wgpu::BindGroup,
-    border: Border,
+    vertex_buffer: wgpu::Buffer,
+    color: cgmath::Vector3<f32>,
+    identity_camera_bind_group: wgpu::BindGroup,
+    border_bind_group: wgpu::BindGroup,
 }
 
 impl Viewport {
+    const NUM_VERTICES: u32 = 8;
+
     fn new(
         x: f32, 
         y: f32, 
@@ -156,7 +104,19 @@ impl Viewport {
             label: Some("Camera Bind Group"),
         });
 
-        let border = Border::new(x, y, w, h, border_color, &device, &camera_bind_group_layout);
+        let border_buffer = Viewport::set_border(x, y, w, h, border_color, &device);
+        let identity_camera_bind_group = Viewport::set_camera_binding(&device, &camera_bind_group_layout);
+        let border_bind_group= Viewport::set_border_binding(&device, &camera_bind_group_layout);
+
+        /*
+        √vertex_buffer: wgpu::Buffer,
+        √color: cgmath::Vector3<f32>,
+        √identity_camera_bind_group: wgpu::BindGroup,
+        √identity_transform_bind_group: wgpu::BindGroup,
+        alignment: BorderAlignment,
+         */
+
+
 
         Viewport {
             x,
@@ -168,21 +128,89 @@ impl Viewport {
             camera_uniform,
             camera_buffer,
             camera_bind_group,
-            border,
+            vertex_buffer: border_buffer,
+            color: border_color,
+            identity_camera_bind_group,
+            border_bind_group,
         }
+    }
+
+    fn set_border(x: f32, y: f32, w: f32, h: f32, color: cgmath::Vector3<f32>, device: &wgpu::Device) -> wgpu::Buffer {
+        let color_arr = [color.x, color.y, color.z];
+        let border = vec![
+            model::ModelVertex { position: [x, y, 0.0], color: color_arr },
+            model::ModelVertex { position: [x+w, y, 0.0], color: color_arr },
+
+            model::ModelVertex { position: [x+w, y, 0.0], color: color_arr },
+            model::ModelVertex { position: [x+w, y+h, 0.0], color: color_arr },
+
+            model::ModelVertex { position: [x+w, y+h, 0.0], color: color_arr },
+            model::ModelVertex { position: [x, y+h, 0.0], color: color_arr },
+
+            model::ModelVertex { position: [x, y+h, 0.0], color: color_arr },
+            model::ModelVertex { position: [x, y, 0.0], color: color_arr },
+        ];
+
+        device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Border Buffer"),
+            contents: bytemuck::cast_slice(&border),
+            usage: wgpu::BufferUsages::VERTEX,
+        })
+    }
+
+    fn set_camera_binding(device: &wgpu::Device, camera_bind_group_layout: &wgpu::BindGroupLayout) -> wgpu::BindGroup {
+        let identity_camera = camera::CameraUniform::new();
+
+        let identity_camera_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Identity Camera Buffer"),
+            contents: bytemuck::cast_slice(&[identity_camera]),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+
+        device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &camera_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: identity_camera_buffer.as_entire_binding(),
+            }],
+            label: Some("Border Bind Group"),
+        })
+    }
+
+    fn set_border_binding(device: &wgpu::Device, camera_bind_group_layout: &wgpu::BindGroupLayout) -> wgpu::BindGroup {
+        let identity_matrix: [[f32; 4]; 4] = cgmath::Matrix4::<f32>::identity().into();
+        let uniform_matrix: &[u8] = bytemuck::cast_slice(&identity_matrix);
+
+        let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Uniform Buffer"),
+            contents: uniform_matrix,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+
+        device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &camera_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: uniform_buffer.as_entire_binding(),
+            }],
+            label: Some("Border Bind Group"),
+        })
     }
 
     fn resize(&mut self, w: f32, h: f32, device: &wgpu::Device){
         self.width = w;
         self.height = h;
-        self.border.vertex_buffer = Border::resize(
-            self.x, 
-            self.y, 
-            w, 
-            h,
-            self.border.color,
-            device,
-        );
+        self.vertex_buffer = Viewport::set_border(self.x, self.y, w, h, self.color, device);
+    }
+
+    fn draw_border<'a>(
+        &'a self,
+        render_pass: &mut wgpu::RenderPass<'a>,
+    ) {
+        render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+        render_pass.set_bind_group(0, &self.identity_camera_bind_group, &[]);
+        render_pass.set_bind_group(1, &self.border_bind_group, &[]);
+        render_pass.draw(0..Viewport::NUM_VERTICES, 0..1);
     }
 }
 
@@ -709,7 +737,7 @@ impl<'a> State<'a> {
                 render_pass.set_viewport(viewport.x, viewport.y, viewport.width, viewport.height, 0.0, 1.0);
 
                 render_pass.set_pipeline(&self.lines_render_pipeline);
-                viewport.border.draw_border(&mut render_pass);
+                viewport.draw_border(&mut render_pass);
                 render_pass.draw_axes(&self.scene.axes, &viewport.camera_bind_group);
 
                 render_pass.set_pipeline(&self.render_pipeline);

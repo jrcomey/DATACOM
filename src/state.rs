@@ -15,6 +15,7 @@ use crate::text::GlyphVertex;
 
 use model::{Vertex, DrawModel};
 
+#[derive(PartialEq)]
 enum BorderAlignment {
     Free,
     TopLeft,
@@ -23,6 +24,11 @@ enum BorderAlignment {
     BottomLeft,
     FullScreen,
 }
+
+// enum BorderScalingType {
+//     Absolute,
+//     Relative,
+// }
 
 // pub struct Border {
 //     vertex_buffer: wgpu::Buffer,
@@ -68,11 +74,12 @@ pub struct Viewport {
     vertex_buffer: wgpu::Buffer,
     color: cgmath::Vector3<f32>,
     identity_camera_bind_group: wgpu::BindGroup,
-    border_bind_group: wgpu::BindGroup,
+    alignment: BorderAlignment,
 }
 
 impl Viewport {
     const NUM_VERTICES: u32 = 8;
+    const BORDER_BUFFER: f32 = 0.1; // the border needs to be drawn slightly inwards; if it is drawn right on the border (eg 0.0), it will be cut off
 
     fn new(
         x: f32, 
@@ -83,6 +90,7 @@ impl Viewport {
         device: &wgpu::Device, 
         camera_bind_group_layout: &wgpu::BindGroupLayout, 
         border_color: cgmath::Vector3<f32>, 
+        alignment: BorderAlignment,
     ) -> Self {
         let projection = camera::Projection::new(w as u32, h as u32, Deg(45.0), 0.1, 100.0);
         let mut camera_uniform = camera::CameraUniform::new();
@@ -104,19 +112,8 @@ impl Viewport {
             label: Some("Camera Bind Group"),
         });
 
-        let border_buffer = Viewport::set_border(x, y, w, h, border_color, &device);
+        let border_buffer = Viewport::set_border(x, y, w, h, border_color, &device, &alignment);
         let identity_camera_bind_group = Viewport::set_camera_binding(&device, &camera_bind_group_layout);
-        let border_bind_group= Viewport::set_border_binding(&device, &camera_bind_group_layout);
-
-        /*
-        √vertex_buffer: wgpu::Buffer,
-        √color: cgmath::Vector3<f32>,
-        √identity_camera_bind_group: wgpu::BindGroup,
-        √identity_transform_bind_group: wgpu::BindGroup,
-        alignment: BorderAlignment,
-         */
-
-
 
         Viewport {
             x,
@@ -131,24 +128,108 @@ impl Viewport {
             vertex_buffer: border_buffer,
             color: border_color,
             identity_camera_bind_group,
-            border_bind_group,
+            alignment,
         }
     }
 
-    fn set_border(x: f32, y: f32, w: f32, h: f32, color: cgmath::Vector3<f32>, device: &wgpu::Device) -> wgpu::Buffer {
+    fn set_border(x: f32, y: f32, w: f32, h: f32, color: cgmath::Vector3<f32>, device: &wgpu::Device, alignment: &BorderAlignment) -> wgpu::Buffer {
         let color_arr = [color.x, color.y, color.z];
+
+        // in all cases, (x, y) is the top left
+        // let corners = match alignment {
+        //     // in this case, w = viewport width, h = viewport height
+        //     BorderAlignment::Free => vec![
+        //         // top left
+        //         model::ModelVertex { position: [x, y, 0.0], color: color_arr },
+        //         // top right
+        //         model::ModelVertex { position: [x+w, y, 0.0], color: color_arr },
+        //         // bottom right
+        //         model::ModelVertex { position: [x+w, y+h, 0.0], color: color_arr },
+        //         // bottom left
+        //         model::ModelVertex { position: [x, y+h, 0.0], color: color_arr },
+        //     ],
+        //     // in this case, w = viewport width, h = viewport height
+        //     BorderAlignment::TopLeft => vec![
+        //         // top left
+        //         model::ModelVertex { position: [0.0, 0.0, 0.0], color: color_arr },
+        //         // top right
+        //         model::ModelVertex { position: [w, 0.0, 0.0], color: color_arr },
+        //         // bottom right
+        //         model::ModelVertex { position: [w, h, 0.0], color: color_arr },
+        //         // bottom left
+        //         model::ModelVertex { position: [0.0, h, 0.0], color: color_arr },
+        //     ],
+        //     // in this case, w = screen width, h = viewport height
+        //     BorderAlignment::TopRight => vec![
+        //         // top left
+        //         model::ModelVertex { position: [x, 0.0, 0.0], color: color_arr },
+        //         // top right
+        //         model::ModelVertex { position: [w, 0.0, 0.0], color: color_arr },
+        //         // bottom right
+        //         model::ModelVertex { position: [w, h, 0.0], color: color_arr },
+        //         // bottom left
+        //         model::ModelVertex { position: [x, h, 0.0], color: color_arr },
+        //     ],
+        //     // in this case, w = screen width, h = screen height
+        //     BorderAlignment::BottomRight => vec![
+        //         // top left
+        //         model::ModelVertex { position: [x, y, 0.0], color: color_arr },
+        //         // top right
+        //         model::ModelVertex { position: [w, y, 0.0], color: color_arr },
+        //         // bottom right
+        //         model::ModelVertex { position: [w, h, 0.0], color: color_arr },
+        //         // bottom left
+        //         model::ModelVertex { position: [x, h, 0.0], color: color_arr },
+        //     ],
+        //     // in this case, w = viewport width, h = screen height
+        //     BorderAlignment::BottomLeft => vec![
+        //         // top left
+        //         model::ModelVertex { position: [0.0, y, 0.0], color: color_arr },
+        //         // top right
+        //         model::ModelVertex { position: [w, y, 0.0], color: color_arr },
+        //         // bottom right
+        //         model::ModelVertex { position: [w, h, 0.0], color: color_arr },
+        //         // bottom left
+        //         model::ModelVertex { position: [0.0, h, 0.0], color: color_arr },
+        //     ],
+        //     // in this case, w = screen width, h = screen height
+        //     BorderAlignment::FullScreen => vec![
+        //         // top left
+        //         model::ModelVertex { position: [0.0, 0.0, 0.0], color: color_arr },
+        //         // top right
+        //         model::ModelVertex { position: [w, 0.0, 0.0], color: color_arr },
+        //         // bottom right
+        //         model::ModelVertex { position: [w, h, 0.0], color: color_arr },
+        //         // bottom left
+        //         model::ModelVertex { position: [0.0, h, 0.0], color: color_arr },
+        //     ],
+        // };
+        let xmin = Viewport::BORDER_BUFFER;
+        let ymin = Viewport::BORDER_BUFFER;
+        let xmax = 1600.0;
+        let ymax = 1200.0;
+        let corners = vec![
+            // top left
+            model::ModelVertex { position: [xmin, ymin, 0.0], color: color_arr },
+            // top right
+            model::ModelVertex { position: [xmax, ymin, 0.0], color: color_arr },
+            // bottom right
+            model::ModelVertex { position: [xmax, ymax, 0.0], color: color_arr },
+            // bottom left
+            model::ModelVertex { position: [xmin, ymax, 0.0], color: color_arr },
+        ];
+        println!("corners: ({}, {}), ({}, {}), ({}, {}), ({}, {})", x, y, x+w, y, x+w, y+h, x, y+h);
+        println!("dims: {}, {}", w, h);
+
         let border = vec![
-            model::ModelVertex { position: [x, y, 0.0], color: color_arr },
-            model::ModelVertex { position: [x+w, y, 0.0], color: color_arr },
-
-            model::ModelVertex { position: [x+w, y, 0.0], color: color_arr },
-            model::ModelVertex { position: [x+w, y+h, 0.0], color: color_arr },
-
-            model::ModelVertex { position: [x+w, y+h, 0.0], color: color_arr },
-            model::ModelVertex { position: [x, y+h, 0.0], color: color_arr },
-
-            model::ModelVertex { position: [x, y+h, 0.0], color: color_arr },
-            model::ModelVertex { position: [x, y, 0.0], color: color_arr },
+            corners[0],
+            corners[1],
+            corners[1],
+            corners[2],
+            corners[2],
+            corners[3],
+            corners[3],
+            corners[0],
         ];
 
         device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -177,39 +258,49 @@ impl Viewport {
         })
     }
 
-    fn set_border_binding(device: &wgpu::Device, camera_bind_group_layout: &wgpu::BindGroupLayout) -> wgpu::BindGroup {
-        let identity_matrix: [[f32; 4]; 4] = cgmath::Matrix4::<f32>::identity().into();
-        let uniform_matrix: &[u8] = bytemuck::cast_slice(&identity_matrix);
-
-        let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Uniform Buffer"),
-            contents: uniform_matrix,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        });
-
-        device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &camera_bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: uniform_buffer.as_entire_binding(),
-            }],
-            label: Some("Border Bind Group"),
-        })
-    }
-
     fn resize(&mut self, w: f32, h: f32, device: &wgpu::Device){
         self.width = w;
         self.height = h;
-        self.vertex_buffer = Viewport::set_border(self.x, self.y, w, h, self.color, device);
+        /*
+            drag window left: increase x of right-aligned boxes to new_width-viewport_width
+            drag window right: increase x of right-aligned boxes to new_width-viewport_width
+            top right: screen width, viewport width, viewport height
+            bottom right: screen width, viewport width, viewport height
+            top left: viewoport width, vp height
+         */
+        self.vertex_buffer = Viewport::set_border(self.x, self.y, w, h, self.color, device, &self.alignment);
+    }
+
+    fn resize_from_window(&mut self, screen_width: f32, screen_height: f32, device: &wgpu::Device){
+        /*
+        if the width increased, we need to adjust right-aligned borders
+        if the height increased, we need to adjust bottom-aligned borders
+         */
+        if self.alignment == BorderAlignment::TopRight || self.alignment == BorderAlignment::BottomRight || self.alignment == BorderAlignment::FullScreen {
+            println!("right-aligned border");
+            self.x = if self.alignment == BorderAlignment::FullScreen {
+                0.0
+            } else {
+                screen_width - self.width
+            };
+            println!("new x = {}", self.x);
+            self.vertex_buffer = Viewport::set_border(self.x, self.y, self.width, self.height, self.color, device, &self.alignment);
+        }
+
+        if self.alignment == BorderAlignment::BottomLeft || self.alignment == BorderAlignment::BottomRight || self.alignment == BorderAlignment::FullScreen {
+            self.y = screen_height - self.height;
+            self.vertex_buffer = Viewport::set_border(self.x, self.y, self.width, self.height, self.color, device, &self.alignment);
+        }
     }
 
     fn draw_border<'a>(
         &'a self,
+        ortho_matrix_bind_group: &'a wgpu::BindGroup,
         render_pass: &mut wgpu::RenderPass<'a>,
     ) {
         render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
         render_pass.set_bind_group(0, &self.identity_camera_bind_group, &[]);
-        render_pass.set_bind_group(1, &self.border_bind_group, &[]);
+        render_pass.set_bind_group(1, ortho_matrix_bind_group, &[]);
         render_pass.draw(0..Viewport::NUM_VERTICES, 0..1);
     }
 }
@@ -400,8 +491,28 @@ impl<'a> State<'a> {
             });
 
         let viewports = vec![
-            Viewport::new(0.0, 0.0, size.width as f32, size.height as f32, camera_front, &device, &camera_bind_group_layout, cgmath::Vector3::<f32>::new(0.0, 255.0, 0.0)),
-            Viewport::new((size.width/2) as f32, 0.0, (size.width/2) as f32, (size.height/2) as f32, camera_side, &device, &camera_bind_group_layout, cgmath::Vector3::<f32>::new(0.0, 0.0, 255.0)),
+            Viewport::new(
+                0.0, 
+                0.0, 
+                size.width as f32, 
+                size.height as f32, 
+                camera_front, 
+                &device, 
+                &camera_bind_group_layout, 
+                cgmath::Vector3::<f32>::new(0.0, 255.0, 0.0),
+                BorderAlignment::FullScreen,
+            ),
+            Viewport::new(
+                (size.width/2) as f32, 
+                (size.height/2) as f32, 
+                (size.width/2) as f32, 
+                (size.height/2) as f32, 
+                camera_side, 
+                &device, 
+                &camera_bind_group_layout, 
+                cgmath::Vector3::<f32>::new(0.0, 0.0, 255.0),
+                BorderAlignment::BottomRight,
+            ),
         ];
 
         let model_bind_group_layout = 
@@ -421,6 +532,12 @@ impl<'a> State<'a> {
 
         let ortho_transform_matrix: Matrix4<f32> = cgmath::ortho(0.0, size.width as f32, size.height as f32, 0.0, -1.0, 1.0);
         let ortho_transform_arr: [[f32; 4]; 4] = ortho_transform_matrix.into();
+        for r in ortho_transform_arr {
+            for cell in r {
+                print!("{} ", cell);
+            }
+            println!();
+        }
 
         let ortho_transform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Ortho transform matrix buffer"),
@@ -608,11 +725,11 @@ impl<'a> State<'a> {
     pub fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
         if new_size.width > 0 && new_size.height > 0 {
             for viewport in &mut self.viewports {
-                // viewport.resize(
-                //     new_size.width as f32, 
-                //     new_size.height as f32, 
-                //     &self.device
-                // );
+                viewport.resize_from_window(
+                    new_size.width as f32, 
+                    new_size.height as f32, 
+                    &self.device
+                );
                 viewport.projection.resize(new_size.width, new_size.height);
             }
             self.size = new_size;
@@ -734,10 +851,11 @@ impl<'a> State<'a> {
             });
 
             for viewport in self.viewports.iter() {
+                // println!("viewport dims: {}, {}, {}, {}", viewport.x, viewport.y, viewport.width, viewport.height);
                 render_pass.set_viewport(viewport.x, viewport.y, viewport.width, viewport.height, 0.0, 1.0);
 
                 render_pass.set_pipeline(&self.lines_render_pipeline);
-                viewport.draw_border(&mut render_pass);
+                viewport.draw_border(&self.ortho_matrix_bind_group, &mut render_pass);
                 render_pass.draw_axes(&self.scene.axes, &viewport.camera_bind_group);
 
                 render_pass.set_pipeline(&self.render_pipeline);

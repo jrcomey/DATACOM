@@ -66,6 +66,7 @@ pub struct Viewport {
     y: f32,
     width: f32,
     height: f32,
+    aspect_ratio: f32,
     pub camera_controller: camera::CameraController,
     projection: camera::Projection,
     camera_uniform: camera::CameraUniform,
@@ -80,6 +81,7 @@ pub struct Viewport {
 impl Viewport {
     const NUM_VERTICES: u32 = 8;
     const BORDER_BUFFER: f32 = 0.1; // the border needs to be drawn slightly inwards; if it is drawn right on the border (eg 0.0), it will be cut off
+    const BACKGROUND_COLOR: cgmath::Vector3<f32> = cgmath::Vector3::<f32>::new(0.0, 0.0, 0.0);
 
     fn new(
         x: f32, 
@@ -112,7 +114,7 @@ impl Viewport {
             label: Some("Camera Bind Group"),
         });
 
-        let border_buffer = Viewport::set_border(x, y, w, h, border_color, &device, &alignment);
+        let border_buffer = Viewport::set_border(x, y, w, h, 1600.0, 1200.0, border_color, &device, &alignment);
         let identity_camera_bind_group = Viewport::set_camera_binding(&device, &camera_bind_group_layout);
 
         Viewport {
@@ -120,6 +122,7 @@ impl Viewport {
             y,
             width: w,
             height: h,
+            aspect_ratio: w/h,
             camera_controller,
             projection,
             camera_uniform,
@@ -132,7 +135,7 @@ impl Viewport {
         }
     }
 
-    fn set_border(x: f32, y: f32, w: f32, h: f32, color: cgmath::Vector3<f32>, device: &wgpu::Device, alignment: &BorderAlignment) -> wgpu::Buffer {
+    fn set_border(x: f32, y: f32, w: f32, h: f32, sw: f32, sh: f32, color: cgmath::Vector3<f32>, device: &wgpu::Device, alignment: &BorderAlignment) -> wgpu::Buffer {
         let color_arr = [color.x, color.y, color.z];
 
         // in all cases, (x, y) is the top left
@@ -208,6 +211,7 @@ impl Viewport {
         let ymin = Viewport::BORDER_BUFFER;
         let xmax = 1600.0;
         let ymax = 1200.0;
+        // println!("{}, {}, {}, {}", xmin, ymin, xmax, ymax);
         let corners = vec![
             // top left
             model::ModelVertex { position: [xmin, ymin, 0.0], color: color_arr },
@@ -218,8 +222,8 @@ impl Viewport {
             // bottom left
             model::ModelVertex { position: [xmin, ymax, 0.0], color: color_arr },
         ];
-        println!("corners: ({}, {}), ({}, {}), ({}, {}), ({}, {})", x, y, x+w, y, x+w, y+h, x, y+h);
-        println!("dims: {}, {}", w, h);
+        // println!("corners: ({}, {}), ({}, {}), ({}, {}), ({}, {})", x, y, x+w, y, x+w, y+h, x, y+h);
+        // println!("dims: {}, {}", w, h);
 
         let border = vec![
             corners[0],
@@ -268,39 +272,59 @@ impl Viewport {
             bottom right: screen width, viewport width, viewport height
             top left: viewoport width, vp height
          */
-        self.vertex_buffer = Viewport::set_border(self.x, self.y, w, h, self.color, device, &self.alignment);
+        self.vertex_buffer = Viewport::set_border(self.x, self.y, w, h, w, h, self.color, device, &self.alignment);
     }
 
     fn resize_from_window(&mut self, screen_width: f32, screen_height: f32, device: &wgpu::Device){
         /*
         if the width increased, we need to adjust right-aligned borders
         if the height increased, we need to adjust bottom-aligned borders
+        if the width decreased, we need to make sure 
+
+        when we change the screen dims, the vps should be moved and scaled accordingly
+        right-aligned vps need their x adjusted
+        bottom-aligned vps need their y adjusted
+        screen-sized vp needs its w and h adjusted
+
          */
-        if self.alignment == BorderAlignment::TopRight || self.alignment == BorderAlignment::BottomRight || self.alignment == BorderAlignment::FullScreen {
+        println!("resize from window called");
+        println!("new screen dims: {}, {}", screen_width, screen_height);
+        if self.alignment == BorderAlignment::FullScreen {
+            println!("resizing full-screen vp to {}, {}, {}, {}", self.x, self.y, screen_width, screen_height);
+            self.width = screen_width;
+            self.height = screen_height;
+            // self.vertex_buffer = Viewport::set_border(self.x, self.y, self.width, self.height, screen_width, screen_height, self.color, device, &self.alignment);
+        }
+        if self.alignment == BorderAlignment::TopRight || self.alignment == BorderAlignment::BottomRight {
             println!("right-aligned border");
-            self.x = if self.alignment == BorderAlignment::FullScreen {
-                0.0
-            } else {
-                screen_width - self.width
-            };
+            self.x = screen_width - self.width;
             println!("new x = {}", self.x);
-            self.vertex_buffer = Viewport::set_border(self.x, self.y, self.width, self.height, self.color, device, &self.alignment);
+            // self.vertex_buffer = Viewport::set_border(self.x, self.y, self.width, self.height, screen_width, screen_height, self.color, device, &self.alignment);
         }
 
-        if self.alignment == BorderAlignment::BottomLeft || self.alignment == BorderAlignment::BottomRight || self.alignment == BorderAlignment::FullScreen {
+        if self.alignment == BorderAlignment::BottomLeft || self.alignment == BorderAlignment::BottomRight {
             self.y = screen_height - self.height;
-            self.vertex_buffer = Viewport::set_border(self.x, self.y, self.width, self.height, self.color, device, &self.alignment);
+            // self.vertex_buffer = Viewport::set_border(self.x, self.y, self.width, self.height, screen_width, screen_height, self.color, device, &self.alignment);
         }
     }
 
-    fn draw_border<'a>(
+    fn draw_background_and_border<'a>(
         &'a self,
+        device: &wgpu::Device,
         ortho_matrix_bind_group: &'a wgpu::BindGroup,
         render_pass: &mut wgpu::RenderPass<'a>,
+        lines_render_pipeline: &'a wgpu::RenderPipeline,
+        std_render_pipeline: &'a wgpu::RenderPipeline,
     ) {
-        render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+        render_pass.set_pipeline(std_render_pipeline);
+        let bg_buffer = Viewport::set_border(self.x, self.y, self.width, self.height, 0.0, 0.0, Viewport::BACKGROUND_COLOR, device, &self.alignment);
+        render_pass.set_vertex_buffer(0, bg_buffer.slice(..));
         render_pass.set_bind_group(0, &self.identity_camera_bind_group, &[]);
         render_pass.set_bind_group(1, ortho_matrix_bind_group, &[]);
+        render_pass.draw(0..Viewport::NUM_VERTICES, 0..1);
+
+        render_pass.set_pipeline(lines_render_pipeline);
+        render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
         render_pass.draw(0..Viewport::NUM_VERTICES, 0..1);
     }
 }
@@ -313,6 +337,7 @@ pub struct State<'a> {
     config: wgpu::SurfaceConfiguration,
     pub size: winit::dpi::PhysicalSize<u32>,
     render_pipeline: wgpu::RenderPipeline,
+    rect_render_pipeline: wgpu::RenderPipeline,
     lines_render_pipeline: wgpu::RenderPipeline,
     text_render_pipeline: wgpu::RenderPipeline,
     scene: Scene,
@@ -679,6 +704,23 @@ impl<'a> State<'a> {
             )
         };
 
+        // this is mostly the same as the normal pipeline, but with Fill mode
+        let rect_render_pipeline = {
+            let shader = wgpu::ShaderModuleDescriptor {
+                label: Some("Normal Shader"),
+                source: wgpu::ShaderSource::Wgsl(include_str!("shaders/shader.wgsl").into()),
+            };
+            State::create_render_pipeline(
+                &device,
+                &render_pipeline_layout,
+                config.format,
+                &[model::ModelVertex::desc()],
+                shader,
+                wgpu::PrimitiveTopology::TriangleList,
+                wgpu::PolygonMode::Fill,
+            )
+        };
+
         let text_render_pipeline = {
             let shader = wgpu::ShaderModuleDescriptor {
                 label: Some("Text Shader"),
@@ -705,6 +747,7 @@ impl<'a> State<'a> {
             config,
             size,
             render_pipeline,
+            rect_render_pipeline,
             lines_render_pipeline,
             text_render_pipeline,
             scene,
@@ -854,8 +897,13 @@ impl<'a> State<'a> {
                 // println!("viewport dims: {}, {}, {}, {}", viewport.x, viewport.y, viewport.width, viewport.height);
                 render_pass.set_viewport(viewport.x, viewport.y, viewport.width, viewport.height, 0.0, 1.0);
 
-                render_pass.set_pipeline(&self.lines_render_pipeline);
-                viewport.draw_border(&self.ortho_matrix_bind_group, &mut render_pass);
+                viewport.draw_background_and_border(
+                    &self.device, 
+                    &self.ortho_matrix_bind_group, 
+                    &mut render_pass,
+                    &self.lines_render_pipeline, 
+                    &self.rect_render_pipeline, 
+                );
                 render_pass.draw_axes(&self.scene.axes, &viewport.camera_bind_group);
 
                 render_pass.set_pipeline(&self.render_pipeline);

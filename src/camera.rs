@@ -71,17 +71,17 @@ pub struct Projection {
 }
 
 impl Projection {
-    pub fn new<F: Into<Rad<f32>>>(width: u32, height: u32, fovy: F, znear: f32, zfar: f32) -> Self {
+    pub fn new<F: Into<Rad<f32>>>(width: f32, height: f32, fovy: F, znear: f32, zfar: f32) -> Self {
         Self {
-            aspect: width as f32 / height as f32,
+            aspect: width / height,
             fovy: fovy.into(),
             znear,
             zfar,
         }
     }
 
-    pub fn resize(&mut self, width: u32, height: u32) {
-        self.aspect = width as f32 / height as f32;
+    pub fn resize(&mut self, width: f32, height: f32) {
+        self.aspect = width / height;
     }
 
     pub fn calc_matrix(&self) -> Matrix4<f32> {

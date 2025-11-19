@@ -26,42 +26,6 @@ enum BorderAlignment {
     FullScreen,
 }
 
-// enum BorderScalingType {
-//     Absolute,
-//     Relative,
-// }
-
-// pub struct Border {
-//     vertex_buffer: wgpu::Buffer,
-//     color: cgmath::Vector3<f32>,
-//     identity_camera_bind_group: wgpu::BindGroup,
-//     identity_transform_bind_group: wgpu::BindGroup,
-//     alignment: BorderAlignment,
-// }
-
-// impl Border {
-//     fn new(
-//         x: f32, 
-//         y: f32, 
-//         w: f32, 
-//         h: f32, 
-//         color: cgmath::Vector3<f32>, 
-//         alignment: BorderAlignment,
-//         device: &wgpu::Device,
-//         camera_bind_group_layout: &wgpu::BindGroupLayout, 
-//     ) -> Self {
-//         let border_buffer = Border::resize(x, y, w, h, color, device);
-
-//         Border {
-//             vertex_buffer: border_buffer,
-//             color,
-//             alignment,
-//             identity_camera_bind_group,
-//             identity_transform_bind_group: border_bind_group,
-//         }
-//     }
-// }
-
 pub struct Viewport {
     x: f32,
     y: f32,
@@ -73,6 +37,9 @@ pub struct Viewport {
     camera_uniform: camera::CameraUniform,
     camera_buffer: wgpu::Buffer,
     camera_bind_group: wgpu::BindGroup,
+    ortho_transform_matrix: cgmath::Matrix4<f32>,
+    ortho_transform_buffer: wgpu::Buffer,
+    ortho_matrix_bind_group: wgpu::BindGroup,
     vertex_buffer: wgpu::Buffer,
     color: cgmath::Vector3<f32>,
     identity_camera_bind_group: wgpu::BindGroup,
@@ -92,10 +59,12 @@ impl Viewport {
         camera: camera::Camera, 
         device: &wgpu::Device, 
         camera_bind_group_layout: &wgpu::BindGroupLayout, 
+        ortho_matrix_bind_group_layout: &wgpu::BindGroupLayout, 
         border_color: cgmath::Vector3<f32>, 
         alignment: BorderAlignment,
     ) -> Self {
-        let projection = camera::Projection::new(w as u32, h as u32, Deg(45.0), 0.1, 100.0);
+        // println!("creating projection with aspect {}", w / h);
+        let projection = camera::Projection::new(w, h, Deg(45.0), 0.1, 100.0);
         let mut camera_uniform = camera::CameraUniform::new();
         camera_uniform.update_view_proj(&camera, &projection);
         let camera_controller = camera::CameraController::new(8.0, 0.4, camera);
@@ -113,6 +82,30 @@ impl Viewport {
                 resource: camera_buffer.as_entire_binding(),
             }],
             label: Some("Camera Bind Group"),
+        });
+
+        let ortho_transform_matrix: Matrix4<f32> = cgmath::ortho(0.0, w, h, 0.0, -1.0, 1.0);
+        let ortho_transform_arr: [[f32; 4]; 4] = ortho_transform_matrix.into();
+        // for r in ortho_transform_arr {
+        //     for cell in r {
+        //         print!("{} ", cell);
+        //     }
+        //     println!();
+        // }
+
+        let ortho_transform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Ortho transform matrix buffer"),
+            contents: bytemuck::cast_slice(&ortho_transform_arr),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+
+        let ortho_matrix_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Ortho Matrix Bind Group"),
+            layout: &ortho_matrix_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: ortho_transform_buffer.as_entire_binding(),
+            }],
         });
 
         let corners = Viewport::get_border_corners(border_color);
@@ -146,6 +139,9 @@ impl Viewport {
             camera_uniform,
             camera_buffer,
             camera_bind_group,
+            ortho_transform_matrix,
+            ortho_transform_buffer,
+            ortho_matrix_bind_group,
             vertex_buffer: border_buffer,
             color: border_color,
             identity_camera_bind_group,
@@ -195,7 +191,7 @@ impl Viewport {
         })
     }
 
-    fn resize_from_window(&mut self, screen_width: f32, screen_height: f32){
+    fn resize_from_window(&mut self, screen_width: f32, screen_height: f32, queue: &wgpu::Queue){
         /*
         if the width increased, we need to adjust right-aligned borders
         if the height increased, we need to adjust bottom-aligned borders
@@ -207,28 +203,36 @@ impl Viewport {
         screen-sized vp needs its w and h adjusted
 
          */
-        println!("resize from window called");
-        println!("new screen dims: {}, {}", screen_width, screen_height);
+        // println!("resize from window called");
+        // println!("new screen dims: {}, {}", screen_width, screen_height);
         if self.alignment == BorderAlignment::FullScreen {
-            println!("resizing full-screen vp to {}, {}, {}, {}", self.x, self.y, screen_width, screen_height);
+            // println!("resizing full-screen vp to {}, {}, {}, {}", self.x, self.y, screen_width, screen_height);
             self.width = screen_width;
             self.height = screen_height;
         }
         if self.alignment == BorderAlignment::TopRight || self.alignment == BorderAlignment::BottomRight {
-            println!("right-aligned border");
+            // println!("right-aligned border");
             self.x = screen_width - self.width;
-            println!("new x = {}", self.x);
+            // println!("new x = {}", self.x);
         }
 
         if self.alignment == BorderAlignment::BottomLeft || self.alignment == BorderAlignment::BottomRight {
             self.y = screen_height - self.height;
         }
+
+        self.projection.resize(self.width, self.height);
+
+        let ortho_transform_arr: [[f32; 4]; 4] = self.ortho_transform_matrix.into();
+        queue.write_buffer(
+            &self.ortho_transform_buffer, 
+            0, 
+            bytemuck::cast_slice(&ortho_transform_arr)
+        );
     }
 
     fn draw_background_and_border<'a>(
         &'a self,
         device: &wgpu::Device,
-        ortho_matrix_bind_group: &'a wgpu::BindGroup,
         render_pass: &mut wgpu::RenderPass<'a>,
         lines_render_pipeline: &'a wgpu::RenderPipeline,
         rect_render_pipeline: &'a wgpu::RenderPipeline,
@@ -254,7 +258,7 @@ impl Viewport {
 
         render_pass.set_vertex_buffer(0, bg_buffer.slice(..));
         render_pass.set_bind_group(0, &self.identity_camera_bind_group, &[]);
-        render_pass.set_bind_group(1, ortho_matrix_bind_group, &[]);
+        render_pass.set_bind_group(1, &self.ortho_matrix_bind_group, &[]);
         render_pass.draw(0..6, 0..1);
 
         render_pass.set_pipeline(lines_render_pipeline);
@@ -276,9 +280,6 @@ pub struct State<'a> {
     text_render_pipeline: wgpu::RenderPipeline,
     scene: Scene,
     pub viewports: Vec<Viewport>,
-    ortho_transform_matrix: cgmath::Matrix4<f32>,
-    ortho_transform_buffer: wgpu::Buffer,
-    ortho_matrix_bind_group: wgpu::BindGroup,
     window: &'a Window,
     pub framerate: f32,
     pub mouse_pressed: bool,
@@ -425,14 +426,23 @@ impl<'a> State<'a> {
             view_formats: &[],
         });
 
-        let camera_yaw_front = Quaternion::from_angle_z(Deg(-90.0));
-        let camera_yaw_side = Quaternion::from_angle_z(Deg(0.0));
+        // front-facing camera
+        let camera_yaw = Quaternion::from_angle_z(Deg(-90.0));
         let camera_roll = Quaternion::from_angle_y(Deg(0.0));
         let camera_pitch = Quaternion::from_angle_x(Deg(0.0));
-        let camera_rotation_front = camera_yaw_front * camera_roll * camera_pitch;
-        let camera_rotation_side = camera_yaw_side * camera_roll * camera_pitch;
-        let camera_front = camera::Camera::new((-5.0, 0.0, 0.0), camera_rotation_front);
-        let camera_side = camera::Camera::new((0.0, -5.0, 0.0), camera_rotation_side);
+        let camera_rotation = camera_yaw * camera_roll * camera_pitch;
+        let camera_front = camera::Camera::new((-5.0, 0.0, 0.0), camera_rotation);
+
+        // side-facing camera
+        let camera_yaw = Quaternion::from_angle_z(Deg(0.0));
+        let camera_rotation = camera_yaw * camera_roll * camera_pitch;
+        let camera_side = camera::Camera::new((5.0, -10.0, 0.0), camera_rotation);
+
+        // skewed camera
+        let camera_yaw = Quaternion::from_angle_z(Deg(-45.0));
+        let camera_pitch = Quaternion::from_angle_x(Deg(-45.0));
+        let camera_rotation = camera_yaw * camera_roll * camera_pitch;
+        let camera_skew = camera::Camera::new((0.0, -5.0, 5.0), camera_rotation);
 
         let camera_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -448,61 +458,6 @@ impl<'a> State<'a> {
                 }],
                 label: Some("Camera Bind Group Layout"),
             });
-
-        let viewports = vec![
-            Viewport::new(
-                0.0, 
-                0.0, 
-                size.width as f32, 
-                size.height as f32, 
-                camera_front, 
-                &device, 
-                &camera_bind_group_layout, 
-                cgmath::Vector3::<f32>::new(0.0, 255.0, 0.0),
-                BorderAlignment::FullScreen,
-            ),
-            Viewport::new(
-                (size.width/2) as f32, 
-                (size.height/2) as f32, 
-                (size.width/2) as f32, 
-                (size.height/2) as f32, 
-                camera_side, 
-                &device, 
-                &camera_bind_group_layout, 
-                cgmath::Vector3::<f32>::new(0.0, 0.0, 255.0),
-                BorderAlignment::BottomRight,
-            ),
-        ];
-
-        let model_bind_group_layout = 
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                }],
-                label: Some("Model Bind Group Layout"),
-        });
-
-        let ortho_transform_matrix: Matrix4<f32> = cgmath::ortho(0.0, size.width as f32, size.height as f32, 0.0, -1.0, 1.0);
-        let ortho_transform_arr: [[f32; 4]; 4] = ortho_transform_matrix.into();
-        for r in ortho_transform_arr {
-            for cell in r {
-                print!("{} ", cell);
-            }
-            println!();
-        }
-
-        let ortho_transform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Ortho transform matrix buffer"),
-            contents: bytemuck::cast_slice(&ortho_transform_arr),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        });
 
         let ortho_matrix_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("Ortho Transformation Matrix"),
@@ -520,13 +475,58 @@ impl<'a> State<'a> {
             ]
         });
 
-        let ortho_matrix_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Ortho Matrix Bind Group"),
-            layout: &ortho_matrix_bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: ortho_transform_buffer.as_entire_binding(),
-            }],
+        let viewports = vec![
+            Viewport::new(
+                0.0, 
+                0.0, 
+                size.width as f32, 
+                size.height as f32, 
+                camera_skew, 
+                &device, 
+                &camera_bind_group_layout, 
+                &ortho_matrix_bind_group_layout,
+                cgmath::Vector3::<f32>::new(0.0, 255.0, 0.0),
+                BorderAlignment::FullScreen,
+            ),
+            Viewport::new(
+                (size.width/4) as f32, 
+                (size.height/2) as f32, 
+                (size.width/4) as f32, 
+                (size.height/2) as f32, 
+                camera_side, 
+                &device, 
+                &camera_bind_group_layout, 
+                &ortho_matrix_bind_group_layout,
+                cgmath::Vector3::<f32>::new(0.0, 0.0, 255.0),
+                BorderAlignment::BottomRight,
+            ),
+            Viewport::new(
+                (size.width*3/4) as f32, 
+                0.0, 
+                (size.width/4) as f32, 
+                (size.height/2) as f32, 
+                camera_front, 
+                &device, 
+                &camera_bind_group_layout, 
+                &ortho_matrix_bind_group_layout,
+                cgmath::Vector3::<f32>::new(0.0, 0.0, 255.0),
+                BorderAlignment::TopRight,
+            ),
+        ];
+
+        let model_bind_group_layout = 
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+                label: Some("Model Bind Group Layout"),
         });
 
         let text_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -686,9 +686,6 @@ impl<'a> State<'a> {
             text_render_pipeline,
             scene,
             viewports,
-            ortho_transform_matrix,
-            ortho_transform_buffer,
-            ortho_matrix_bind_group,
             window,
             framerate: 60.0,
             mouse_pressed: false,
@@ -705,18 +702,12 @@ impl<'a> State<'a> {
                 viewport.resize_from_window(
                     new_size.width as f32, 
                     new_size.height as f32, 
+                    &self.queue,
                 );
-                viewport.projection.resize(new_size.width, new_size.height);
             }
             self.size = new_size;
             self.config.width = new_size.width;
             self.config.height = new_size.height;
-            let ortho_transform_arr: [[f32; 4]; 4] = self.ortho_transform_matrix.into();
-            self.queue.write_buffer(
-                &self.ortho_transform_buffer, 
-                0, 
-                bytemuck::cast_slice(&ortho_transform_arr)
-            );
             self.surface.configure(&self.device, &self.config);
         }
     }
@@ -832,15 +823,15 @@ impl<'a> State<'a> {
 
                 viewport.draw_background_and_border(
                     &self.device, 
-                    &self.ortho_matrix_bind_group, 
                     &mut render_pass,
                     &self.lines_render_pipeline, 
                     &self.rect_render_pipeline, 
                 );
+                render_pass.set_pipeline(&self.lines_render_pipeline);
                 render_pass.draw_axes(&self.scene.axes, &viewport.camera_bind_group);
 
                 render_pass.set_pipeline(&self.render_pipeline);
-                self.scene.draw(&mut render_pass, &viewport.camera_bind_group, &self.ortho_matrix_bind_group, &self.text_render_pipeline, &self.queue);
+                self.scene.draw(&mut render_pass, &viewport.camera_bind_group, &viewport.ortho_matrix_bind_group, &self.text_render_pipeline, &self.queue);
             }
         }
 

@@ -714,7 +714,7 @@ impl Scene {
         queue: &wgpu::Queue,
     ){
         render_pass.set_pipeline(terrain_render_pipeline);
-        self.terrain.draw(render_pass, camera_bind_group, queue);
+        render_pass.draw_terrain(&self.terrain, camera_bind_group);
 
         render_pass.set_pipeline(model_render_pipeline);
         for entity in self.entities.iter() {

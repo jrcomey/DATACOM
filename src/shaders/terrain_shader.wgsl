@@ -22,13 +22,13 @@ fn vs_main(
 ) -> VertexOutput {
     var out: VertexOutput;
     out.color = terrain.color;
-    // out.clip_position = camera.view_proj * vec4<f32>(model.position, 1.0);
     out.clip_position = vec4<f32>(
-        terrain.position.x * 500.0 + camera.view_pos.x,
-        terrain.position.y * 500.0 + camera.view_pos.y,
+        terrain.position.x * 1.0 + floor(camera.view_pos.x),
+        terrain.position.y * 1.0 + floor(camera.view_pos.y),
         terrain.position.z,
         1.0
     );
+    out.clip_position = camera.view_proj * out.clip_position;
     return out;
 }
 

@@ -278,6 +278,7 @@ pub struct State<'a> {
     rect_render_pipeline: wgpu::RenderPipeline,
     lines_render_pipeline: wgpu::RenderPipeline,
     text_render_pipeline: wgpu::RenderPipeline,
+    terrain_render_pipeline: wgpu::RenderPipeline,
     scene: Scene,
     pub viewports: Vec<Viewport>,
     window: &'a Window,
@@ -551,40 +552,16 @@ impl<'a> State<'a> {
             label: Some("Text Bind Group Layout"),
         });
 
-        let scene = if filepath.ends_with(".hdf5"){
-            Scene::load_scene_from_hdf5(
-                filepath, 
-                &device, 
-                &queue, 
-                &config.format, 
-                &model_bind_group_layout, 
-                &text_bind_group_layout, 
-                size.width, 
-                size.height, 
-            ).unwrap()
-        } else if filepath.ends_with(".json"){
-            Scene::load_scene_from_json(
-                filepath, 
-                &device, 
-                &queue, 
-                &config.format, 
-                &model_bind_group_layout, 
-                &text_bind_group_layout, 
-                size.width, 
-                size.height, 
-            )
-        } else {
-            Scene::load_scene_from_network(
-                filepath, 
-                &device, 
-                &queue,
-                &config.format,
-                &model_bind_group_layout, 
-                &text_bind_group_layout, 
-                size.width, 
-                size.height, 
-            ).unwrap()
-        };
+        let scene = Scene::load_scene(
+            filepath, 
+            &device, 
+            &queue, 
+            &config.format, 
+            &model_bind_group_layout, 
+            &text_bind_group_layout, 
+            size.width, 
+            size.height,
+        );
 
         let render_pipeline_layout: wgpu::PipelineLayout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -598,13 +575,21 @@ impl<'a> State<'a> {
 
         let text_render_pipeline_layout: wgpu::PipelineLayout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Render Pipeline Layout"),
+                label: Some("Text Render Pipeline Layout"),
                 bind_group_layouts: &[
                     &ortho_matrix_bind_group_layout,
                     &text_bind_group_layout,
                     ],
                 push_constant_ranges: &[],
             });
+        
+        let terrain_render_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("Terrain Render Pipeline Layout"),
+            bind_group_layouts: &[
+                &camera_bind_group_layout,
+            ],
+            push_constant_ranges: &[],
+        });
 
         let render_pipeline = {
             let shader = wgpu::ShaderModuleDescriptor {
@@ -670,6 +655,22 @@ impl<'a> State<'a> {
                 wgpu::PolygonMode::Fill,
             )
         };
+
+        let terrain_render_pipeline = {
+            let shader = wgpu::ShaderModuleDescriptor {
+                label: Some("Terrain Shader"),
+                source: wgpu::ShaderSource::Wgsl(include_str!("shaders/terrain_shader.wgsl").into()),
+            };
+            State::create_render_pipeline(
+                &device, 
+                &terrain_render_pipeline_layout, 
+                config.format, 
+                &[ModelVertex::desc()], 
+                shader, 
+                wgpu::PrimitiveTopology::TriangleList, 
+                wgpu::PolygonMode::Line,
+            )
+        };
         
         surface.configure(&device, &config);
 
@@ -684,6 +685,7 @@ impl<'a> State<'a> {
             rect_render_pipeline,
             lines_render_pipeline,
             text_render_pipeline,
+            terrain_render_pipeline,
             scene,
             viewports,
             window,
@@ -830,8 +832,15 @@ impl<'a> State<'a> {
                 render_pass.set_pipeline(&self.lines_render_pipeline);
                 render_pass.draw_axes(&self.scene.axes, &viewport.camera_bind_group);
 
-                render_pass.set_pipeline(&self.render_pipeline);
-                self.scene.draw(&mut render_pass, &viewport.camera_bind_group, &viewport.ortho_matrix_bind_group, &self.text_render_pipeline, &self.queue);
+                self.scene.draw(
+                    &mut render_pass, 
+                    &viewport.camera_bind_group, 
+                    &viewport.ortho_matrix_bind_group, 
+                    &self.render_pipeline, 
+                    &self.text_render_pipeline, 
+                    &self.terrain_render_pipeline, 
+                    &self.queue, 
+                );
             }
         }
 

@@ -341,6 +341,51 @@ impl Axes {
     }
 }
 
+pub struct Terrain {
+    // position: Rc<RefCell<Point3<f32>>>,
+    vertex_buffer: wgpu::Buffer,
+    index_buffer: wgpu::Buffer,
+}
+
+impl Terrain {
+    pub fn new(color: cgmath::Vector3<f32>, device: &wgpu::Device) -> Self {
+        let color_arr = [color[0], color[1], color[2]];
+        let vertices = [
+            // BL, BR, TL, TR
+            ModelVertex{ position: [-1.0, -1.0, 0.0], color: color_arr },
+            ModelVertex{ position: [1.0, -1.0, 0.0], color: color_arr },
+            ModelVertex{ position: [-1.0, 1.0, 0.0], color: color_arr },
+            ModelVertex{ position: [1.0, 1.0, 0.0], color: color_arr },
+        ];
+
+        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Vertex Buffer"),
+            contents: bytemuck::cast_slice(&vertices),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
+
+        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Index Buffer"),
+            contents: &[2, 0, 1, 2, 3, 2],
+            usage: wgpu::BufferUsages::INDEX,
+        });
+
+        Terrain {
+            vertex_buffer,
+            index_buffer,
+        }
+    }
+
+    pub fn draw(
+        &self,
+        render_pass: &wgpu::RenderPass, 
+        camera_bind_group: &wgpu::BindGroup,
+        queue: &wgpu::Queue,
+    ){
+
+    }
+}
+
 pub trait DrawModel<'a> {
     fn draw_mesh(
         &mut self,

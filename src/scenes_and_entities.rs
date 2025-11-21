@@ -333,6 +333,7 @@ impl Entity {
 pub struct Scene {
     pub axes: model::Axes,
     pub entities: Vec<Entity>,
+    pub terrain: model::Terrain,
     pub text_boxes: Vec<text::TextDisplay>,
     timesteps: Option<usize>,
     data_counter: Option<usize>,
@@ -362,10 +363,13 @@ impl Scene {
             (Into::<u64>::into(BYTES_PER_PIXEL) * ((screen_width * screen_height) as u64)) as wgpu::BufferAddress
         );
 
+        let terrain = model::Terrain::new(cgmath::Vector3::<f32>::new(255.0, 0.0, 0.0), device);
+
         let screen_recordings = Vec::new();
-        Scene{
+        Scene {
             axes,
             entities,
+            terrain,
             text_boxes,
             timesteps,
             data_counter,
@@ -470,7 +474,53 @@ impl Scene {
     //     self.get_entity(target_entity_id).expect("Out of bounds!").run_behavior(behavior);
     // }
 
-    pub fn load_scene_from_hdf5(
+    pub fn load_scene(
+        filepath: &str, 
+        device: &wgpu::Device, 
+        queue: &wgpu::Queue,
+        format: &wgpu::TextureFormat, 
+        model_bind_group_layout: &wgpu::BindGroupLayout, 
+        text_bind_group_layout: &wgpu::BindGroupLayout,
+        screen_width: u32,
+        screen_height: u32,
+    ) -> Self {
+        if filepath.ends_with(".hdf5"){
+            Scene::load_scene_from_hdf5(
+                filepath, 
+                device, 
+                queue, 
+                format, 
+                model_bind_group_layout, 
+                text_bind_group_layout, 
+                screen_width, 
+                screen_height, 
+            ).unwrap()
+        } else if filepath.ends_with(".json"){
+            Scene::load_scene_from_json(
+                filepath, 
+                device, 
+                queue, 
+                format, 
+                model_bind_group_layout, 
+                text_bind_group_layout, 
+                screen_width, 
+                screen_height, 
+            )
+        } else {
+            Scene::load_scene_from_network(
+                filepath, 
+                device, 
+                queue, 
+                format, 
+                model_bind_group_layout, 
+                text_bind_group_layout, 
+                screen_width, 
+                screen_height, 
+            ).unwrap()
+        }
+    }
+
+    fn load_scene_from_hdf5(
         filepath: &str, 
         device: &wgpu::Device, 
         queue: &wgpu::Queue,
@@ -527,7 +577,7 @@ impl Scene {
         None
     }
 
-    pub fn load_scene_from_json(
+    fn load_scene_from_json(
         filepath: &str, 
         device: &wgpu::Device, 
         queue: &wgpu::Queue,
@@ -658,16 +708,22 @@ impl Scene {
         render_pass: &mut wgpu::RenderPass<'a>,
         camera_bind_group: &'a wgpu::BindGroup,
         ortho_matrix_bind_group: &'a wgpu::BindGroup,
+        model_render_pipeline: &'a wgpu::RenderPipeline,
         text_render_pipeline: &'a wgpu::RenderPipeline,
+        terrain_render_pipeline: &'a wgpu::RenderPipeline,
         queue: &wgpu::Queue,
     ){
-        for entity in &self.entities {
+        render_pass.set_pipeline(terrain_render_pipeline);
+        self.terrain.draw(render_pass, camera_bind_group, queue);
+
+        render_pass.set_pipeline(model_render_pipeline);
+        for entity in self.entities.iter() {
             entity.draw(render_pass, camera_bind_group, queue);
         }
 
         // println!("preparing to draw text");
         render_pass.set_pipeline(text_render_pipeline);
-        for text_box in &self.text_boxes {
+        for text_box in self.text_boxes.iter() {
             // println!("drawing text");
             text_box.draw(ortho_matrix_bind_group, render_pass);
         }

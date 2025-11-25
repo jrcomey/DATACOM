@@ -349,74 +349,90 @@ pub struct Terrain {
 }
 
 impl Terrain {
+    // for when render pipeline's topology was on TriangleList
+    // pub fn new(color: cgmath::Vector3<f32>, device: &wgpu::Device) -> Self {
+    //     let color_arr = [color[0], color[1], color[2]];
+    //     let mut vertices: Vec<ModelVertex> = vec![];
+        
+    //     let w: u32 = 100;
+    //     let min: i32 = w as i32 /-2;
+    //     let max = (w as i32 - 1) / 2;
+    //     // println!("min = {}, max = {}", min, max);
+    //     for i in min..max+1 {
+    //         for j in min..max+1 {
+    //             // println!("adding vertex ({}, {})", i, j);
+    //             vertices.push(ModelVertex{ position: [i as f32, j as f32, -3.0], color: color_arr });
+    //         }
+    //     }
+
+    //     let mut indices: Vec<u32> = vec![];
+    //     let num_vertices = vertices.len() as u32;
+    //     // println!("num vertices = {}", num_vertices);
+
+    //     let mut i: u32 = 0;
+    //     while i+w+1 < num_vertices {
+    //         let tl = i;
+    //         let tr = i+1;
+    //         let bl = i+w;
+    //         let br = i+w+1;
+    //         // println!("adding {}, {}, {}, {}, {}, {}", tl, bl, br, br, tr, tl);
+    //         indices.extend_from_slice(&[tl, bl, br, br, tr, tl]);
+    //         i += 1;
+    //         if i % w == w-1 {
+    //             i += 1;
+    //             // println!("reached end of row. moving to index {}", i);
+    //         }
+    //     }
+
+    //     let num_indices = indices.len() as u32;
+
+    //     let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+    //         label: Some("Vertex Buffer"),
+    //         contents: bytemuck::cast_slice(&vertices),
+    //         usage: wgpu::BufferUsages::VERTEX,
+    //     });
+
+    //     let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+    //         label: Some("Index Buffer"),
+    //         contents: bytemuck::cast_slice(&indices),
+    //         usage: wgpu::BufferUsages::INDEX,
+    //     });
+
+    //     Terrain {
+    //         vertex_buffer,
+    //         index_buffer,
+    //         num_indices,
+    //     }
+    // }
+
     pub fn new(color: cgmath::Vector3<f32>, device: &wgpu::Device) -> Self {
         let color_arr = [color[0], color[1], color[2]];
         let mut vertices: Vec<ModelVertex> = vec![];
-        /*
-        if w = 3:
-            go from -1 to 1
-            range(-1, 2)
-        if w = 4:
-            go from -2 to 1
-            range(-2, 2)
-        if w = 5:
-            go from -2 to 2
-            range(-2, 3)
-        if w = n:
-            go from n/2
-        
-        (3,1)
-        (4,1)
-        (5,2)
-        (6,2)
-        (7,3)
-        (8,3)
-        2-1 = 1, 1/2 = 0
-        3-1 = 2, 2/2 = 1
-        4-1 = 3, 3/2 = 1
-        5-1 = 4, 4/2 = 2
-        6-1 = 5, 5/2 = 2
-         */
-        let w: u32 = 100;
-        let min: i32 = w as i32 /-2;
+
+        let w: u32 = 1000;
+        let min: i32 = w as i32 / -2;
         let max = (w as i32 - 1) / 2;
-        // println!("min = {}, max = {}", min, max);
         for i in min..max+1 {
             for j in min..max+1 {
-                // println!("adding vertex ({}, {})", i, j);
-                vertices.push(ModelVertex{ position: [i as f32, j as f32, -3.0], color: color_arr });
+                vertices.push(ModelVertex { position:[i as f32, j as f32, -3.0], color: color_arr });
+                // println!("adding vertex at ({}, {})", i, j);
             }
         }
 
         let mut indices: Vec<u32> = vec![];
         let num_vertices = vertices.len() as u32;
-        // println!("num vertices = {}", num_vertices);
 
         let mut i: u32 = 0;
         while i+w+1 < num_vertices {
-            // top left = i
-            // top right = i+1
-            // bottom left = i+w
-            // bottom right = i+w+1
-
-            /*
-            w = 2
-            i = 0
-            first quad: 0 2 3, 3 1 0
-            i = 1
-            1+2+1 = num_vertices
-            end
-             */
             let tl = i;
             let tr = i+1;
             let bl = i+w;
             let br = i+w+1;
-            // println!("adding {}, {}, {}, {}, {}, {}", tl, bl, br, br, tr, tl);
-            indices.extend_from_slice(&[tl, bl, br, br, tr, tl]);
+            // println!("adding indices ({}, {}), ({}, {}), ({}, {}), ({}, {})", tl, tr, tr, br, br, bl, bl, tl);
+            indices.extend_from_slice(&[tl, tr, tr, br, br, bl, bl, tl]);
             i += 1;
             if i % w == w-1 {
                 i += 1;
-                // println!("reached end of row. moving to index {}", i);
             }
         }
 

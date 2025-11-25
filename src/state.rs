@@ -667,7 +667,7 @@ impl<'a> State<'a> {
                 config.format, 
                 &[ModelVertex::desc()], 
                 shader, 
-                wgpu::PrimitiveTopology::TriangleList, 
+                wgpu::PrimitiveTopology::LineList, 
                 wgpu::PolygonMode::Line,
             )
         };
@@ -741,7 +741,7 @@ impl<'a> State<'a> {
                 position,
                 ..
             } if self.mouse_pressed => {
-                println!("mouse pressed at ({}, {})", position.x, position.y);
+                // println!("mouse pressed at ({}, {})", position.x, position.y);
 
                 true
             }

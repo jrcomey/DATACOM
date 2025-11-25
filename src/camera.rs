@@ -251,10 +251,13 @@ impl CameraController {
     fn update_camera_freeroam(&mut self, dt: Duration) {
         let dt = dt.as_secs_f32();
 
-        let forward = self.camera.rotation.rotate_vector(Vector3::unit_y()).normalize();
-        let up = self.camera.rotation.rotate_vector(Vector3::unit_z()).normalize();
+        let true_forward = self.camera.rotation.rotate_vector(Vector3::unit_y()).normalize();
+        let true_up = self.camera.rotation.rotate_vector(Vector3::unit_z()).normalize();
         let right = self.camera.rotation.rotate_vector(Vector3::unit_x()).normalize();
         // println!("forward = {:?}, up = {:?}, right = {:?}", forward, up, right);
+
+        let forward = Vector3::<f32>::new(true_forward.x, true_forward.y, 0.0).normalize();
+        let up = Vector3::<f32>::new(0.0, 0.0, true_up.z).normalize();
 
         self.camera.position += forward * (self.l_translate_step) * self.translate_speed * dt;
         self.camera.position += up * (self.v_translate_step) * self.translate_speed * dt;

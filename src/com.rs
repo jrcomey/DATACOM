@@ -5,6 +5,7 @@ use std::net::{ToSocketAddrs, TcpStream, IpAddr, TcpListener, SocketAddr};
 // use std::error::Error;
 use std::sync::mpsc::Sender;
 use std::{fs::File, fs, thread};
+use std::time::Duration;
 use toml::Value;
 use log::{debug, info};
 
@@ -73,14 +74,15 @@ pub fn run_server<A: ToSocketAddrs>(tx: Sender<String>, addr: A) {
     info!("Server started!");
     let listener = TcpListener::bind(addr).unwrap();
     info!("Connection successful!");
-    listener.set_nonblocking(true).unwrap();
+    // listener.set_nonblocking(true).unwrap();
     let start = std::time::Instant::now();
     let timeout = std::time::Duration::from_secs(2);
 
     for stream in listener.incoming() {
-        // info!("received TCP stream!");
+        info!("received TCP stream!");
         match stream {
             Ok(mut stream) => {
+                info!("TCP stream is Ok");
                 stream.write_all(b"ACK").unwrap();
                 stream.flush().unwrap();
 
@@ -94,11 +96,15 @@ pub fn run_server<A: ToSocketAddrs>(tx: Sender<String>, addr: A) {
                 }
             },
             Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                info!("TCP stream is WouldBlock");
                 if start.elapsed() > timeout {
                     break;
                 }
             }
-            Err(_) => break,
+            Err(_) => {
+                info!("TCP stream is other Err");
+                break
+            },
         }
     }
         // match listener.accept() {
@@ -154,6 +160,7 @@ pub fn create_listener_thread(tx: Sender<String>, file: String) -> Result<thread
         let ports = get_ports(file.as_str()).unwrap();
         debug!("successfully unwrapped ports vector");
         let addrs_iter = &(ports[..]);
+        debug!("about to run server...");
         run_server(tx, addrs_iter);
     })
     .map_err(|_| std::io::Error::new(std::io::ErrorKind::Other, "Thread spawn failed"))?;
@@ -166,12 +173,47 @@ pub fn create_sender_thread() -> Result<thread::JoinHandle<()>, Box<dyn std::err
         info!("Opened sender thread");
         let mut addrs_iter = "localhost:8081".to_socket_addrs().unwrap();
         let addr = addrs_iter.next().unwrap();
-        let mut stream = TcpStream::connect(addr).unwrap();
+        // thread::sleep(Duration::from_secs(1));
+        debug!("sender: attempting to connect to TCP stream through {addr}");
+
+        let start = std::time::Instant::now();
+        let timeout = std::time::Duration::from_secs(2);
+        let mut stream_option: Option<TcpStream> = None;
+
+        /*
+        loop
+            stream result = tcpstream::connect
+            match result {
+                Ok(stream) => {
+                    save stream var
+                    end loop
+                }
+                Err(_) => {
+                    continue loop
+                }
+            }
+         */
+
+        while let None = stream_option {
+            let stream_result = TcpStream::connect(addr);
+            stream_option = match stream_result {
+                Ok(stream) => Some(stream),
+                Err(_) => None,
+            };
+
+            if start.elapsed() > timeout {
+                panic!("Error: thread timed out while trying to connect to TCP stream");
+            }
+        }
+
+        let mut stream = stream_option.unwrap();
+        debug!("sender: established TcpStream connection");
         
         stream.set_nodelay(true).unwrap();
         let mut ack = [0u8; 3];
         stream.read_exact(&mut ack).unwrap();
         if &ack == b"ACK" {
+            info!("sender thread received ACK");
             let start_time = std::time::SystemTime::now();
 
             loop {

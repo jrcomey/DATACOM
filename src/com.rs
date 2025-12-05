@@ -88,10 +88,17 @@ pub fn run_server<A: ToSocketAddrs>(tx: Sender<String>, addr: A) {
 
                 loop {
                     let packet = from_network(&stream);
-                    debug!("Packet: {}", packet.as_str());
+                    debug!("Packet: {}", packet);
                     if !packet.starts_with("Error"){
                         // scene_reference.write().unwrap().bhvr_msg_str(&packet.as_str());
-                        tx.send(packet).unwrap();
+                        debug!("Sending packet through tx");
+                        let send_result = tx.send(packet);
+                        match send_result {
+                            Ok(_) => {},
+                            Err(e) => {
+                                debug!("Error attempting to send packet: {}", e);
+                            }
+                        }
                     }
                 }
             },

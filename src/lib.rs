@@ -4,7 +4,7 @@ use winit::{
     keyboard::{KeyCode, PhysicalKey},
 };
 use std::sync::mpsc;
-use log::info;
+use log::{info, debug};
 use std::fs::{File, remove_file};
 use std::path::Path;
 use std::io::{Read, Write};
@@ -167,7 +167,7 @@ pub async fn run_scene_from_hdf5(args: Vec<String>, should_save_to_file: bool) {
 
 
 pub async fn run_scene_from_json(args: Vec<String>) {
-    info!("Program Start!");
+    debug!("Running lib.rs::run_scene_from_json()");
 
     let (tx, rx) = mpsc::channel();
 
@@ -255,7 +255,7 @@ pub async fn run_scene_from_json(args: Vec<String>) {
 }
 
 pub async fn run_scene_from_network(args: Vec<String>){
-    info!("Program Start!");
+    debug!("Running lib.rs::run_scene_from_network()");
 
     let toml_name = "ports";
     let file_name_string = format!("{}{}", toml_name, ".toml");
@@ -268,22 +268,28 @@ pub async fn run_scene_from_network(args: Vec<String>){
     _ = writeln!(file, "{}", ports_str);
 
     let (tx, rx) = mpsc::channel();
-    let listener = create_listener_thread(tx, file_name_string_clone);
-    listener.unwrap();
-    let sender = create_sender_thread();
-    sender.unwrap();
+    let listener_result = create_listener_thread(tx, file_name_string_clone);
+    let listener = listener_result.unwrap();
+    let sender_result = create_sender_thread();
+    let sender = sender_result.unwrap();
     receive_file(rx);
 
     _ = remove_file(&file_path);
 
     run_scene_from_json(args).await;
+
+    listener.join().unwrap();
+    debug!("Listener thread closed");
+    sender.join().unwrap();
+    debug!("Sender thread closed");
 }
 
 fn has_timed_out(start_time: SystemTime) -> bool {
-    std::time::SystemTime::now().duration_since(start_time).unwrap().as_secs() < SECONDS_UNTIL_TIMEOUT
+    std::time::SystemTime::now().duration_since(start_time).unwrap().as_secs() >= SECONDS_UNTIL_TIMEOUT
 }
 
 fn receive_file(rx: Receiver<String>){
+    debug!("Preparing to receive file");
     let start_time = std::time::SystemTime::now();
     /*
         file transfer begins with:
@@ -322,17 +328,22 @@ fn receive_file(rx: Receiver<String>){
     let mut metadata_arr = [0u8; FILE_METADATA_BYTE_WIDTH];
     let mut file_metadata_counter: usize = 0;
     let mut overflow: Vec<u8> = Vec::new();
+    debug!("evaluating loop condition: {} && {}", file_metadata_counter < FILE_METADATA_BYTE_WIDTH, !has_timed_out(start_time));
     while file_metadata_counter < FILE_METADATA_BYTE_WIDTH && !has_timed_out(start_time){
         let received_str = rx.recv().unwrap();
         let received = received_str.as_bytes();
         let received_len = received.len();
         if file_metadata_counter + received_len > FILE_METADATA_BYTE_WIDTH {
             overflow.extend_from_slice(&received[0..FILE_METADATA_BYTE_WIDTH - file_metadata_counter]);
+            metadata_arr[file_metadata_counter..FILE_METADATA_BYTE_WIDTH].copy_from_slice(&received[0..FILE_METADATA_BYTE_WIDTH - file_metadata_counter]);
+        } else {
+            metadata_arr[file_metadata_counter..file_metadata_counter+received_len].copy_from_slice(received);
         }
-        metadata_arr[file_metadata_counter..file_metadata_counter+received_len].copy_from_slice(received);
         info!("RECEIVED = {received_str}");
         file_metadata_counter += received_len;
     }
+
+    debug!("File metadata complete. Ready to read file chunks...");
 
     let file_len_as_bytes: [u8; FILE_LENGTH_BYTE_WIDTH] = metadata_arr[0..FILE_LENGTH_BYTE_WIDTH].try_into().unwrap();
     let file_len = u32::from_ne_bytes(file_len_as_bytes);

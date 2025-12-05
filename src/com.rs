@@ -179,21 +179,7 @@ pub fn create_sender_thread() -> Result<thread::JoinHandle<()>, Box<dyn std::err
         let start = std::time::Instant::now();
         let timeout = std::time::Duration::from_secs(2);
         let mut stream_option: Option<TcpStream> = None;
-
-        /*
-        loop
-            stream result = tcpstream::connect
-            match result {
-                Ok(stream) => {
-                    save stream var
-                    end loop
-                }
-                Err(_) => {
-                    continue loop
-                }
-            }
-         */
-
+        
         while let None = stream_option {
             let stream_result = TcpStream::connect(addr);
             stream_option = match stream_result {
@@ -218,7 +204,8 @@ pub fn create_sender_thread() -> Result<thread::JoinHandle<()>, Box<dyn std::err
 
             loop {
                 let t = (std::time::SystemTime::now().duration_since(start_time).unwrap().as_micros() as f32) / (2.0*1E6*std::f32::consts::PI);
-                let test_command_data = format!("
+
+                let test_command_data_main = format!("
                     {{
                         \"targetEntityID\": 0,
                         \"commandType\": \"ComponentChangeColor\",
@@ -228,6 +215,19 @@ pub fn create_sender_thread() -> Result<thread::JoinHandle<()>, Box<dyn std::err
                     t.cos().abs(),
                     t.tan().abs()
                 );
+
+                let mut test_command_data = 0u16.to_string();
+                test_command_data.push_str(&0123456789u64.to_string());
+                test_command_data.push_str(&test_command_data_main.len().to_string());
+                test_command_data.push_str(&1u16.to_string());
+                test_command_data.push_str(&0123456789u64.to_string());
+                test_command_data.push_str(&0u64.to_string());
+                test_command_data.push_str(&(test_command_data_main.len() as u32).to_string());
+                // let mut test_command_data = test_command_data_main.len().to_string();
+                // test_command_data.push_str(&0x01.to_string());
+                test_command_data.push_str(&test_command_data_main);
+
+
                 info!("Sending data to stream");
                 thread::sleep(std::time::Duration::from_millis(10));
                 stream.write_all(test_command_data.as_bytes()).unwrap();

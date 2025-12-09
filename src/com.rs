@@ -231,7 +231,7 @@ pub fn create_sender_thread() -> Result<thread::JoinHandle<()>, Box<dyn std::err
                 let message_type = 0u16;
                 let file_id = 0123456789u64;
                 let file_name_raw = "test file";
-                let file_name_suffix_string: String = ['\0'; 91].iter().collect();
+                let file_name_suffix_string: String = ['\0'; 256-9].iter().collect();
                 let file_name_suffix = file_name_suffix_string.as_str();
                 let file_len = test_command_data_main.len();
 
@@ -251,17 +251,25 @@ pub fn create_sender_thread() -> Result<thread::JoinHandle<()>, Box<dyn std::err
                 
                 let message_type = 1u16;
                 let mut chunk_offset = 0u64;
-                let chunk_length = 1024u32;
+                let chunk_length_default = 1024u32;
                 while (chunk_offset as usize) < data_len {
                     test_command_data.clear();
                     test_command_data.extend_from_slice(&message_type.to_ne_bytes());
                     test_command_data.extend_from_slice(&file_id.to_ne_bytes());
                     test_command_data.extend_from_slice(&chunk_offset.to_ne_bytes());
 
+                    let chunk_offset_usize = chunk_offset as usize;
+
+                    let chunk_length: u32 = if chunk_offset_usize + chunk_length_default as usize > data_len {
+                        (data_len - chunk_offset_usize).try_into().unwrap()
+                    } else {
+                        chunk_length_default
+                    };
+
                     test_command_data.extend_from_slice(&chunk_length.to_ne_bytes());
-                    let max_bound = std::cmp::min(chunk_offset as usize+chunk_length as usize, data_len);
+                    let max_bound = chunk_offset_usize+chunk_length as usize;
                     debug!("indexing data from {} to {} out of {}", chunk_offset, max_bound, data_len);
-                    test_command_data.extend_from_slice(&test_command_data_main[chunk_offset as usize..max_bound].as_bytes());
+                    test_command_data.extend_from_slice(&test_command_data_main[chunk_offset_usize..max_bound].as_bytes());
                     chunk_offset += chunk_length as u64;
 
                     info!("Sending chunk to stream");

@@ -319,10 +319,10 @@ fn receive_file_metadata(rx: &Receiver<Vec<u8>>, buf: &mut Vec<u8>, start_time: 
         buf.extend_from_slice(&msg);        
     }
 
-    println!("in listener thread:");
-    for &byte in buf[0..FILE_ID_BYTE_WIDTH].iter() {
-        print!("{byte} ");
-    }
+    // println!("in listener thread:");
+    // for &byte in buf.iter() {
+    //     print!("{byte} ");
+    // }
     println!();
     let mut counter = MESSAGE_TYPE_BYTE_WIDTH;
     let id_bytes: [u8; FILE_ID_BYTE_WIDTH] = buf[counter..counter + FILE_ID_BYTE_WIDTH]
@@ -330,16 +330,21 @@ fn receive_file_metadata(rx: &Receiver<Vec<u8>>, buf: &mut Vec<u8>, start_time: 
     counter += FILE_ID_BYTE_WIDTH;
     let name: [u8; FILE_NAME_BYTE_WIDTH] = buf[counter..counter + FILE_NAME_BYTE_WIDTH]
         .try_into().expect("file name is incorrect size");
+    counter += FILE_NAME_BYTE_WIDTH;
+    debug!("indexing from {} to {}", counter, counter+FILE_LENGTH_BYTE_WIDTH);
     let length_bytes: [u8; FILE_LENGTH_BYTE_WIDTH] = buf[counter..counter + FILE_LENGTH_BYTE_WIDTH]
         .try_into().expect("file length is incorrect length");
     let length = u32::from_ne_bytes(length_bytes);
 
     let _ = buf.drain(0..FILE_METADATA_BYTE_WIDTH);
 
-    println!("file ID bytes = {:?}", id_bytes);
+    debug!("file ID bytes = {:?}", id_bytes);
     let id = u64::from_ne_bytes(id_bytes);
-    debug!("file ID = {}", id);
+    debug!("file ID = {id}");
     assert!(id == 0123456789u64);
+
+    debug!("file length bytes = {:?}", length_bytes);
+    debug!("file length = {length}");
     assert!(length == 12008u32);
 
     ActiveTransferFile {
@@ -515,23 +520,16 @@ fn receive_file(rx: &Receiver<Vec<u8>>, active_files: &mut HashMap<u64, ActiveTr
         remove file from active transfers list
      */
 
-    let mut message_type_buf = [0u8; MESSAGE_TYPE_BYTE_WIDTH];
-    let mut counter = 0usize;
+    let mut bytes_read = 0usize;
     let mut buf: Vec<u8> = Vec::new();
-    loop {
+    while bytes_read < MESSAGE_TYPE_BYTE_WIDTH && !has_timed_out(start_time) {
         let msg = rx.recv().unwrap();
-
         println!("read in {:?}", msg);
-
         let msg_len = msg.len();
-        message_type_buf[counter..std::cmp::min(MESSAGE_TYPE_BYTE_WIDTH, counter+msg_len)].copy_from_slice(&msg[0..std::cmp::min(MESSAGE_TYPE_BYTE_WIDTH, msg_len)]);
-        counter += msg_len;
-
-        if counter >= MESSAGE_TYPE_BYTE_WIDTH || has_timed_out(start_time) {
-            buf.extend_from_slice(&msg[MESSAGE_TYPE_BYTE_WIDTH..msg_len]);
-            break;
-        }
+        buf.extend_from_slice(&msg);
+        bytes_read += msg_len;
     }
+
 
     debug!("found message type");
 
@@ -551,7 +549,13 @@ fn receive_file(rx: &Receiver<Vec<u8>>, active_files: &mut HashMap<u64, ActiveTr
     //     counter += msg_len;
     // }
 
-    let message_type = MessageType::get_from_bytes(u16::from_ne_bytes(message_type_buf));
+    let message_type = MessageType::get_from_bytes(
+        u16::from_ne_bytes(
+            buf[0..MESSAGE_TYPE_BYTE_WIDTH]
+            .try_into()
+            .unwrap()
+        )
+    );
     
     match message_type {
         MessageType::FILE_START => {

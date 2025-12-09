@@ -9,19 +9,19 @@ use std::time::Duration;
 use toml::Value;
 use log::{debug, info};
 
-pub fn from_network(mut stream: &TcpStream) -> String{
+pub fn from_network(mut stream: &TcpStream) -> Vec<u8>{
     // debug!("Handle Commands called");
     let mut buffer = [0; 600000];
     match stream.read(&mut buffer){
         Ok(bytes_read) => {
-            let packet = String::from_utf8_lossy(&buffer[..bytes_read]);
+            let packet = buffer[..bytes_read].to_vec();
             // println!("{}",packet);
-            packet.to_string()
+            packet
         },
         Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-            "Error: No data available yet; try again later".to_string()
+            panic!("Error (WouldBlock) in from_network(): {}", e)
         },
-        Err(e) => "Error: Other".to_string(),
+        Err(e) => panic!("Error in from_network(): {}", e),
     }
 }
 
@@ -70,7 +70,7 @@ pub fn from_network_with_protocol(stream: &mut TcpStream) -> Result<(), &str> {
     Ok(())
 }
 
-pub fn run_server<A: ToSocketAddrs>(tx: Sender<String>, addr: A) {
+pub fn run_server<A: ToSocketAddrs>(tx: Sender<Vec<u8>>, addr: A) {
     info!("Server started!");
     let listener = TcpListener::bind(addr).unwrap();
     info!("Connection successful!");
@@ -88,11 +88,12 @@ pub fn run_server<A: ToSocketAddrs>(tx: Sender<String>, addr: A) {
 
                 loop {
                     let packet = from_network(&stream);
-                    debug!("Packet: {}", packet);
-                    if !packet.starts_with("Error"){
+                    // debug!("Packet: {}", packet);
+                    // if !packet.starts_with("Error"){
+                    if true {
                         // scene_reference.write().unwrap().bhvr_msg_str(&packet.as_str());
-                        debug!("Sending packet through tx");
-                        let send_result = tx.send(packet);
+                        // debug!("Sending packet through tx");
+                        let send_result = tx.send(packet.to_vec());
                         match send_result {
                             Ok(_) => {},
                             Err(e) => {
@@ -160,7 +161,7 @@ pub fn get_ports(file: &str) -> Result<Vec<SocketAddr>, Box<dyn std::error::Erro
     Ok(result)
 }
 
-pub fn create_listener_thread(tx: Sender<String>, file: String) -> Result<thread::JoinHandle<()>, std::io::Error>{
+pub fn create_listener_thread(tx: Sender<Vec<u8>>, file: String) -> Result<thread::JoinHandle<()>, std::io::Error>{
     let handle = thread::Builder::new().name("listener thread".to_string()).spawn(move || {
         info!("Opened listener thread");
         debug!("about to unwrap ports vector");
@@ -212,16 +213,20 @@ pub fn create_sender_thread() -> Result<thread::JoinHandle<()>, Box<dyn std::err
             loop {
                 let t = (std::time::SystemTime::now().duration_since(start_time).unwrap().as_micros() as f32) / (2.0*1E6*std::f32::consts::PI);
 
-                let test_command_data_main = format!("
-                    {{
-                        \"targetEntityID\": 0,
-                        \"commandType\": \"ComponentChangeColor\",
-                        \"data\": [0.0,{},{},{},1.0]
-                    }}", 
-                    t.sin().abs(),
-                    t.cos().abs(),
-                    t.tan().abs()
-                );
+                // let test_command_data_main = format!("
+                //     {{
+                //         \"targetEntityID\": 0,
+                //         \"commandType\": \"ComponentChangeColor\",
+                //         \"data\": [0.0,{},{},{},1.0]
+                //     }}", 
+                //     t.sin().abs(),
+                //     t.cos().abs(),
+                //     t.tan().abs()
+                // );
+
+                let path = std::path::Path::new("data/scene_loading/test_scene.json");
+                let test_command_data_main = fs::read_to_string(path).unwrap();
+                let data_len = test_command_data_main.len();
 
                 let message_type = 0u16;
                 let file_id = 0123456789u64;
@@ -230,41 +235,55 @@ pub fn create_sender_thread() -> Result<thread::JoinHandle<()>, Box<dyn std::err
                 let file_name_suffix = file_name_suffix_string.as_str();
                 let file_len = test_command_data_main.len();
 
-                let mut test_command_data = message_type.to_string();
-                test_command_data.push_str(&file_id.to_string());
-                test_command_data.push_str(file_name_raw);
-                test_command_data.push_str(file_name_suffix);
-                test_command_data.push_str(&file_len.to_string());
+                let mut test_command_data: Vec<u8> = Vec::new();
+                test_command_data.extend_from_slice(&message_type.to_ne_bytes());
+                test_command_data.extend_from_slice(&file_id.to_ne_bytes());
+                test_command_data.extend_from_slice(file_name_raw.as_bytes());
+                test_command_data.extend_from_slice(file_name_suffix.as_bytes());
+                test_command_data.extend_from_slice(&file_len.to_ne_bytes());
                 info!("Sending file start frame to stream");
+
+                println!("in sender thread:");
+                println!("{:?}", test_command_data);
                 thread::sleep(std::time::Duration::from_millis(10));
-                stream.write_all(test_command_data.as_bytes()).unwrap();
+                stream.write_all(&test_command_data[..]).unwrap();
                 stream.flush().unwrap();
                 
-                test_command_data = String::new();
                 let message_type = 1u16;
-                let chunk_offset = 0u64;
-                test_command_data.push_str(&message_type.to_string());
-                test_command_data.push_str(&file_id.to_string());
-                test_command_data.push_str(&chunk_offset.to_string());
-                test_command_data.push_str(&file_len.to_string());
-                test_command_data.push_str(&test_command_data_main);
+                let mut chunk_offset = 0u64;
+                let chunk_length = 1024u32;
+                while (chunk_offset as usize) < data_len {
+                    test_command_data.clear();
+                    test_command_data.extend_from_slice(&message_type.to_ne_bytes());
+                    test_command_data.extend_from_slice(&file_id.to_ne_bytes());
+                    test_command_data.extend_from_slice(&chunk_offset.to_ne_bytes());
+
+                    test_command_data.extend_from_slice(&chunk_length.to_ne_bytes());
+                    let max_bound = std::cmp::min(chunk_offset as usize+chunk_length as usize, data_len);
+                    debug!("indexing data from {} to {} out of {}", chunk_offset, max_bound, data_len);
+                    test_command_data.extend_from_slice(&test_command_data_main[chunk_offset as usize..max_bound].as_bytes());
+                    chunk_offset += chunk_length as u64;
+
+                    info!("Sending chunk to stream");
+                    thread::sleep(std::time::Duration::from_millis(10));
+                    stream.write_all(&test_command_data[..]).unwrap();
+                    stream.flush().unwrap();
+                }
 
 
-                info!("Sending chunk to stream");
-                thread::sleep(std::time::Duration::from_millis(10));
-                stream.write_all(test_command_data.as_bytes()).unwrap();
-                stream.flush().unwrap();
 
                 let message_type = 2u16;
-                test_command_data = String::new();
-                test_command_data.push_str(&message_type.to_string());
-                test_command_data.push_str(&file_id.to_string());
+                test_command_data.clear();
+                test_command_data.extend_from_slice(&message_type.to_ne_bytes());
+                test_command_data.extend_from_slice(&file_id.to_ne_bytes());
 
 
                 info!("Sending file end to stream");
                 thread::sleep(std::time::Duration::from_millis(10));
-                stream.write_all(test_command_data.as_bytes()).unwrap();
+                stream.write_all(&test_command_data[..]).unwrap();
                 stream.flush().unwrap();
+
+                break;
 
             }
         }
@@ -526,8 +545,9 @@ irrelevant = content";
         let mut passed = false;
         while (std::time::SystemTime::now().duration_since(start_time).unwrap().as_secs()) < 10{
             let received = rx.recv().unwrap();
-            info!("RECEIVED = {received}");
-            if received.len() > 0 {
+            let received_str = String::from_utf8(received).unwrap();
+            info!("RECEIVED = {}", received_str);
+            if received_str.len() > 0 {
                 passed = true;
                 break;
             }

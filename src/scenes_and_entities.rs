@@ -650,7 +650,7 @@ impl Scene {
     ) -> Result<Scene, Box<dyn std::error::Error>> {
         // Open port
         let listener = std::net::TcpListener::bind(addr).unwrap();
-        let mut num_attempt = 0;
+        let mut num_attempt = 0usize;
         
         // Attempt to recieve initialization packet and parse when successful.
         let initialization_packet = loop {
@@ -667,6 +667,7 @@ impl Scene {
             }
         };
         info!("Received initialization file");
+        let initialization_packet = String::from_utf8(initialization_packet).unwrap();
         // debug!("Initialization file: {}", initialization_packet);
 
         // Receive and save model files

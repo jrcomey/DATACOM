@@ -181,7 +181,7 @@ pub async fn run_scene_from_hdf5(args: Vec<String>, should_save_to_file: bool) {
 pub async fn run_scene_from_json(args: Vec<String>) {
     debug!("Running lib.rs::run_scene_from_json()");
 
-    let (tx, rx) = mpsc::channel();
+    let (tx, rx): (mpsc::Sender<Vec<u8>>, mpsc::Receiver<Vec<u8>>) = mpsc::channel();
 
     let event_loop = EventLoop::new().unwrap();
     let title = env!("CARGO_PKG_NAME");
@@ -260,7 +260,8 @@ pub async fn run_scene_from_json(args: Vec<String>) {
             }
 
             while let Ok(message) = rx.try_recv() {
-                info!("message received from listener thread: {message}");
+                let msg_str = String::from_utf8(message).unwrap();
+                info!("message received from listener thread: {msg_str}");
             }
         })
         .unwrap();
@@ -279,7 +280,7 @@ pub async fn run_scene_from_network(args: Vec<String>){
     \"localhost\" = [8081]";
     _ = writeln!(file, "{}", ports_str);
 
-    let (tx, rx) = mpsc::channel();
+    let (tx, rx): (mpsc::Sender<Vec<u8>>, mpsc::Receiver<Vec<u8>>) = mpsc::channel();
     let listener_result = create_listener_thread(tx, file_name_string_clone);
     let listener = listener_result.unwrap();
     let sender_result = create_sender_thread();
@@ -288,12 +289,15 @@ pub async fn run_scene_from_network(args: Vec<String>){
     let mut active_files: HashMap<u64, ActiveTransferFile> = HashMap::new();
     
     loop {
+        debug!("active files len = {}", active_files.len());
         receive_file(&rx, &mut active_files);
 
         if active_files.is_empty(){
             break;
         }
     }
+
+    debug!("Loop is over; active files must be empty");
 
     _ = remove_file(&file_path);
 
@@ -309,13 +313,17 @@ fn has_timed_out(start_time: SystemTime) -> bool {
     std::time::SystemTime::now().duration_since(start_time).unwrap().as_secs() >= SECONDS_UNTIL_TIMEOUT
 }
 
-fn receive_file_metadata(rx: &Receiver<String>, buf: &mut Vec<u8>, start_time: SystemTime) -> ActiveTransferFile {
+fn receive_file_metadata(rx: &Receiver<Vec<u8>>, buf: &mut Vec<u8>, start_time: SystemTime) -> ActiveTransferFile {
     while buf.len() < FILE_METADATA_BYTE_WIDTH && !has_timed_out(start_time){
-        let msg_str = rx.recv().unwrap();
-        let msg = msg_str.as_bytes();
+        let msg = rx.recv().unwrap();
         buf.extend_from_slice(&msg);        
     }
 
+    println!("in listener thread:");
+    for &byte in buf[0..FILE_ID_BYTE_WIDTH].iter() {
+        print!("{byte} ");
+    }
+    println!();
     let mut counter = MESSAGE_TYPE_BYTE_WIDTH;
     let id_bytes: [u8; FILE_ID_BYTE_WIDTH] = buf[counter..counter + FILE_ID_BYTE_WIDTH]
         .try_into().expect("file ID is incorrect size");
@@ -327,6 +335,12 @@ fn receive_file_metadata(rx: &Receiver<String>, buf: &mut Vec<u8>, start_time: S
     let length = u32::from_ne_bytes(length_bytes);
 
     let _ = buf.drain(0..FILE_METADATA_BYTE_WIDTH);
+
+    println!("file ID bytes = {:?}", id_bytes);
+    let id = u64::from_ne_bytes(id_bytes);
+    debug!("file ID = {}", id);
+    assert!(id == 0123456789u64);
+    assert!(length == 12008u32);
 
     ActiveTransferFile {
         id: u64::from_ne_bytes(id_bytes),
@@ -359,12 +373,13 @@ fn receive_file_metadata(rx: &Receiver<String>, buf: &mut Vec<u8>, start_time: S
     // metadata_buf
 }
 
-fn receive_file_chunk(rx: &Receiver<String>, buf: &mut Vec<u8>, start_time: SystemTime, active_files: &mut HashMap<u64, ActiveTransferFile>){
+fn receive_file_chunk(rx: &Receiver<Vec<u8>>, buf: &mut Vec<u8>, start_time: SystemTime, active_files: &mut HashMap<u64, ActiveTransferFile>){
     while buf.len() < CHUNK_METADATA_BYTE_WIDTH && !has_timed_out(start_time){
-        let msg_str = rx.recv().unwrap();
-        let msg = msg_str.as_bytes();
+        let msg = rx.recv().unwrap();
         buf.extend_from_slice(&msg);
     }
+
+    debug!("received chunk metadata");
 
     let mut counter = MESSAGE_TYPE_BYTE_WIDTH;
     let file_id_bytes: [u8; FILE_ID_BYTE_WIDTH] = buf[counter..counter+FILE_ID_BYTE_WIDTH]
@@ -376,20 +391,27 @@ fn receive_file_chunk(rx: &Receiver<String>, buf: &mut Vec<u8>, start_time: Syst
     let chunk_length_bytes: [u8; CHUNK_LENGTH_BYTE_WIDTH] = buf[counter..counter+CHUNK_LENGTH_BYTE_WIDTH]
         .try_into().expect("chunk length is incorrect length");
 
+    debug!("parsed chunk metadata");
+
     let file_id = u64::from_ne_bytes(file_id_bytes);
     let chunk_offset = u64::from_ne_bytes(chunk_offset_bytes) as usize;
     let chunk_length = u32::from_ne_bytes(chunk_length_bytes) as usize;
+    info!("file ID = {}, chunk offset = {}, chunk length = {}", file_id, chunk_offset, chunk_length);
 
     let file_data = active_files.get_mut(&file_id).expect("invalid file");
+
+    debug!("retrieved file data");
+    debug!("while {} < {}", buf.len(), CHUNK_METADATA_BYTE_WIDTH+chunk_length);
     
-    while buf.len() < chunk_length as usize && !has_timed_out(start_time){
-        let msg_str = rx.recv().unwrap();
-        let msg = msg_str.as_bytes();
+    while buf.len() < CHUNK_METADATA_BYTE_WIDTH+(chunk_length as usize) && !has_timed_out(start_time){
+        let msg = rx.recv().unwrap();
         buf.extend_from_slice(&msg);
     }
 
+    debug!("received chunk payload");
+
     file_data.data[chunk_offset..chunk_offset+chunk_length].copy_from_slice(&buf[CHUNK_METADATA_BYTE_WIDTH..CHUNK_METADATA_BYTE_WIDTH+chunk_length]);
-    buf.drain(0..FILE_METADATA_BYTE_WIDTH+chunk_length);
+    buf.drain(0..CHUNK_METADATA_BYTE_WIDTH+chunk_length);
 
 
     // loop {
@@ -428,10 +450,9 @@ fn receive_file_chunk(rx: &Receiver<String>, buf: &mut Vec<u8>, start_time: Syst
      */
 }
 
-fn finish_receiving_file(rx: &Receiver<String>, buf: &mut Vec<u8>, start_time: SystemTime, active_files: &mut HashMap<u64, ActiveTransferFile>){
+fn finish_receiving_file(rx: &Receiver<Vec<u8>>, buf: &mut Vec<u8>, start_time: SystemTime, active_files: &mut HashMap<u64, ActiveTransferFile>){
     while buf.len() < FILE_END_METADATA_BYTE_WIDTH && !has_timed_out(start_time){
-        let msg_str = rx.recv().unwrap();
-        let msg = msg_str.as_bytes();
+        let msg = rx.recv().unwrap();
         buf.extend_from_slice(&msg);        
     }
 
@@ -446,7 +467,7 @@ fn finish_receiving_file(rx: &Receiver<String>, buf: &mut Vec<u8>, start_time: S
     let _ = writeln!(file, "{}", file_contents.as_str());
 }
 
-fn receive_file(rx: &Receiver<String>, active_files: &mut HashMap<u64, ActiveTransferFile>){
+fn receive_file(rx: &Receiver<Vec<u8>>, active_files: &mut HashMap<u64, ActiveTransferFile>){
     debug!("Preparing to receive file");
     let start_time = std::time::SystemTime::now();
     /*
@@ -497,14 +518,22 @@ fn receive_file(rx: &Receiver<String>, active_files: &mut HashMap<u64, ActiveTra
     let mut message_type_buf = [0u8; MESSAGE_TYPE_BYTE_WIDTH];
     let mut counter = 0usize;
     let mut buf: Vec<u8> = Vec::new();
-    while counter < MESSAGE_TYPE_BYTE_WIDTH && !has_timed_out(start_time){
-        let msg_str = rx.recv().unwrap();
-        let msg = msg_str.as_bytes();
+    loop {
+        let msg = rx.recv().unwrap();
+
+        println!("read in {:?}", msg);
+
         let msg_len = msg.len();
         message_type_buf[counter..std::cmp::min(MESSAGE_TYPE_BYTE_WIDTH, counter+msg_len)].copy_from_slice(&msg[0..std::cmp::min(MESSAGE_TYPE_BYTE_WIDTH, msg_len)]);
         counter += msg_len;
+
+        if counter >= MESSAGE_TYPE_BYTE_WIDTH || has_timed_out(start_time) {
+            buf.extend_from_slice(&msg[MESSAGE_TYPE_BYTE_WIDTH..msg_len]);
+            break;
+        }
     }
 
+    debug!("found message type");
 
 
     // let mut overflow: Vec<u8> = Vec::new();
@@ -537,10 +566,13 @@ fn receive_file(rx: &Receiver<String>, active_files: &mut HashMap<u64, ActiveTra
         MessageType::FILE_END => {
             debug!("received FILE_END");
             finish_receiving_file(&rx, &mut buf, start_time, active_files);
-        }
-        _ => {
-
-        }
+        },
+        MessageType::FILE_ACK => {
+            debug!("received FILE_ACK");
+        },
+        MessageType::ERROR => {
+            debug!("received ERROR");
+        },
     };
 
     // debug!("File metadata complete. Ready to read file chunks...");

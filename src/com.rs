@@ -223,22 +223,49 @@ pub fn create_sender_thread() -> Result<thread::JoinHandle<()>, Box<dyn std::err
                     t.tan().abs()
                 );
 
-                let mut test_command_data = 0u16.to_string();
-                test_command_data.push_str(&0123456789u64.to_string());
-                test_command_data.push_str(&test_command_data_main.len().to_string());
-                test_command_data.push_str(&1u16.to_string());
-                test_command_data.push_str(&0123456789u64.to_string());
-                test_command_data.push_str(&0u64.to_string());
-                test_command_data.push_str(&(test_command_data_main.len() as u32).to_string());
-                // let mut test_command_data = test_command_data_main.len().to_string();
-                // test_command_data.push_str(&0x01.to_string());
-                test_command_data.push_str(&test_command_data_main);
+                let message_type = 0u16;
+                let file_id = 0123456789u64;
+                let file_name_raw = "test file";
+                let file_name_suffix_string: String = ['\0'; 91].iter().collect();
+                let file_name_suffix = file_name_suffix_string.as_str();
+                let file_len = test_command_data_main.len();
 
-
-                info!("Sending data to stream");
+                let mut test_command_data = message_type.to_string();
+                test_command_data.push_str(&file_id.to_string());
+                test_command_data.push_str(file_name_raw);
+                test_command_data.push_str(file_name_suffix);
+                test_command_data.push_str(&file_len.to_string());
+                info!("Sending file start frame to stream");
                 thread::sleep(std::time::Duration::from_millis(10));
                 stream.write_all(test_command_data.as_bytes()).unwrap();
                 stream.flush().unwrap();
+                
+                test_command_data = String::new();
+                let message_type = 1u16;
+                let chunk_offset = 0u64;
+                test_command_data.push_str(&message_type.to_string());
+                test_command_data.push_str(&file_id.to_string());
+                test_command_data.push_str(&chunk_offset.to_string());
+                test_command_data.push_str(&file_len.to_string());
+                test_command_data.push_str(&test_command_data_main);
+
+
+                info!("Sending chunk to stream");
+                thread::sleep(std::time::Duration::from_millis(10));
+                stream.write_all(test_command_data.as_bytes()).unwrap();
+                stream.flush().unwrap();
+
+                let message_type = 2u16;
+                test_command_data = String::new();
+                test_command_data.push_str(&message_type.to_string());
+                test_command_data.push_str(&file_id.to_string());
+
+
+                info!("Sending file end to stream");
+                thread::sleep(std::time::Duration::from_millis(10));
+                stream.write_all(test_command_data.as_bytes()).unwrap();
+                stream.flush().unwrap();
+
             }
         }
     })

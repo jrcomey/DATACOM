@@ -30,6 +30,7 @@ const FILE_METADATA_BYTE_WIDTH: usize = MESSAGE_TYPE_BYTE_WIDTH + FILE_ID_BYTE_W
 const CHUNK_OFFSET_BYTE_WIDTH: usize = 8;
 const CHUNK_LENGTH_BYTE_WIDTH: usize = 4;
 const CHUNK_METADATA_BYTE_WIDTH: usize = MESSAGE_TYPE_BYTE_WIDTH + FILE_ID_BYTE_WIDTH + CHUNK_OFFSET_BYTE_WIDTH + CHUNK_LENGTH_BYTE_WIDTH;
+const FILE_END_METADATA_BYTE_WIDTH: usize = MESSAGE_TYPE_BYTE_WIDTH + FILE_ID_BYTE_WIDTH;
 
 const SECONDS_UNTIL_TIMEOUT: u64 = 10;
 
@@ -283,7 +284,16 @@ pub async fn run_scene_from_network(args: Vec<String>){
     let listener = listener_result.unwrap();
     let sender_result = create_sender_thread();
     let sender = sender_result.unwrap();
-    receive_file(rx);
+
+    let mut active_files: HashMap<u64, ActiveTransferFile> = HashMap::new();
+    
+    loop {
+        receive_file(&rx, &mut active_files);
+
+        if active_files.is_empty(){
+            break;
+        }
+    }
 
     _ = remove_file(&file_path);
 
@@ -418,7 +428,25 @@ fn receive_file_chunk(rx: &Receiver<String>, buf: &mut Vec<u8>, start_time: Syst
      */
 }
 
-fn receive_file(rx: Receiver<String>){
+fn finish_receiving_file(rx: &Receiver<String>, buf: &mut Vec<u8>, start_time: SystemTime, active_files: &mut HashMap<u64, ActiveTransferFile>){
+    while buf.len() < FILE_END_METADATA_BYTE_WIDTH && !has_timed_out(start_time){
+        let msg_str = rx.recv().unwrap();
+        let msg = msg_str.as_bytes();
+        buf.extend_from_slice(&msg);        
+    }
+
+    let file_id_bytes: [u8; FILE_ID_BYTE_WIDTH] = buf[MESSAGE_TYPE_BYTE_WIDTH..MESSAGE_TYPE_BYTE_WIDTH+FILE_ID_BYTE_WIDTH]
+        .try_into().expect("file ID is incorrect length");
+    let file_id = u64::from_ne_bytes(file_id_bytes);
+    let file_data = active_files.remove(&file_id).unwrap();
+    let file_name = std::str::from_utf8(&file_data.name).unwrap();
+    let path = Path::new(file_name);
+    let mut file = File::create(path).unwrap();
+    let file_contents = String::from_utf8(file_data.data.into_vec()).unwrap();
+    let _ = writeln!(file, "{}", file_contents.as_str());
+}
+
+fn receive_file(rx: &Receiver<String>, active_files: &mut HashMap<u64, ActiveTransferFile>){
     debug!("Preparing to receive file");
     let start_time = std::time::SystemTime::now();
     /*
@@ -473,7 +501,7 @@ fn receive_file(rx: Receiver<String>){
         let msg_str = rx.recv().unwrap();
         let msg = msg_str.as_bytes();
         let msg_len = msg.len();
-        message_type_buf[counter..std::cmp::max(MESSAGE_TYPE_BYTE_WIDTH, counter+msg_len)].copy_from_slice(&msg[0..std::cmp::max(MESSAGE_TYPE_BYTE_WIDTH, msg_len)]);
+        message_type_buf[counter..std::cmp::min(MESSAGE_TYPE_BYTE_WIDTH, counter+msg_len)].copy_from_slice(&msg[0..std::cmp::min(MESSAGE_TYPE_BYTE_WIDTH, msg_len)]);
         counter += msg_len;
     }
 
@@ -495,16 +523,21 @@ fn receive_file(rx: Receiver<String>){
     // }
 
     let message_type = MessageType::get_from_bytes(u16::from_ne_bytes(message_type_buf));
-    let mut active_files = HashMap::new();
     
     match message_type {
         MessageType::FILE_START => {
+            debug!("received FILE_START");
             let file = receive_file_metadata(&rx, &mut buf, start_time);
             active_files.insert(file.id, file);
         },
         MessageType::FILE_CHUNK => {
-            receive_file_chunk(&rx, &mut buf, start_time, &mut active_files);
+            debug!("received FILE_CHUNK");
+            receive_file_chunk(&rx, &mut buf, start_time, active_files);
         },
+        MessageType::FILE_END => {
+            debug!("received FILE_END");
+            finish_receiving_file(&rx, &mut buf, start_time, active_files);
+        }
         _ => {
 
         }

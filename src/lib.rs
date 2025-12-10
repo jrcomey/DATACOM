@@ -23,9 +23,9 @@ mod text;
 
 const MESSAGE_TYPE_BYTE_WIDTH: usize = 2;
 const FILE_ID_BYTE_WIDTH: usize = 8;
-const FILE_NAME_BYTE_WIDTH: usize = 256;
+const FILE_NAME_LENGTH_BYTE_WIDTH: usize = 1;
 const FILE_LENGTH_BYTE_WIDTH: usize = 4;
-const FILE_METADATA_BYTE_WIDTH: usize = MESSAGE_TYPE_BYTE_WIDTH + FILE_ID_BYTE_WIDTH + FILE_NAME_BYTE_WIDTH + FILE_LENGTH_BYTE_WIDTH;
+const FILE_METADATA_BYTE_WIDTH: usize = MESSAGE_TYPE_BYTE_WIDTH + FILE_ID_BYTE_WIDTH + FILE_NAME_LENGTH_BYTE_WIDTH + FILE_LENGTH_BYTE_WIDTH;
 
 const CHUNK_OFFSET_BYTE_WIDTH: usize = 8;
 const CHUNK_LENGTH_BYTE_WIDTH: usize = 4;
@@ -57,7 +57,7 @@ impl MessageType {
 
 struct ActiveTransferFile {
     id: u64,
-    name: [u8; FILE_NAME_BYTE_WIDTH],
+    name: String,
     length: u32,
     data: Box<[u8]>,
 }
@@ -314,9 +314,9 @@ fn has_timed_out(start_time: SystemTime) -> bool {
 }
 
 fn receive_file_metadata(rx: &Receiver<Vec<u8>>, buf: &mut Vec<u8>, start_time: SystemTime) -> ActiveTransferFile {
-    while buf.len() < FILE_METADATA_BYTE_WIDTH && !has_timed_out(start_time){
+    while buf.len() < MESSAGE_TYPE_BYTE_WIDTH + FILE_ID_BYTE_WIDTH + FILE_NAME_LENGTH_BYTE_WIDTH && !has_timed_out(start_time){
         let msg = rx.recv().unwrap();
-        buf.extend_from_slice(&msg);        
+        buf.extend_from_slice(&msg);
     }
 
     // println!("in listener thread:");
@@ -326,22 +326,38 @@ fn receive_file_metadata(rx: &Receiver<Vec<u8>>, buf: &mut Vec<u8>, start_time: 
     println!();
     let mut counter = MESSAGE_TYPE_BYTE_WIDTH;
     let id_bytes: [u8; FILE_ID_BYTE_WIDTH] = buf[counter..counter + FILE_ID_BYTE_WIDTH]
-        .try_into().expect("file ID is incorrect size");
+        .try_into()
+        .expect("file ID is incorrect size");
     counter += FILE_ID_BYTE_WIDTH;
-    let name: [u8; FILE_NAME_BYTE_WIDTH] = buf[counter..counter + FILE_NAME_BYTE_WIDTH]
-        .try_into().expect("file name is incorrect size");
-    counter += FILE_NAME_BYTE_WIDTH;
+
+    let name_length_bytes: [u8; FILE_NAME_LENGTH_BYTE_WIDTH] = buf[counter..counter + FILE_NAME_LENGTH_BYTE_WIDTH]
+        .try_into()
+        .expect("name length is incorrect size");
+    let name_length = u8::from_ne_bytes(name_length_bytes);
+    let name_length_usize = name_length as usize;
+    counter += FILE_NAME_LENGTH_BYTE_WIDTH;
+
+    while buf.len() < MESSAGE_TYPE_BYTE_WIDTH + FILE_END_METADATA_BYTE_WIDTH + FILE_NAME_LENGTH_BYTE_WIDTH + name_length_usize {
+        let msg = rx.recv().unwrap();
+        buf.extend_from_slice(&msg);
+    }
+
+    let name: Vec<u8> = buf[counter..counter + name_length_usize].to_vec();
+    counter += name_length_usize;
+
     debug!("indexing from {} to {}", counter, counter+FILE_LENGTH_BYTE_WIDTH);
     let length_bytes: [u8; FILE_LENGTH_BYTE_WIDTH] = buf[counter..counter + FILE_LENGTH_BYTE_WIDTH]
         .try_into().expect("file length is incorrect length");
     let length = u32::from_ne_bytes(length_bytes);
 
-    let _ = buf.drain(0..FILE_METADATA_BYTE_WIDTH);
+    let _ = buf.drain(0..FILE_METADATA_BYTE_WIDTH+name_length_usize);
 
     debug!("file ID bytes = {:?}", id_bytes);
     let id = u64::from_ne_bytes(id_bytes);
     debug!("file ID = {id}");
     assert!(id == 0123456789u64);
+
+    // debug!("file name length")
 
     debug!("file length bytes = {:?}", length_bytes);
     debug!("file length = {length}");
@@ -349,7 +365,7 @@ fn receive_file_metadata(rx: &Receiver<Vec<u8>>, buf: &mut Vec<u8>, start_time: 
 
     ActiveTransferFile {
         id: u64::from_ne_bytes(id_bytes),
-        name,
+        name: String::from_utf8(name).unwrap(),
         length,
         data: vec![0u8; length as usize].into_boxed_slice(),
     }
@@ -465,8 +481,7 @@ fn finish_receiving_file(rx: &Receiver<Vec<u8>>, buf: &mut Vec<u8>, start_time: 
         .try_into().expect("file ID is incorrect length");
     let file_id = u64::from_ne_bytes(file_id_bytes);
     let file_data = active_files.remove(&file_id).unwrap();
-    let file_name = std::str::from_utf8(&file_data.name).unwrap();
-    let path = Path::new(file_name);
+    let path = Path::new(&file_data.name);
     let mut file = File::create(path).unwrap();
     let file_contents = String::from_utf8(file_data.data.into_vec()).unwrap();
     let _ = writeln!(file, "{}", file_contents.as_str());

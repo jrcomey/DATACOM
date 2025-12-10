@@ -230,16 +230,15 @@ pub fn create_sender_thread() -> Result<thread::JoinHandle<()>, Box<dyn std::err
 
                 let message_type = 0u16;
                 let file_id = 0123456789u64;
-                let file_name_raw = "test file";
-                let file_name_suffix_string: String = ['\0'; 256-9].iter().collect();
-                let file_name_suffix = file_name_suffix_string.as_str();
+                let file_name = "test file";
+                let file_name_length = file_name.len() as u8;
                 let file_len = test_command_data_main.len();
 
                 let mut test_command_data: Vec<u8> = Vec::new();
                 test_command_data.extend_from_slice(&message_type.to_ne_bytes());
                 test_command_data.extend_from_slice(&file_id.to_ne_bytes());
-                test_command_data.extend_from_slice(file_name_raw.as_bytes());
-                test_command_data.extend_from_slice(file_name_suffix.as_bytes());
+                test_command_data.extend_from_slice(&[file_name_length]);
+                test_command_data.extend_from_slice(file_name.as_bytes());
                 test_command_data.extend_from_slice(&file_len.to_ne_bytes());
                 info!("Sending file start frame to stream");
 

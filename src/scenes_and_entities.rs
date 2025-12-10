@@ -507,7 +507,7 @@ impl Scene {
                 screen_height, 
             )
         } else {
-            Scene::load_scene_from_network(
+            Scene::load_scene_from_json(
                 filepath, 
                 device, 
                 queue, 
@@ -516,7 +516,17 @@ impl Scene {
                 text_bind_group_layout, 
                 screen_width, 
                 screen_height, 
-            ).unwrap()
+            )
+            // Scene::load_scene_from_network(
+            //     filepath, 
+            //     device, 
+            //     queue, 
+            //     format, 
+            //     model_bind_group_layout, 
+            //     text_bind_group_layout, 
+            //     screen_width, 
+            //     screen_height, 
+            // ).unwrap()
         }
     }
 

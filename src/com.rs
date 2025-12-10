@@ -279,9 +279,9 @@ pub fn create_sender_thread() -> Result<thread::JoinHandle<()>, Box<dyn std::err
 
                 let message_type = 0u16;
                 let file_id = 0123456789u64;
-                let file_name = "test file.json";
+                let file_name = "data/scene_loading/main_scene.json";
                 let file_name_length = file_name.len() as u8;
-                let file_len = test_command_data_main.len();
+                let file_len = test_command_data_main.len() as u32;
 
                 let mut test_command_data: Vec<u8> = Vec::new();
                 test_command_data.extend_from_slice(&message_type.to_ne_bytes());
@@ -290,9 +290,8 @@ pub fn create_sender_thread() -> Result<thread::JoinHandle<()>, Box<dyn std::err
                 test_command_data.extend_from_slice(&file_len.to_ne_bytes());
                 test_command_data.extend_from_slice(file_name.as_bytes());
                 info!("Sending file start frame to stream");
+                debug!("{:?}", test_command_data);
 
-                println!("in sender thread:");
-                println!("{:?}", test_command_data);
                 thread::sleep(std::time::Duration::from_millis(10));
                 stream.write_all(&test_command_data[..]).unwrap();
                 stream.flush().unwrap();
@@ -362,31 +361,36 @@ fn receive_file_metadata(rx: &Receiver<Vec<u8>>, buf: &mut Vec<u8>, start_time: 
     // }
     // println!();
     let mut counter = MESSAGE_TYPE_BYTE_WIDTH;
+    debug!("indexing from {} to {} to find ID", counter, counter + FILE_ID_BYTE_WIDTH);
     let id_bytes: [u8; FILE_ID_BYTE_WIDTH] = buf[counter..counter + FILE_ID_BYTE_WIDTH]
         .try_into()
         .unwrap();
     counter += FILE_ID_BYTE_WIDTH;
 
-    // debug!("indexing from {} to {}", counter, counter+FILE_LENGTH_BYTE_WIDTH);
-    let length_bytes: [u8; FILE_LENGTH_BYTE_WIDTH] = buf[counter..counter + FILE_LENGTH_BYTE_WIDTH]
-        .try_into()
-        .unwrap();
-    let length = u32::from_ne_bytes(length_bytes);
-    counter += FILE_LENGTH_BYTE_WIDTH;
-
+    debug!("indexing slice {} to {} to find name length", counter, counter + FILE_NAME_LENGTH_BYTE_WIDTH);
     let name_length_bytes: [u8; FILE_NAME_LENGTH_BYTE_WIDTH] = buf[counter..counter + FILE_NAME_LENGTH_BYTE_WIDTH]
         .try_into()
         .expect("name length is incorrect size");
     let name_length = u8::from_ne_bytes(name_length_bytes);
     let name_length_usize = name_length as usize;
     counter += FILE_NAME_LENGTH_BYTE_WIDTH;
+    debug!("name length is {name_length} {name_length_usize}");
+
+    debug!("indexing from {} to {} to find file length", counter, counter+FILE_LENGTH_BYTE_WIDTH);
+    let length_bytes: [u8; FILE_LENGTH_BYTE_WIDTH] = buf[counter..counter + FILE_LENGTH_BYTE_WIDTH]
+        .try_into()
+        .unwrap();
+    let length = u32::from_ne_bytes(length_bytes);
+    counter += FILE_LENGTH_BYTE_WIDTH;
 
     while buf.len() < FILE_START_METADATA_BYTE_WIDTH + name_length_usize && !has_timed_out(start_time){
         let msg = rx.recv().unwrap();
         buf.extend_from_slice(&msg);
     }
 
+    debug!("indexing from {} to {} to find file name", counter, counter + name_length_usize);
     let name: Vec<u8> = buf[counter..counter + name_length_usize].to_vec();
+    debug!("name = {}", String::from_utf8(name.clone()).unwrap());
     counter += name_length_usize;
 
     let _ = buf.drain(0..FILE_START_METADATA_BYTE_WIDTH+name_length_usize);
@@ -470,7 +474,7 @@ pub fn receive_file(rx: &Receiver<Vec<u8>>, active_files: &mut HashMap<u64, Acti
     let mut buf: Vec<u8> = Vec::new();
     while bytes_read < MESSAGE_TYPE_BYTE_WIDTH && !has_timed_out(start_time) {
         let msg = rx.recv().unwrap();
-        println!("read in {:?}", msg);
+        // println!("read in {:?}", msg);
         let msg_len = msg.len();
         buf.extend_from_slice(&msg);
         bytes_read += msg_len;

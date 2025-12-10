@@ -258,7 +258,11 @@ pub async fn run_scene_from_network(args: Vec<String>){
 
     _ = remove_file(&file_path);
 
-    run_scene_from_json(args).await;
+    // TODO: change to something more generic
+    let mut modified_args = args.clone();
+    modified_args[1] = "main_scene.json".to_string();
+
+    run_scene_from_json(modified_args).await;
 
     listener.join().unwrap();
     debug!("Listener thread closed");

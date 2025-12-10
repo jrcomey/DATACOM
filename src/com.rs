@@ -11,7 +11,6 @@ use std::path::Path;
 use toml::Value;
 use log::{debug, info};
 use std::sync::mpsc::Receiver;
-use std::time::SystemTime;
 
 const MESSAGE_TYPE_BYTE_WIDTH: usize = 2;
 const FILE_ID_BYTE_WIDTH: usize = 8;
@@ -25,6 +24,7 @@ const CHUNK_METADATA_BYTE_WIDTH: usize = MESSAGE_TYPE_BYTE_WIDTH + FILE_ID_BYTE_
 const FILE_END_METADATA_BYTE_WIDTH: usize = MESSAGE_TYPE_BYTE_WIDTH + FILE_ID_BYTE_WIDTH;
 
 const SECONDS_UNTIL_TIMEOUT: u64 = 10;
+const TIMEOUT_THRESHOLD: std::time::Duration = std::time::Duration::from_secs(SECONDS_UNTIL_TIMEOUT);
 
 #[repr(u16)]
 enum MessageType {
@@ -32,6 +32,7 @@ enum MessageType {
     FILE_CHUNK,
     FILE_END,
     FILE_ACK,
+    TRANSMISSION_END,
     ERROR,
 }
 
@@ -42,6 +43,7 @@ impl MessageType {
             1 => MessageType::FILE_CHUNK,
             2 => MessageType::FILE_END,
             3 => MessageType::FILE_ACK,
+            4 => MessageType::TRANSMISSION_END,
             _ => MessageType::ERROR,
         }
     }
@@ -115,64 +117,195 @@ pub fn from_network_with_protocol(stream: &mut TcpStream) -> Result<(), &str> {
     Ok(())
 }
 
-fn has_timed_out(start_time: SystemTime) -> bool {
-    std::time::SystemTime::now().duration_since(start_time).unwrap().as_secs() >= SECONDS_UNTIL_TIMEOUT
+fn has_timed_out(start_time: std::time::Instant) -> bool {
+    start_time.elapsed() >= TIMEOUT_THRESHOLD
 }
 
-pub fn run_server<A: ToSocketAddrs>(tx: Sender<Vec<u8>>, addr: A) {
-    info!("Server started!");
-    let listener = TcpListener::bind(addr).unwrap();
-    info!("Connection successful!");
-    // listener.set_nonblocking(true).unwrap();
-    let start = std::time::Instant::now();
-    let timeout = std::time::Duration::from_secs(2);
+fn send_test_data(mut stream: TcpStream){
+    let path = std::path::Path::new("data/scene_loading/test_scene.json");
+    let test_command_data_main = fs::read_to_string(path).unwrap();
+    let data_len = test_command_data_main.len();
 
-    for stream in listener.incoming() {
-        info!("received TCP stream!");
-        match stream {
-            Ok(mut stream) => {
-                info!("TCP stream is Ok");
-                stream.write_all(b"ACK").unwrap();
-                stream.flush().unwrap();
+    let message_type = 0u16;
+    let file_id = 0123456789u64;
+    let file_name = "data/scene_loading/main_scene.json";
+    let file_name_length = file_name.len() as u8;
+    let file_len = test_command_data_main.len() as u32;
 
-                loop {
-                    let packet = from_network(&stream);
-                    // debug!("Packet: {}", packet);
-                    // if !packet.starts_with("Error"){
-                    if true {
-                        // scene_reference.write().unwrap().bhvr_msg_str(&packet.as_str());
-                        // debug!("Sending packet through tx");
-                        let send_result = tx.send(packet.to_vec());
-                        match send_result {
-                            Ok(_) => {},
-                            Err(e) => {
-                                debug!("Error attempting to send packet: {}", e);
-                            }
-                        }
+    let mut test_command_data: Vec<u8> = Vec::new();
+    test_command_data.extend_from_slice(&message_type.to_ne_bytes());
+    test_command_data.extend_from_slice(&file_id.to_ne_bytes());
+    test_command_data.extend_from_slice(&[file_name_length]);
+    test_command_data.extend_from_slice(&file_len.to_ne_bytes());
+    test_command_data.extend_from_slice(file_name.as_bytes());
+    info!("Sending file start frame to stream");
+    // debug!("{:?}", test_command_data);
+
+    thread::sleep(std::time::Duration::from_millis(10));
+    stream.write_all(&test_command_data[..]).unwrap();
+    stream.flush().unwrap();
+    
+    let message_type = 1u16;
+    let mut chunk_offset = 0u64;
+    let chunk_length_default = 1024u32;
+    while (chunk_offset as usize) < data_len {
+        test_command_data.clear();
+        test_command_data.extend_from_slice(&message_type.to_ne_bytes());
+        test_command_data.extend_from_slice(&file_id.to_ne_bytes());
+        test_command_data.extend_from_slice(&chunk_offset.to_ne_bytes());
+
+        let chunk_offset_usize = chunk_offset as usize;
+
+        let chunk_length: u32 = if chunk_offset_usize + chunk_length_default as usize > data_len {
+            (data_len - chunk_offset_usize).try_into().unwrap()
+        } else {
+            chunk_length_default
+        };
+
+        test_command_data.extend_from_slice(&chunk_length.to_ne_bytes());
+        let max_bound = chunk_offset_usize+chunk_length as usize;
+        debug!("indexing data from {} to {} out of {}", chunk_offset, max_bound, data_len);
+        test_command_data.extend_from_slice(&test_command_data_main[chunk_offset_usize..max_bound].as_bytes());
+        chunk_offset += chunk_length as u64;
+
+        info!("Sending chunk to stream");
+        thread::sleep(std::time::Duration::from_millis(10));
+        stream.write_all(&test_command_data[..]).unwrap();
+        stream.flush().unwrap();
+    }
+
+    let message_type = 2u16;
+    test_command_data.clear();
+    test_command_data.extend_from_slice(&message_type.to_ne_bytes());
+    test_command_data.extend_from_slice(&file_id.to_ne_bytes());
+
+    info!("Sending file end to stream");
+    thread::sleep(std::time::Duration::from_millis(10));
+    stream.write_all(&test_command_data[..]).unwrap();
+    stream.flush().unwrap();
+
+    let message_type = 4u16;
+    test_command_data.clear();
+    test_command_data.extend_from_slice(&message_type.to_ne_bytes());
+
+    info!("Sending transmission end to stream");
+    thread::sleep(std::time::Duration::from_millis(10));
+    stream.write_all(&test_command_data[..]).unwrap();
+    stream.flush().unwrap();
+}
+
+pub fn create_sender_thread(file: String) -> Result<thread::JoinHandle<()>, std::io::Error>{
+    /*
+    get ports
+    get addr
+    listener = TcpListener::bind(addr)
+    for stream in listener.incoming()
+        stream.read_exact(ack)
+        loop {
+            stream.write_all(file_data)
+        }
+     */
+
+    let handle = thread::Builder::new().name("sender thread".to_string()).spawn(move|| {
+        info!("Opened sender thread");
+        let ports = get_ports(file.as_str()).unwrap();
+        let addrs_iter = &(ports[..]);
+        debug!("got addr");
+        
+        let listener = TcpListener::bind(addrs_iter).unwrap();
+        info!("Connection successful!");
+        // listener.set_nonblocking(true).unwrap();
+        let start_time = std::time::Instant::now();
+
+        for stream in listener.incoming() {
+            info!("received TCP stream!");
+            match stream {
+                Ok(mut stream) => {
+                    info!("TCP stream is Ok");
+                    stream.set_nodelay(true).unwrap();
+                    let mut ack = [0u8; 3];
+                    stream.read_exact(&mut ack).unwrap();
+                    if &ack == b"ACK" {
+                        info!("sender thread received ACK");
+
+                        // there was originally a loop here
+                        send_test_data(stream);
+                    }
+                    
+                },
+                Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    info!("TCP stream is WouldBlock");
+                    if has_timed_out(start_time) {
+                        break;
                     }
                 }
-            },
-            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                info!("TCP stream is WouldBlock");
-                if start.elapsed() > timeout {
-                    break;
+                Err(_) => {
+                    info!("TCP stream is other Err");
+                    break
+                },
+            }
+        }
+    })
+    .map_err(|_| std::io::Error::new(std::io::ErrorKind::Other, "Thread spawn failed"))?;
+
+    Ok(handle)
+}
+
+pub fn create_listener_thread(tx: Sender<Vec<u8>>) -> Result<thread::JoinHandle<()>, std::io::Error>{
+    /*
+    get addr
+    stream = TcpStream::connect(addr)
+    stream.write(ACK)
+        loop {
+            packet = from_network(stream)
+            tx.send(packet)
+        }
+
+
+     */
+    let handle = thread::Builder::new().name("listener thread".to_string()).spawn(move || {
+        let mut addrs_iter = "localhost:8081".to_socket_addrs().unwrap();
+        let addr = addrs_iter.next().unwrap();
+        // thread::sleep(Duration::from_secs(1));
+        debug!("listener: attempting to connect to TCP stream through {addr}");
+
+        let start_time = std::time::Instant::now();
+
+        let mut stream = loop {
+            let stream_result = TcpStream::connect(addr);
+            if let Ok(s) = stream_result {
+                break s
+            }
+
+            if has_timed_out(start_time) {
+                panic!("Error: thread timed out while trying to connect to TCP stream");
+            }
+        };
+        debug!("listener: established TcpStream connection");
+        
+        stream.write_all(b"ACK").unwrap();
+        stream.flush().unwrap();
+
+        loop {
+            let packet = from_network(&stream);
+            // debug!("Packet: {}", packet);
+            // if !packet.starts_with("Error"){
+            if true {
+                // scene_reference.write().unwrap().bhvr_msg_str(&packet.as_str());
+                // debug!("Sending packet through tx");
+                let send_result = tx.send(packet.to_vec());
+                match send_result {
+                    Ok(_) => {},
+                    Err(e) => {
+                        debug!("Error attempting to send packet: {}", e);
+                    }
                 }
             }
-            Err(_) => {
-                info!("TCP stream is other Err");
-                break
-            },
         }
-    }
-        // match listener.accept() {
-        //     Ok((stream, _)) => {
-        //         loop{
-        //             let packet = from_network(&stream);
-        //             scene_reference.write().unwrap().cmd_msg_str(packet.as_str());
-        //         }
-        //     }
-        //     _ => {;},
-        // }
+    })
+    .map_err(|_| std::io::Error::new(std::io::ErrorKind::Other, "Thread spawn failed"))?;
+
+    Ok(handle)
 }
 
 pub fn get_ports(file: &str) -> Result<Vec<SocketAddr>, Box<dyn std::error::Error>>{
@@ -210,146 +343,7 @@ pub fn get_ports(file: &str) -> Result<Vec<SocketAddr>, Box<dyn std::error::Erro
     Ok(result)
 }
 
-pub fn create_listener_thread(tx: Sender<Vec<u8>>, file: String) -> Result<thread::JoinHandle<()>, std::io::Error>{
-    let handle = thread::Builder::new().name("listener thread".to_string()).spawn(move || {
-        info!("Opened listener thread");
-        debug!("about to unwrap ports vector");
-        let ports = get_ports(file.as_str()).unwrap();
-        debug!("successfully unwrapped ports vector");
-        let addrs_iter = &(ports[..]);
-        debug!("about to run server...");
-        run_server(tx, addrs_iter);
-    })
-    .map_err(|_| std::io::Error::new(std::io::ErrorKind::Other, "Thread spawn failed"))?;
-
-    Ok(handle)
-}
-
-pub fn create_sender_thread() -> Result<thread::JoinHandle<()>, Box<dyn std::error::Error>>{
-    let handle = thread::Builder::new().name("sender thread".to_string()).spawn(move|| {
-        info!("Opened sender thread");
-        let mut addrs_iter = "localhost:8081".to_socket_addrs().unwrap();
-        let addr = addrs_iter.next().unwrap();
-        // thread::sleep(Duration::from_secs(1));
-        debug!("sender: attempting to connect to TCP stream through {addr}");
-
-        let start = std::time::Instant::now();
-        let timeout = std::time::Duration::from_secs(2);
-        let mut stream_option: Option<TcpStream> = None;
-        
-        while let None = stream_option {
-            let stream_result = TcpStream::connect(addr);
-            stream_option = match stream_result {
-                Ok(stream) => Some(stream),
-                Err(_) => None,
-            };
-
-            if start.elapsed() > timeout {
-                panic!("Error: thread timed out while trying to connect to TCP stream");
-            }
-        }
-
-        let mut stream = stream_option.unwrap();
-        debug!("sender: established TcpStream connection");
-        
-        stream.set_nodelay(true).unwrap();
-        let mut ack = [0u8; 3];
-        stream.read_exact(&mut ack).unwrap();
-        if &ack == b"ACK" {
-            info!("sender thread received ACK");
-            let start_time = std::time::SystemTime::now();
-
-            loop {
-                // let t = (std::time::SystemTime::now().duration_since(start_time).unwrap().as_micros() as f32) / (2.0*1E6*std::f32::consts::PI);
-
-                // let test_command_data_main = format!("
-                //     {{
-                //         \"targetEntityID\": 0,
-                //         \"commandType\": \"ComponentChangeColor\",
-                //         \"data\": [0.0,{},{},{},1.0]
-                //     }}", 
-                //     t.sin().abs(),
-                //     t.cos().abs(),
-                //     t.tan().abs()
-                // );
-
-                let path = std::path::Path::new("data/scene_loading/test_scene.json");
-                let test_command_data_main = fs::read_to_string(path).unwrap();
-                let data_len = test_command_data_main.len();
-
-                let message_type = 0u16;
-                let file_id = 0123456789u64;
-                let file_name = "data/scene_loading/main_scene.json";
-                let file_name_length = file_name.len() as u8;
-                let file_len = test_command_data_main.len() as u32;
-
-                let mut test_command_data: Vec<u8> = Vec::new();
-                test_command_data.extend_from_slice(&message_type.to_ne_bytes());
-                test_command_data.extend_from_slice(&file_id.to_ne_bytes());
-                test_command_data.extend_from_slice(&[file_name_length]);
-                test_command_data.extend_from_slice(&file_len.to_ne_bytes());
-                test_command_data.extend_from_slice(file_name.as_bytes());
-                info!("Sending file start frame to stream");
-                debug!("{:?}", test_command_data);
-
-                thread::sleep(std::time::Duration::from_millis(10));
-                stream.write_all(&test_command_data[..]).unwrap();
-                stream.flush().unwrap();
-                
-                let message_type = 1u16;
-                let mut chunk_offset = 0u64;
-                let chunk_length_default = 1024u32;
-                while (chunk_offset as usize) < data_len {
-                    test_command_data.clear();
-                    test_command_data.extend_from_slice(&message_type.to_ne_bytes());
-                    test_command_data.extend_from_slice(&file_id.to_ne_bytes());
-                    test_command_data.extend_from_slice(&chunk_offset.to_ne_bytes());
-
-                    let chunk_offset_usize = chunk_offset as usize;
-
-                    let chunk_length: u32 = if chunk_offset_usize + chunk_length_default as usize > data_len {
-                        (data_len - chunk_offset_usize).try_into().unwrap()
-                    } else {
-                        chunk_length_default
-                    };
-
-                    test_command_data.extend_from_slice(&chunk_length.to_ne_bytes());
-                    let max_bound = chunk_offset_usize+chunk_length as usize;
-                    debug!("indexing data from {} to {} out of {}", chunk_offset, max_bound, data_len);
-                    test_command_data.extend_from_slice(&test_command_data_main[chunk_offset_usize..max_bound].as_bytes());
-                    chunk_offset += chunk_length as u64;
-
-                    info!("Sending chunk to stream");
-                    thread::sleep(std::time::Duration::from_millis(10));
-                    stream.write_all(&test_command_data[..]).unwrap();
-                    stream.flush().unwrap();
-                }
-
-
-
-                let message_type = 2u16;
-                test_command_data.clear();
-                test_command_data.extend_from_slice(&message_type.to_ne_bytes());
-                test_command_data.extend_from_slice(&file_id.to_ne_bytes());
-
-
-                info!("Sending file end to stream");
-                thread::sleep(std::time::Duration::from_millis(10));
-                stream.write_all(&test_command_data[..]).unwrap();
-                stream.flush().unwrap();
-
-                break;
-
-            }
-        }
-    })
-    .map_err(|_| std::io::Error::new(std::io::ErrorKind::Other, "Thread spawn failed"))?;
-
-    Ok(handle)
-
-}
-
-fn receive_file_metadata(rx: &Receiver<Vec<u8>>, buf: &mut Vec<u8>, start_time: SystemTime) -> ActiveTransferFile {
+fn receive_file_metadata(rx: &Receiver<Vec<u8>>, buf: &mut Vec<u8>, start_time: std::time::Instant) -> ActiveTransferFile {
     while buf.len() < FILE_START_METADATA_BYTE_WIDTH && !has_timed_out(start_time){
         let msg = rx.recv().unwrap();
         buf.extend_from_slice(&msg);
@@ -412,7 +406,7 @@ fn receive_file_metadata(rx: &Receiver<Vec<u8>>, buf: &mut Vec<u8>, start_time: 
     }
 }
 
-fn receive_file_chunk(rx: &Receiver<Vec<u8>>, buf: &mut Vec<u8>, start_time: SystemTime, active_files: &mut HashMap<u64, ActiveTransferFile>){
+fn receive_file_chunk(rx: &Receiver<Vec<u8>>, buf: &mut Vec<u8>, start_time: std::time::Instant, active_files: &mut HashMap<u64, ActiveTransferFile>){
     while buf.len() < CHUNK_METADATA_BYTE_WIDTH && !has_timed_out(start_time){
         let msg = rx.recv().unwrap();
         buf.extend_from_slice(&msg);
@@ -449,7 +443,7 @@ fn receive_file_chunk(rx: &Receiver<Vec<u8>>, buf: &mut Vec<u8>, start_time: Sys
     buf.drain(0..CHUNK_METADATA_BYTE_WIDTH+chunk_length);
 }
 
-fn finish_receiving_file(rx: &Receiver<Vec<u8>>, buf: &mut Vec<u8>, start_time: SystemTime, active_files: &mut HashMap<u64, ActiveTransferFile>){
+fn finish_receiving_file(rx: &Receiver<Vec<u8>>, buf: &mut Vec<u8>, start_time: std::time::Instant, active_files: &mut HashMap<u64, ActiveTransferFile>){
     while buf.len() < FILE_END_METADATA_BYTE_WIDTH && !has_timed_out(start_time){
         let msg = rx.recv().unwrap();
         buf.extend_from_slice(&msg);        
@@ -466,9 +460,9 @@ fn finish_receiving_file(rx: &Receiver<Vec<u8>>, buf: &mut Vec<u8>, start_time: 
     let _ = writeln!(file, "{}", file_contents.as_str());
 }
 
-pub fn receive_file(rx: &Receiver<Vec<u8>>, active_files: &mut HashMap<u64, ActiveTransferFile>){
+pub fn receive_file(rx: &Receiver<Vec<u8>>, active_files: &mut HashMap<u64, ActiveTransferFile>) -> bool {
     debug!("Preparing to receive file");
-    let start_time = std::time::SystemTime::now();
+    let start_time = std::time::Instant::now();
 
     let mut bytes_read = 0usize;
     let mut buf: Vec<u8> = Vec::new();
@@ -489,29 +483,39 @@ pub fn receive_file(rx: &Receiver<Vec<u8>>, active_files: &mut HashMap<u64, Acti
         )
     );
     
-    match message_type {
+    let transmission_over = match message_type {
         MessageType::FILE_START => {
             debug!("received FILE_START");
             let file = receive_file_metadata(&rx, &mut buf, start_time);
             active_files.insert(file.id, file);
+            false
         },
         MessageType::FILE_CHUNK => {
             debug!("received FILE_CHUNK");
             receive_file_chunk(&rx, &mut buf, start_time, active_files);
+            false
         },
         MessageType::FILE_END => {
             debug!("received FILE_END");
             finish_receiving_file(&rx, &mut buf, start_time, active_files);
+            false
         },
         MessageType::FILE_ACK => {
             debug!("received FILE_ACK");
+            false
         },
+        MessageType::TRANSMISSION_END => {
+            debug!("received TRANSMISSION_END");
+            true
+        }
         MessageType::ERROR => {
             debug!("received ERROR");
+            false
         },
     };
 
     info!("DONE");
+    transmission_over
 }
 
 #[cfg(test)]
@@ -756,14 +760,14 @@ irrelevant = content";
         let mut file = File::create(&file_path).unwrap();
         _ = writeln!(file, "{}", toml_contents);
 
-        let listener = create_listener_thread(tx, file_name_string_clone);
+        let listener = create_listener_thread(tx);
         listener.unwrap();
-        let sender = create_sender_thread();
+        let sender = create_sender_thread(file_name_string_clone);
         sender.unwrap();
         // let join_result = handle.join();
-        let start_time = std::time::SystemTime::now();
+        let start_time = std::time::Instant::now();
         let mut passed = false;
-        while (std::time::SystemTime::now().duration_since(start_time).unwrap().as_secs()) < 10{
+        while !has_timed_out(start_time){
             let received = rx.recv().unwrap();
             let received_str = String::from_utf8(received).unwrap();
             info!("RECEIVED = {}", received_str);

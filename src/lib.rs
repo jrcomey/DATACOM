@@ -153,7 +153,7 @@ pub async fn run_scene_from_json(args: Vec<String>) {
     let mut state = state::State::new(&window, scene_file).await;
     let mut last_render_time = std::time::Instant::now();
 
-    com::create_listener_thread(tx, "cargo/config.toml".to_string()).unwrap();
+    com::create_listener_thread(tx).unwrap();
 
     event_loop
         .run(move |event, control_flow| {
@@ -239,9 +239,9 @@ pub async fn run_scene_from_network(args: Vec<String>){
 
 
     let (tx, rx): (mpsc::Sender<Vec<u8>>, mpsc::Receiver<Vec<u8>>) = mpsc::channel();
-    let listener_result = com::create_listener_thread(tx, file_name_string_clone);
+    let listener_result = com::create_listener_thread(tx);
     let listener = listener_result.unwrap();
-    let sender_result = com::create_sender_thread();
+    let sender_result = com::create_sender_thread(file_name_string_clone);
     let sender = sender_result.unwrap();
 
     // files that the receiver is getting data about and writing to
@@ -249,21 +249,21 @@ pub async fn run_scene_from_network(args: Vec<String>){
     
     loop {
         // debug!("active files len = {}", active_files.len());
-        com::receive_file(&rx, &mut active_files);
-
-        if active_files.is_empty(){
+        if com::receive_file(&rx, &mut active_files){
             break;
         }
     }
 
     _ = remove_file(&file_path);
+    _ = remove_file("data/scene_loading/main_scene.json");
 
     // TODO: change to something more generic
     let mut modified_args = args.clone();
     modified_args[1] = "main_scene.json".to_string();
 
-    run_scene_from_json(modified_args).await;
+    // run_scene_from_json(modified_args).await;
 
+    debug!("waiting for threads to wrap up");
     listener.join().unwrap();
     debug!("Listener thread closed");
     sender.join().unwrap();

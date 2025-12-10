@@ -287,8 +287,8 @@ pub fn create_sender_thread() -> Result<thread::JoinHandle<()>, Box<dyn std::err
                 test_command_data.extend_from_slice(&message_type.to_ne_bytes());
                 test_command_data.extend_from_slice(&file_id.to_ne_bytes());
                 test_command_data.extend_from_slice(&[file_name_length]);
-                test_command_data.extend_from_slice(file_name.as_bytes());
                 test_command_data.extend_from_slice(&file_len.to_ne_bytes());
+                test_command_data.extend_from_slice(file_name.as_bytes());
                 info!("Sending file start frame to stream");
 
                 println!("in sender thread:");

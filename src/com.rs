@@ -6,8 +6,53 @@ use std::net::{ToSocketAddrs, TcpStream, IpAddr, TcpListener, SocketAddr};
 use std::sync::mpsc::Sender;
 use std::{fs::File, fs, thread};
 use std::time::Duration;
+use std::collections::HashMap;
+use std::path::Path;
 use toml::Value;
 use log::{debug, info};
+use std::sync::mpsc::Receiver;
+use std::time::SystemTime;
+
+const MESSAGE_TYPE_BYTE_WIDTH: usize = 2;
+const FILE_ID_BYTE_WIDTH: usize = 8;
+const FILE_NAME_LENGTH_BYTE_WIDTH: usize = 1;
+const FILE_LENGTH_BYTE_WIDTH: usize = 4;
+const FILE_START_METADATA_BYTE_WIDTH: usize = MESSAGE_TYPE_BYTE_WIDTH + FILE_ID_BYTE_WIDTH + FILE_LENGTH_BYTE_WIDTH + FILE_NAME_LENGTH_BYTE_WIDTH;
+
+const CHUNK_OFFSET_BYTE_WIDTH: usize = 8;
+const CHUNK_LENGTH_BYTE_WIDTH: usize = 4;
+const CHUNK_METADATA_BYTE_WIDTH: usize = MESSAGE_TYPE_BYTE_WIDTH + FILE_ID_BYTE_WIDTH + CHUNK_OFFSET_BYTE_WIDTH + CHUNK_LENGTH_BYTE_WIDTH;
+const FILE_END_METADATA_BYTE_WIDTH: usize = MESSAGE_TYPE_BYTE_WIDTH + FILE_ID_BYTE_WIDTH;
+
+const SECONDS_UNTIL_TIMEOUT: u64 = 10;
+
+#[repr(u16)]
+enum MessageType {
+    FILE_START,
+    FILE_CHUNK,
+    FILE_END,
+    FILE_ACK,
+    ERROR,
+}
+
+impl MessageType {
+    fn get_from_bytes(value: u16) -> Self {
+        match value {
+            0 => MessageType::FILE_START,
+            1 => MessageType::FILE_CHUNK,
+            2 => MessageType::FILE_END,
+            3 => MessageType::FILE_ACK,
+            _ => MessageType::ERROR,
+        }
+    }
+}
+
+pub struct ActiveTransferFile {
+    id: u64,
+    name: String,
+    length: u32,
+    data: Box<[u8]>,
+}
 
 pub fn from_network(mut stream: &TcpStream) -> Vec<u8>{
     // debug!("Handle Commands called");
@@ -68,6 +113,10 @@ pub fn from_network_with_protocol(stream: &mut TcpStream) -> Result<(), &str> {
 
     }
     Ok(())
+}
+
+fn has_timed_out(start_time: SystemTime) -> bool {
+    std::time::SystemTime::now().duration_since(start_time).unwrap().as_secs() >= SECONDS_UNTIL_TIMEOUT
 }
 
 pub fn run_server<A: ToSocketAddrs>(tx: Sender<Vec<u8>>, addr: A) {
@@ -211,7 +260,7 @@ pub fn create_sender_thread() -> Result<thread::JoinHandle<()>, Box<dyn std::err
             let start_time = std::time::SystemTime::now();
 
             loop {
-                let t = (std::time::SystemTime::now().duration_since(start_time).unwrap().as_micros() as f32) / (2.0*1E6*std::f32::consts::PI);
+                // let t = (std::time::SystemTime::now().duration_since(start_time).unwrap().as_micros() as f32) / (2.0*1E6*std::f32::consts::PI);
 
                 // let test_command_data_main = format!("
                 //     {{
@@ -230,7 +279,7 @@ pub fn create_sender_thread() -> Result<thread::JoinHandle<()>, Box<dyn std::err
 
                 let message_type = 0u16;
                 let file_id = 0123456789u64;
-                let file_name = "test file";
+                let file_name = "test file.json";
                 let file_name_length = file_name.len() as u8;
                 let file_len = test_command_data_main.len();
 
@@ -299,6 +348,166 @@ pub fn create_sender_thread() -> Result<thread::JoinHandle<()>, Box<dyn std::err
 
     Ok(handle)
 
+}
+
+fn receive_file_metadata(rx: &Receiver<Vec<u8>>, buf: &mut Vec<u8>, start_time: SystemTime) -> ActiveTransferFile {
+    while buf.len() < FILE_START_METADATA_BYTE_WIDTH && !has_timed_out(start_time){
+        let msg = rx.recv().unwrap();
+        buf.extend_from_slice(&msg);
+    }
+
+    // println!("in listener thread:");
+    // for &byte in buf.iter() {
+    //     print!("{byte} ");
+    // }
+    // println!();
+    let mut counter = MESSAGE_TYPE_BYTE_WIDTH;
+    let id_bytes: [u8; FILE_ID_BYTE_WIDTH] = buf[counter..counter + FILE_ID_BYTE_WIDTH]
+        .try_into()
+        .unwrap();
+    counter += FILE_ID_BYTE_WIDTH;
+
+    // debug!("indexing from {} to {}", counter, counter+FILE_LENGTH_BYTE_WIDTH);
+    let length_bytes: [u8; FILE_LENGTH_BYTE_WIDTH] = buf[counter..counter + FILE_LENGTH_BYTE_WIDTH]
+        .try_into()
+        .unwrap();
+    let length = u32::from_ne_bytes(length_bytes);
+    counter += FILE_LENGTH_BYTE_WIDTH;
+
+    let name_length_bytes: [u8; FILE_NAME_LENGTH_BYTE_WIDTH] = buf[counter..counter + FILE_NAME_LENGTH_BYTE_WIDTH]
+        .try_into()
+        .expect("name length is incorrect size");
+    let name_length = u8::from_ne_bytes(name_length_bytes);
+    let name_length_usize = name_length as usize;
+    counter += FILE_NAME_LENGTH_BYTE_WIDTH;
+
+    while buf.len() < FILE_START_METADATA_BYTE_WIDTH + name_length_usize && !has_timed_out(start_time){
+        let msg = rx.recv().unwrap();
+        buf.extend_from_slice(&msg);
+    }
+
+    let name: Vec<u8> = buf[counter..counter + name_length_usize].to_vec();
+    counter += name_length_usize;
+
+    let _ = buf.drain(0..FILE_START_METADATA_BYTE_WIDTH+name_length_usize);
+
+    // debug!("file ID bytes = {:?}", id_bytes);
+    // let id = u64::from_ne_bytes(id_bytes);
+    // debug!("file ID = {id}");
+    // assert!(id == 0123456789u64);
+
+    // debug!("file length bytes = {:?}", length_bytes);
+    // debug!("file length = {length}");
+    // assert!(length == 12008u32);
+
+    ActiveTransferFile {
+        id: u64::from_ne_bytes(id_bytes),
+        name: String::from_utf8(name).unwrap(),
+        length,
+        data: vec![0u8; length as usize].into_boxed_slice(),
+    }
+}
+
+fn receive_file_chunk(rx: &Receiver<Vec<u8>>, buf: &mut Vec<u8>, start_time: SystemTime, active_files: &mut HashMap<u64, ActiveTransferFile>){
+    while buf.len() < CHUNK_METADATA_BYTE_WIDTH && !has_timed_out(start_time){
+        let msg = rx.recv().unwrap();
+        buf.extend_from_slice(&msg);
+    }
+    debug!("received chunk metadata");
+
+    let mut counter = MESSAGE_TYPE_BYTE_WIDTH;
+    let file_id_bytes: [u8; FILE_ID_BYTE_WIDTH] = buf[counter..counter+FILE_ID_BYTE_WIDTH]
+        .try_into()
+        .unwrap();
+    counter += FILE_ID_BYTE_WIDTH;
+    let chunk_offset_bytes: [u8; CHUNK_OFFSET_BYTE_WIDTH] = buf[counter..counter+CHUNK_OFFSET_BYTE_WIDTH]
+        .try_into()
+        .unwrap();
+    counter += CHUNK_OFFSET_BYTE_WIDTH;
+    let chunk_length_bytes: [u8; CHUNK_LENGTH_BYTE_WIDTH] = buf[counter..counter+CHUNK_LENGTH_BYTE_WIDTH]
+        .try_into()
+        .unwrap();
+    debug!("parsed chunk metadata");
+
+    let file_id = u64::from_ne_bytes(file_id_bytes);
+    let chunk_offset = u64::from_ne_bytes(chunk_offset_bytes) as usize;
+    let chunk_length = u32::from_ne_bytes(chunk_length_bytes) as usize;
+
+    let file_data = active_files.get_mut(&file_id).expect("invalid file");
+    
+    while buf.len() < CHUNK_METADATA_BYTE_WIDTH+(chunk_length as usize) && !has_timed_out(start_time){
+        let msg = rx.recv().unwrap();
+        buf.extend_from_slice(&msg);
+    }
+    debug!("received chunk payload");
+
+    file_data.data[chunk_offset..chunk_offset+chunk_length].copy_from_slice(&buf[CHUNK_METADATA_BYTE_WIDTH..CHUNK_METADATA_BYTE_WIDTH+chunk_length]);
+    buf.drain(0..CHUNK_METADATA_BYTE_WIDTH+chunk_length);
+}
+
+fn finish_receiving_file(rx: &Receiver<Vec<u8>>, buf: &mut Vec<u8>, start_time: SystemTime, active_files: &mut HashMap<u64, ActiveTransferFile>){
+    while buf.len() < FILE_END_METADATA_BYTE_WIDTH && !has_timed_out(start_time){
+        let msg = rx.recv().unwrap();
+        buf.extend_from_slice(&msg);        
+    }
+
+    let file_id_bytes: [u8; FILE_ID_BYTE_WIDTH] = buf[MESSAGE_TYPE_BYTE_WIDTH..MESSAGE_TYPE_BYTE_WIDTH+FILE_ID_BYTE_WIDTH]
+        .try_into()
+        .unwrap();
+    let file_id = u64::from_ne_bytes(file_id_bytes);
+    let file_data = active_files.remove(&file_id).unwrap();
+    let path = Path::new(&file_data.name);
+    let mut file = File::create(path).unwrap();
+    let file_contents = String::from_utf8(file_data.data.into_vec()).unwrap();
+    let _ = writeln!(file, "{}", file_contents.as_str());
+}
+
+pub fn receive_file(rx: &Receiver<Vec<u8>>, active_files: &mut HashMap<u64, ActiveTransferFile>){
+    debug!("Preparing to receive file");
+    let start_time = std::time::SystemTime::now();
+
+    let mut bytes_read = 0usize;
+    let mut buf: Vec<u8> = Vec::new();
+    while bytes_read < MESSAGE_TYPE_BYTE_WIDTH && !has_timed_out(start_time) {
+        let msg = rx.recv().unwrap();
+        println!("read in {:?}", msg);
+        let msg_len = msg.len();
+        buf.extend_from_slice(&msg);
+        bytes_read += msg_len;
+    }
+    debug!("found message type");
+
+    let message_type = MessageType::get_from_bytes(
+        u16::from_ne_bytes(
+            buf[0..MESSAGE_TYPE_BYTE_WIDTH]
+            .try_into()
+            .unwrap()
+        )
+    );
+    
+    match message_type {
+        MessageType::FILE_START => {
+            debug!("received FILE_START");
+            let file = receive_file_metadata(&rx, &mut buf, start_time);
+            active_files.insert(file.id, file);
+        },
+        MessageType::FILE_CHUNK => {
+            debug!("received FILE_CHUNK");
+            receive_file_chunk(&rx, &mut buf, start_time, active_files);
+        },
+        MessageType::FILE_END => {
+            debug!("received FILE_END");
+            finish_receiving_file(&rx, &mut buf, start_time, active_files);
+        },
+        MessageType::FILE_ACK => {
+            debug!("received FILE_ACK");
+        },
+        MessageType::ERROR => {
+            debug!("received ERROR");
+        },
+    };
+
+    info!("DONE");
 }
 
 #[cfg(test)]

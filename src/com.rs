@@ -15,8 +15,16 @@ use std::sync::mpsc::Receiver;
 const MESSAGE_TYPE_BYTE_WIDTH: usize = 2;
 const FILE_ID_BYTE_WIDTH: usize = 8;
 const FILE_NAME_LENGTH_BYTE_WIDTH: usize = 1;
+const MAX_FILE_NAME_BYTE_WIDTH: usize = u8::max_value() as usize;
 const FILE_LENGTH_BYTE_WIDTH: usize = 4;
-const FILE_START_METADATA_BYTE_WIDTH: usize = MESSAGE_TYPE_BYTE_WIDTH + FILE_ID_BYTE_WIDTH + FILE_LENGTH_BYTE_WIDTH + FILE_NAME_LENGTH_BYTE_WIDTH;
+const IS_DEFINITE_FILE_BYTE_WIDTH: usize = 1;
+const FILE_START_METADATA_BYTE_WIDTH: usize = 
+    MESSAGE_TYPE_BYTE_WIDTH + 
+    FILE_ID_BYTE_WIDTH + 
+    FILE_NAME_LENGTH_BYTE_WIDTH + 
+    MAX_FILE_NAME_BYTE_WIDTH + 
+    FILE_LENGTH_BYTE_WIDTH + 
+    IS_DEFINITE_FILE_BYTE_WIDTH;
 
 const CHUNK_OFFSET_BYTE_WIDTH: usize = 8;
 const CHUNK_LENGTH_BYTE_WIDTH: usize = 4;
@@ -49,11 +57,61 @@ impl MessageType {
     }
 }
 
-pub struct ActiveTransferFile {
+pub struct FileInfo {
+    message_type: MessageType,
     id: u64,
-    name: String,
+    name_length: u8,
+    name: [u8; u8::max_value() as usize],
+    is_definite: bool,
     length: u32,
     data: Box<[u8]>,
+}
+
+impl FileInfo {
+    fn new(buf: &Vec<u8>) -> Self {
+        let mut counter = 0usize;
+
+        let message_type_bytes: [u8; MESSAGE_TYPE_BYTE_WIDTH] = buf[counter..counter+MESSAGE_TYPE_BYTE_WIDTH].try_into().unwrap();
+        let message_type_num: u16 = u16::from_ne_bytes(message_type_bytes);
+        let message_type: MessageType = MessageType::get_from_bytes(message_type_num);
+        counter += MESSAGE_TYPE_BYTE_WIDTH;
+
+        let id_bytes: [u8; FILE_ID_BYTE_WIDTH] = buf[counter..counter+FILE_ID_BYTE_WIDTH].try_into().unwrap();
+        let id = u64::from_ne_bytes(id_bytes);
+        counter += FILE_ID_BYTE_WIDTH;
+
+        let name_length_bytes: [u8; FILE_NAME_LENGTH_BYTE_WIDTH] = buf[counter..counter+FILE_NAME_LENGTH_BYTE_WIDTH].try_into().unwrap();
+        let name_length = u8::from_ne_bytes(name_length_bytes);
+        let name_length_usize = name_length as usize;
+        counter += FILE_NAME_LENGTH_BYTE_WIDTH;
+
+        let mut name: [u8; MAX_FILE_NAME_BYTE_WIDTH] = [0; MAX_FILE_NAME_BYTE_WIDTH];
+        name[0..name_length_usize].copy_from_slice(&buf[counter..counter+name_length_usize]);
+        counter += MAX_FILE_NAME_BYTE_WIDTH;
+
+        let file_length_bytes: [u8; FILE_LENGTH_BYTE_WIDTH] = buf[counter..counter+FILE_LENGTH_BYTE_WIDTH].try_into().unwrap();
+        let file_length = u32::from_ne_bytes(file_length_bytes);
+        counter += FILE_LENGTH_BYTE_WIDTH;
+
+        let is_definite_bytes: [u8; IS_DEFINITE_FILE_BYTE_WIDTH] = buf[counter..counter+IS_DEFINITE_FILE_BYTE_WIDTH].try_into().unwrap();
+        let is_definite_byte = u8::from_ne_bytes(is_definite_bytes);
+        let is_definite = is_definite_byte != 0;
+        counter += IS_DEFINITE_FILE_BYTE_WIDTH;
+
+        FileInfo {
+            message_type,
+            id,
+            name_length,
+            name,
+            is_definite,
+            length: file_length,
+            data: vec![0u8; file_length as usize].into_boxed_slice(),
+        }
+    }
+
+    fn name(&self) -> String {
+        String::from_utf8(self.name[0..self.name_length as usize].to_vec()).unwrap()
+    }
 }
 
 pub fn from_network(mut stream: &TcpStream) -> Vec<u8>{
@@ -128,16 +186,20 @@ fn send_test_data(mut stream: TcpStream){
 
     let message_type = 0u16;
     let file_id = 0123456789u64;
-    let file_name = "data/scene_loading/main_scene.json";
-    let file_name_length = file_name.len() as u8;
+    let file_name_base = "data/scene_loading/main_scene.json";
+    let file_name_length = file_name_base.len() as u8;
+    let mut file_name = [0u8; MAX_FILE_NAME_BYTE_WIDTH];
+    file_name[0..file_name_length as usize].copy_from_slice(file_name_base.as_bytes());
     let file_len = test_command_data_main.len() as u32;
 
     let mut test_command_data: Vec<u8> = Vec::new();
     test_command_data.extend_from_slice(&message_type.to_ne_bytes());
     test_command_data.extend_from_slice(&file_id.to_ne_bytes());
     test_command_data.extend_from_slice(&[file_name_length]);
+    test_command_data.extend_from_slice(&file_name);
     test_command_data.extend_from_slice(&file_len.to_ne_bytes());
-    test_command_data.extend_from_slice(file_name.as_bytes());
+    test_command_data.extend_from_slice(&[1u8]);
+
     info!("Sending file start frame to stream");
     // debug!("{:?}", test_command_data);
 
@@ -343,51 +405,59 @@ pub fn get_ports(file: &str) -> Result<Vec<SocketAddr>, Box<dyn std::error::Erro
     Ok(result)
 }
 
-fn receive_file_metadata(rx: &Receiver<Vec<u8>>, buf: &mut Vec<u8>, start_time: std::time::Instant) -> ActiveTransferFile {
+fn receive_file_metadata(rx: &Receiver<Vec<u8>>, buf: &mut Vec<u8>, start_time: std::time::Instant) -> FileInfo {
     while buf.len() < FILE_START_METADATA_BYTE_WIDTH && !has_timed_out(start_time){
         let msg = rx.recv().unwrap();
         buf.extend_from_slice(&msg);
     }
+
+    let metadata = FileInfo::new(buf);
 
     // println!("in listener thread:");
     // for &byte in buf.iter() {
     //     print!("{byte} ");
     // }
     // println!();
-    let mut counter = MESSAGE_TYPE_BYTE_WIDTH;
-    debug!("indexing from {} to {} to find ID", counter, counter + FILE_ID_BYTE_WIDTH);
-    let id_bytes: [u8; FILE_ID_BYTE_WIDTH] = buf[counter..counter + FILE_ID_BYTE_WIDTH]
-        .try_into()
-        .unwrap();
-    counter += FILE_ID_BYTE_WIDTH;
+    // let mut counter = MESSAGE_TYPE_BYTE_WIDTH;
+    // debug!("indexing from {} to {} to find ID", counter, counter + FILE_ID_BYTE_WIDTH);
+    // let id_bytes: [u8; FILE_ID_BYTE_WIDTH] = buf[counter..counter + FILE_ID_BYTE_WIDTH]
+    //     .try_into()
+    //     .unwrap();
+    // counter += FILE_ID_BYTE_WIDTH;
+    
+    // // debug!("indexing from {} to {} to find ID", counter, counter + FILE_ID_BYTE_WIDTH);
+    // let is_definite_file_bytes: [u8; IS_DEFINITE_FILE_BYTE_WIDTH] = buf[counter..counter + FILE_ID_BYTE_WIDTH]
+    //     .try_into()
+    //     .unwrap();
+    // counter += IS_DEFINITE_FILE_BYTE_WIDTH;
 
-    debug!("indexing slice {} to {} to find name length", counter, counter + FILE_NAME_LENGTH_BYTE_WIDTH);
-    let name_length_bytes: [u8; FILE_NAME_LENGTH_BYTE_WIDTH] = buf[counter..counter + FILE_NAME_LENGTH_BYTE_WIDTH]
-        .try_into()
-        .expect("name length is incorrect size");
-    let name_length = u8::from_ne_bytes(name_length_bytes);
-    let name_length_usize = name_length as usize;
-    counter += FILE_NAME_LENGTH_BYTE_WIDTH;
-    debug!("name length is {name_length} {name_length_usize}");
+    // debug!("indexing slice {} to {} to find name length", counter, counter + FILE_NAME_LENGTH_BYTE_WIDTH);
+    // let name_length_bytes: [u8; FILE_NAME_LENGTH_BYTE_WIDTH] = buf[counter..counter + FILE_NAME_LENGTH_BYTE_WIDTH]
+    //     .try_into()
+    //     .expect("name length is incorrect size");
+    // let name_length = u8::from_ne_bytes(name_length_bytes);
+    // let name_length_usize = name_length as usize;
+    // counter += FILE_NAME_LENGTH_BYTE_WIDTH;
+    // debug!("name length is {name_length} {name_length_usize}");
 
-    debug!("indexing from {} to {} to find file length", counter, counter+FILE_LENGTH_BYTE_WIDTH);
-    let length_bytes: [u8; FILE_LENGTH_BYTE_WIDTH] = buf[counter..counter + FILE_LENGTH_BYTE_WIDTH]
-        .try_into()
-        .unwrap();
-    let length = u32::from_ne_bytes(length_bytes);
-    counter += FILE_LENGTH_BYTE_WIDTH;
+    // debug!("indexing from {} to {} to find file length", counter, counter+FILE_LENGTH_BYTE_WIDTH);
+    // let length_bytes: [u8; FILE_LENGTH_BYTE_WIDTH] = buf[counter..counter + FILE_LENGTH_BYTE_WIDTH]
+    //     .try_into()
+    //     .unwrap();
+    // let length = u32::from_ne_bytes(length_bytes);
+    // counter += FILE_LENGTH_BYTE_WIDTH;
 
-    while buf.len() < FILE_START_METADATA_BYTE_WIDTH + name_length_usize && !has_timed_out(start_time){
-        let msg = rx.recv().unwrap();
-        buf.extend_from_slice(&msg);
-    }
+    // while buf.len() < FILE_START_METADATA_BYTE_WIDTH + name_length_usize && !has_timed_out(start_time){
+    //     let msg = rx.recv().unwrap();
+    //     buf.extend_from_slice(&msg);
+    // }
 
-    debug!("indexing from {} to {} to find file name", counter, counter + name_length_usize);
-    let name: Vec<u8> = buf[counter..counter + name_length_usize].to_vec();
-    debug!("name = {}", String::from_utf8(name.clone()).unwrap());
-    counter += name_length_usize;
+    // debug!("indexing from {} to {} to find file name", counter, counter + name_length_usize);
+    // let name: Vec<u8> = buf[counter..counter + name_length_usize].to_vec();
+    // debug!("name = {}", String::from_utf8(name.clone()).unwrap());
+    // counter += name_length_usize;
 
-    let _ = buf.drain(0..FILE_START_METADATA_BYTE_WIDTH+name_length_usize);
+    let _ = buf.drain(0..FILE_START_METADATA_BYTE_WIDTH);
 
     // debug!("file ID bytes = {:?}", id_bytes);
     // let id = u64::from_ne_bytes(id_bytes);
@@ -398,15 +468,10 @@ fn receive_file_metadata(rx: &Receiver<Vec<u8>>, buf: &mut Vec<u8>, start_time: 
     // debug!("file length = {length}");
     // assert!(length == 12008u32);
 
-    ActiveTransferFile {
-        id: u64::from_ne_bytes(id_bytes),
-        name: String::from_utf8(name).unwrap(),
-        length,
-        data: vec![0u8; length as usize].into_boxed_slice(),
-    }
+    metadata
 }
 
-fn receive_file_chunk(rx: &Receiver<Vec<u8>>, buf: &mut Vec<u8>, start_time: std::time::Instant, active_files: &mut HashMap<u64, ActiveTransferFile>){
+fn receive_file_chunk(rx: &Receiver<Vec<u8>>, buf: &mut Vec<u8>, start_time: std::time::Instant, active_files: &mut HashMap<u64, FileInfo>){
     while buf.len() < CHUNK_METADATA_BYTE_WIDTH && !has_timed_out(start_time){
         let msg = rx.recv().unwrap();
         buf.extend_from_slice(&msg);
@@ -443,7 +508,7 @@ fn receive_file_chunk(rx: &Receiver<Vec<u8>>, buf: &mut Vec<u8>, start_time: std
     buf.drain(0..CHUNK_METADATA_BYTE_WIDTH+chunk_length);
 }
 
-fn finish_receiving_file(rx: &Receiver<Vec<u8>>, buf: &mut Vec<u8>, start_time: std::time::Instant, active_files: &mut HashMap<u64, ActiveTransferFile>){
+fn finish_receiving_file(rx: &Receiver<Vec<u8>>, buf: &mut Vec<u8>, start_time: std::time::Instant, active_files: &mut HashMap<u64, FileInfo>){
     while buf.len() < FILE_END_METADATA_BYTE_WIDTH && !has_timed_out(start_time){
         let msg = rx.recv().unwrap();
         buf.extend_from_slice(&msg);        
@@ -454,13 +519,14 @@ fn finish_receiving_file(rx: &Receiver<Vec<u8>>, buf: &mut Vec<u8>, start_time: 
         .unwrap();
     let file_id = u64::from_ne_bytes(file_id_bytes);
     let file_data = active_files.remove(&file_id).unwrap();
-    let path = Path::new(&file_data.name);
+    let name = file_data.name();
+    let path = Path::new(&name);
     let mut file = File::create(path).unwrap();
     let file_contents = String::from_utf8(file_data.data.into_vec()).unwrap();
     let _ = writeln!(file, "{}", file_contents.as_str());
 }
 
-pub fn receive_file(rx: &Receiver<Vec<u8>>, active_files: &mut HashMap<u64, ActiveTransferFile>) -> bool {
+pub fn receive_file(rx: &Receiver<Vec<u8>>, active_files: &mut HashMap<u64, FileInfo>) -> bool {
     debug!("Preparing to receive file");
     let start_time = std::time::Instant::now();
 

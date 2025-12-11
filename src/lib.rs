@@ -245,7 +245,7 @@ pub async fn run_scene_from_network(args: Vec<String>){
     let sender = sender_result.unwrap();
 
     // files that the receiver is getting data about and writing to
-    let mut active_files: HashMap<u64, com::ActiveTransferFile> = HashMap::new();
+    let mut active_files: HashMap<u64, com::FileInfo> = HashMap::new();
     
     loop {
         // debug!("active files len = {}", active_files.len());

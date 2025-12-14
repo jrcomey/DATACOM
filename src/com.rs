@@ -6,8 +6,9 @@ use std::net::{ToSocketAddrs, TcpStream, IpAddr, TcpListener, SocketAddr};
 use std::sync::mpsc::Sender;
 use std::{fs::File, fs, thread};
 use std::time::Duration;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
+use ndarray::range;
 use toml::Value;
 use log::{debug, info};
 use std::sync::mpsc::Receiver;
@@ -65,6 +66,8 @@ pub struct FileInfo {
     is_definite: bool,
     length: u32,
     data: Box<[u8]>,
+    next_expected_chunk_offset: u64,
+    reorder_buffer: BTreeMap<u64, Vec<u8>>,
 }
 
 impl FileInfo {
@@ -106,6 +109,8 @@ impl FileInfo {
             is_definite,
             length: file_length,
             data: vec![0u8; file_length as usize].into_boxed_slice(),
+            next_expected_chunk_offset: 0,
+            reorder_buffer: BTreeMap::new(),
         }
     }
 
@@ -179,7 +184,7 @@ fn has_timed_out(start_time: std::time::Instant) -> bool {
     start_time.elapsed() >= TIMEOUT_THRESHOLD
 }
 
-fn send_test_data(mut stream: TcpStream){
+fn send_finite_test_data(mut stream: TcpStream){
     let path = std::path::Path::new("data/scene_loading/test_scene.json");
     let test_command_data_main = fs::read_to_string(path).unwrap();
     let data_len = test_command_data_main.len();
@@ -256,6 +261,56 @@ fn send_test_data(mut stream: TcpStream){
     stream.flush().unwrap();
 }
 
+fn send_streamed_test_data(mut stream: TcpStream){
+    let message_type = 0u16;
+    let file_id = 0123456789u64;
+    let file_name_base = "data/scene_loading/main_scene.json";
+    let file_name_length = file_name_base.len() as u8;
+    let mut file_name = [0u8; MAX_FILE_NAME_BYTE_WIDTH];
+    file_name[0..file_name_length as usize].copy_from_slice(file_name_base.as_bytes());
+    let file_len = 0u32;
+
+    let mut test_command_data: Vec<u8> = Vec::new();
+    test_command_data.extend_from_slice(&message_type.to_ne_bytes());
+    test_command_data.extend_from_slice(&file_id.to_ne_bytes());
+    test_command_data.extend_from_slice(&[file_name_length]);
+    test_command_data.extend_from_slice(&file_name);
+    test_command_data.extend_from_slice(&file_len.to_ne_bytes());
+    test_command_data.extend_from_slice(&[0u8]);
+
+    info!("Sending file start frame to stream");
+    // debug!("{:?}", test_command_data);
+
+    thread::sleep(std::time::Duration::from_millis(10));
+    stream.write_all(&test_command_data[..]).unwrap();
+    stream.flush().unwrap();
+    
+    let message_type = 1u16;
+    let mut chunk_offset = 0u64;
+    let chunk_length = 32u32;
+    let counter = 0u32;
+    loop {
+        test_command_data.clear();
+        test_command_data.extend_from_slice(&message_type.to_ne_bytes());
+        test_command_data.extend_from_slice(&file_id.to_ne_bytes());
+        test_command_data.extend_from_slice(&chunk_offset.to_ne_bytes());
+
+        test_command_data.extend_from_slice(&chunk_length.to_ne_bytes());
+        let nums = counter..counter+chunk_length;
+        let range_string: String = nums
+            .map(|i| i.to_string()) // Convert each number to a String
+            .collect::<Vec<String>>() // Collect into a vector of Strings
+            .join(", ");
+        test_command_data.extend_from_slice(&range_string.as_bytes());
+        chunk_offset += chunk_length as u64;
+
+        info!("Sending chunk to stream");
+        thread::sleep(std::time::Duration::from_millis(10));
+        stream.write_all(&test_command_data[..]).unwrap();
+        stream.flush().unwrap();
+    }
+}
+
 pub fn create_sender_thread(file: String) -> Result<thread::JoinHandle<()>, std::io::Error>{
     /*
     get ports
@@ -291,7 +346,7 @@ pub fn create_sender_thread(file: String) -> Result<thread::JoinHandle<()>, std:
                         info!("sender thread received ACK");
 
                         // there was originally a loop here
-                        send_test_data(stream);
+                        send_finite_test_data(stream);
                     }
                     
                 },
@@ -493,7 +548,8 @@ fn receive_file_chunk(rx: &Receiver<Vec<u8>>, buf: &mut Vec<u8>, start_time: std
     debug!("parsed chunk metadata");
 
     let file_id = u64::from_ne_bytes(file_id_bytes);
-    let chunk_offset = u64::from_ne_bytes(chunk_offset_bytes) as usize;
+    let chunk_offset = u64::from_ne_bytes(chunk_offset_bytes);
+    let chunk_offset_us = chunk_offset as usize;
     let chunk_length = u32::from_ne_bytes(chunk_length_bytes) as usize;
 
     let file_data = active_files.get_mut(&file_id).expect("invalid file");
@@ -502,9 +558,33 @@ fn receive_file_chunk(rx: &Receiver<Vec<u8>>, buf: &mut Vec<u8>, start_time: std
         let msg = rx.recv().unwrap();
         buf.extend_from_slice(&msg);
     }
+    let payload = &buf[CHUNK_METADATA_BYTE_WIDTH..CHUNK_METADATA_BYTE_WIDTH+chunk_length];
     debug!("received chunk payload");
 
-    file_data.data[chunk_offset..chunk_offset+chunk_length].copy_from_slice(&buf[CHUNK_METADATA_BYTE_WIDTH..CHUNK_METADATA_BYTE_WIDTH+chunk_length]);
+    if !(file_data.is_definite || chunk_offset == file_data.next_expected_chunk_offset) {
+        file_data.reorder_buffer.insert(chunk_offset, payload.to_vec());
+    } else if !file_data.is_definite {
+        write_to_file(file_data.name(), payload.to_vec());
+        file_data.next_expected_chunk_offset += chunk_length as u64;
+
+        // TODO: clean up
+        loop {
+            let first_chunk = file_data.reorder_buffer.first_key_value();
+            if let Some((offset, _)) = first_chunk {
+                if chunk_offset == *offset {
+                    let chunk = file_data.reorder_buffer.remove(&chunk_offset).unwrap();
+                    write_to_file(file_data.name(), chunk);
+                } else {
+                    break;
+                }
+            } else {
+                break;
+            }
+        }
+    } else {
+        file_data.data[chunk_offset_us..chunk_offset_us+chunk_length].copy_from_slice(payload);
+    }
+
     buf.drain(0..CHUNK_METADATA_BYTE_WIDTH+chunk_length);
 }
 
@@ -520,9 +600,13 @@ fn finish_receiving_file(rx: &Receiver<Vec<u8>>, buf: &mut Vec<u8>, start_time: 
     let file_id = u64::from_ne_bytes(file_id_bytes);
     let file_data = active_files.remove(&file_id).unwrap();
     let name = file_data.name();
-    let path = Path::new(&name);
+    write_to_file(name, file_data.data.to_vec());
+}
+
+fn write_to_file(file_name: String, data: Vec<u8>){
+    let path = Path::new(&file_name);
     let mut file = File::create(path).unwrap();
-    let file_contents = String::from_utf8(file_data.data.into_vec()).unwrap();
+    let file_contents = String::from_utf8(data).unwrap();
     let _ = writeln!(file, "{}", file_contents.as_str());
 }
 

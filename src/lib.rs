@@ -136,7 +136,7 @@ pub async fn run_scene_from_hdf5(args: Vec<String>, should_save_to_file: bool) {
 pub async fn run_scene_from_json(args: Vec<String>) {
     debug!("Running lib.rs::run_scene_from_json()");
 
-    let (tx, rx): (mpsc::Sender<Vec<u8>>, mpsc::Receiver<Vec<u8>>) = mpsc::channel();
+    // let (tx, rx): (mpsc::Sender<Vec<u8>>, mpsc::Receiver<Vec<u8>>) = mpsc::channel();
 
     let event_loop = EventLoop::new().unwrap();
     let title = env!("CARGO_PKG_NAME");
@@ -153,7 +153,7 @@ pub async fn run_scene_from_json(args: Vec<String>) {
     let mut state = state::State::new(&window, scene_file).await;
     let mut last_render_time = std::time::Instant::now();
 
-    com::create_listener_thread(tx).unwrap();
+    // com::create_listener_thread(tx).unwrap();
 
     event_loop
         .run(move |event, control_flow| {
@@ -178,7 +178,10 @@ pub async fn run_scene_from_json(args: Vec<String>) {
                                     ..
                                 },
                             ..
-                        } => control_flow.exit(),
+                        } => {
+                            debug!("Attempting to close window");
+                            control_flow.exit()
+                        },
                         WindowEvent::Resized(physical_size) => {
                             state.resize(*physical_size);
                         }
@@ -214,10 +217,10 @@ pub async fn run_scene_from_json(args: Vec<String>) {
                 _ => {}
             }
 
-            while let Ok(message) = rx.try_recv() {
-                let msg_str = String::from_utf8(message).unwrap();
-                info!("message received from listener thread: {msg_str}");
-            }
+            // while let Ok(message) = rx.try_recv() {
+            //     let msg_str = String::from_utf8(message).unwrap();
+            //     info!("message received from listener thread: {msg_str}");
+            // }
         })
         .unwrap();
 }
@@ -255,17 +258,18 @@ pub async fn run_scene_from_network(args: Vec<String>){
     }
 
     _ = remove_file(&file_path);
-    _ = remove_file("data/scene_loading/main_scene.json");
 
     // TODO: change to something more generic
     let mut modified_args = args.clone();
     modified_args[1] = "main_scene.json".to_string();
 
-    // run_scene_from_json(modified_args).await;
+    run_scene_from_json(modified_args).await;
 
     debug!("waiting for threads to wrap up");
     listener.join().unwrap();
     debug!("Listener thread closed");
     sender.join().unwrap();
     debug!("Sender thread closed");
+
+    _ = remove_file("data/scene_loading/main_scene.json");
 }

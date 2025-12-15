@@ -3,11 +3,11 @@ use cgmath::{Point3, Vector3, Quaternion, Matrix4};
 use std::rc::Rc;
 use std::cell::RefCell;
 use std::sync::Arc;
+use std::path::Path;
+use std::io::{Read, Seek, Write};
 use log::{debug, info, error};
 use cgmath::EuclideanSpace;
-use hdf5::File;
 use std::process::{Command, Stdio};
-use std::io::Write;
 use ndarray::{ArrayBase, OwnedRepr, Dim};
 
 use crate::{model, com, text};
@@ -19,12 +19,13 @@ const DATA_ARR_WIDTH: usize = 9;
 const AVERAGE_REFRESH_RATE: usize = 16;
 const NUM_CAPTURE_BUFFERS: usize = 3;
 const BYTES_PER_PIXEL: u32 = 4;
+const CHUNK_LENGTH: u64 = 1024;
 
 #[derive(Copy, Clone)]
 pub enum BehaviorType {
     EntityRotate,
     EntityTranslate,
-    EntityChangePosition,
+    EntityChangeTransform,
     ComponentRotate,
     ComponentTranslate,
     ComponentRotateConstantSpeed,
@@ -37,7 +38,7 @@ impl BehaviorType {
         match input_string {
             "EntityRotate" => BehaviorType::EntityRotate,
             "EntityTranslate" => BehaviorType::EntityTranslate,
-            "EntityChangePosition" => BehaviorType::EntityChangePosition,
+            "EntityChangeTransform" => BehaviorType::EntityChangeTransform,
             "ComponentRotate" => BehaviorType::ComponentRotate,
             "ComponentTranslate" => BehaviorType::ComponentTranslate,
             "ComponentRotateConstantSpeed" => BehaviorType::ComponentRotateConstantSpeed,
@@ -45,43 +46,60 @@ impl BehaviorType {
             _ => BehaviorType::Null,
         }
     }
+
+    fn is_constant_behavior(behavior_type: BehaviorType) -> bool {
+        match behavior_type {
+            BehaviorType::EntityTranslate => true,
+            BehaviorType::ComponentRotateConstantSpeed => true,
+            _ => false,
+        }
+    }
 }
 
-#[derive(Clone)]
 pub struct Behavior {
     pub behavior_type: BehaviorType,
     pub data: Vec<f32>,
     pub is_constant_behavior: bool,
+    data_file_path: Option<String>,
 }
 
 impl Behavior {
-    pub fn new(behavior_type: BehaviorType, data: Vec<f32>) -> Behavior {
-        let is_constant_behavior = Behavior::determine_constant_behavior(behavior_type);
+    pub fn new(behavior_type: BehaviorType, data: Vec<f32>, data_file_path: Option<String>) -> Behavior {
+        let is_constant_behavior = BehaviorType::is_constant_behavior(behavior_type);
         Behavior {
             behavior_type,
             data,
             is_constant_behavior,
+            data_file_path, 
         }
     }
     pub fn load_from_json(json: &serde_json::Value) -> Behavior {
-        let data_temp: Vec<_> = json["data"]
+        let behavior_type: BehaviorType =
+            BehaviorType::match_from_string(json["behaviorType"].as_str().unwrap());
+        let mut data_temp: Vec<_> = json["data"]
             .as_array()
             .unwrap()
             .into_iter()
             .collect();
         let mut data: Vec<f32> = vec![];
+        let data_file_path = if !BehaviorType::is_constant_behavior(behavior_type) {
+            Some(
+                data_temp.remove(0)
+                .to_string()
+            )
+        } else {
+            None
+        };
+
         for data_point in data_temp.iter() {
             data.push(data_point.as_f64().unwrap() as f32);
         }
 
-        let behavior_type: BehaviorType =
-            BehaviorType::match_from_string(json["behaviorType"].as_str().unwrap());
-
-        Behavior::new(behavior_type, data)
+        Behavior::new(behavior_type, data, data_file_path)
     }
 
     pub fn load_from_hdf5(data: &ArrayBase<OwnedRepr<[f32; 12]>, Dim<[usize; 1]>>) -> hdf5::Result<Behavior> {
-        let behavior_type = BehaviorType::EntityChangePosition;
+        let behavior_type = BehaviorType::EntityChangeTransform;
         let a = 0;
         let b = DATA_ARR_WIDTH;
         let data_vec: Vec<f32> = data
@@ -89,16 +107,10 @@ impl Behavior {
             .flat_map(|arrs| arrs[a..b].iter().cloned())
             .collect();
 
-        Ok(Behavior::new(behavior_type, data_vec))
+        Ok(Behavior::new(behavior_type, data_vec, None))
     }
 
-    fn determine_constant_behavior(behavior_type: BehaviorType) -> bool {
-        match behavior_type {
-            BehaviorType::EntityTranslate => true,
-            BehaviorType::ComponentRotateConstantSpeed => true,
-            _ => false,
-        }
-    }
+    // fn retrieve_data
 }
 
 #[allow(dead_code)]
@@ -234,6 +246,10 @@ impl Entity {
         )
     }
 
+    // pub fn load_from_network() -> Entity {
+
+    // }
+
     pub fn get_position(&self) -> Rc<RefCell<Point3<f32>>> { Rc::clone(&self.position) }
 
     pub fn set_position(&mut self, new_position: Point3<f32>) {
@@ -272,27 +288,51 @@ impl Entity {
             render_pass.draw_mesh(&model.obj, camera_bind_group, &model.bind_group);
         }
     }
+    
+    fn run_behavior_new(&mut self){
+        // we need to borrow self mutably so we can change position
+        let index = 0usize;
+        let pos = Point3::<f32>::new(0.0, 0.0, 0.0);
+        let data = &self.behaviors[index].data;
+        self.set_position(pos);
+
+        let path_ref = &self.behaviors[index].data_file_path;
+        if let Some(path) = path_ref {
+            Self::retrieve_data_chunk(path);
+        }
+    }
 
     pub fn run_behavior(&mut self, behavior_index: usize, data_counter: Option<usize>) {
         // the borrow checker means that we have to refer to the behavior with self.behaviors[behavior_index] every time
-        match self.behaviors[behavior_index].behavior_type {
+        let behavior = &self.behaviors[behavior_index];
+        let behavior_type = behavior.behavior_type;
+        let data = &self.behaviors[behavior_index].data;
+
+        match behavior_type {
             // Translate entity by vector
             BehaviorType::EntityTranslate => {
                 let old_position = *self.position.borrow();
-                let offset = Vector3::<f32>::new(self.behaviors[behavior_index].data[0], self.behaviors[behavior_index].data[1], self.behaviors[behavior_index].data[2]);
+                let offset = Vector3::<f32>::new(data[0], data[1], data[2]);
                 self.set_position(old_position + offset);
             }
 
             // Change position to input
-            BehaviorType::EntityChangePosition => {
+            BehaviorType::EntityChangeTransform => {
                 let counter = data_counter.expect("Error in Entity::run_behavior : data counter is None");
                 // println!("counter = {}", counter);
 
-                let new_position = Point3::<f32>::new(self.behaviors[behavior_index].data[counter], self.behaviors[behavior_index].data[counter+1], self.behaviors[behavior_index].data[counter+2]);
+                let new_position = Point3::<f32>::new(data[counter], data[counter+1], data[counter+2]);
+                let rotation = Vector3::<f32>::new(data[counter+3], data[counter+4], data[counter+5]);
                 self.set_position(new_position);
-
-                let rotation = Vector3::<f32>::new(self.behaviors[behavior_index].data[counter+6], self.behaviors[behavior_index].data[counter+7], self.behaviors[behavior_index].data[counter+8]);
                 self.rotation = Quaternion::from_sv(1.0, rotation);
+
+                if counter+6 >= self.behaviors[behavior_index].data.len() / 2 {
+                    let path_ref = &self.behaviors[behavior_index].data_file_path;
+                    if let Some(path) = path_ref {
+                        Self::retrieve_data_chunk(path);
+                    }
+                    // Self::retrieve_data_chunk(.unwrap());
+                }
 
                 // TODO: 16 is a magic number, referring to the milliseconds per timestep for the window refresh; figure out a better way to synchronize the timesteps
                 // self.behaviors[behavior_index].data_counter = Some(counter+9*16);
@@ -322,6 +362,22 @@ impl Entity {
         for i in 0..self.behaviors.len() {
             self.run_behavior(i, data_counter);
         }
+    }
+
+    fn retrieve_data_chunk(target_file_path_str: &String){
+        let target_file_path = Path::new(target_file_path_str);
+        let mut file = std::fs::File::create(target_file_path).unwrap();
+        let mut buffer = [0; CHUNK_LENGTH as usize];
+        file.read(&mut buffer).unwrap();
+        
+        // delete the chunk from the file
+        let temp_path = target_file_path.with_extension("tmp");
+        let mut temp_file = std::fs::File::create(&temp_path).unwrap();
+
+        file.seek(std::io::SeekFrom::Start(CHUNK_LENGTH));
+        std::io::copy(&mut file, &mut temp_file);
+        temp_file.sync_all();
+        std::fs::rename(&temp_path, target_file_path);
     }
 
     pub fn get_model(&mut self, model_component_id: u64) -> &mut model::Model {
@@ -540,7 +596,7 @@ impl Scene {
         screen_width: u32,
         screen_height: u32,
     ) -> hdf5::Result<Scene> {
-        let file = File::open(filepath).unwrap();
+        let file = hdf5::File::open(filepath).unwrap();
         let vehicles = file.group("Vehicles").unwrap();
         let vehicles_vec = vehicles.groups().unwrap();
         let mut entity_vec = vec![];

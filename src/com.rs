@@ -346,7 +346,7 @@ pub fn create_sender_thread(file: String) -> Result<thread::JoinHandle<()>, std:
                         info!("sender thread received ACK");
 
                         // there was originally a loop here
-                        send_finite_test_data(stream);
+                        send_streamed_test_data(stream);
                     }
                     
                 },
@@ -715,7 +715,7 @@ mod tests {
 //     fn position_change() {
 //         let mut test_scene = scene_composer::test_scene();
 //         let pos_cmd = scenes_and_entities::Command::new(
-//             scenes_and_entities::CommandType::EntityChangePosition,
+//             scenes_and_entities::CommandType::EntityChangeTransform,
 //             vec![1.0, 1.0, 1.0]
 //         );
 //         assert_eq!(

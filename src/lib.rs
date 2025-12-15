@@ -265,11 +265,11 @@ pub async fn run_scene_from_network(args: Vec<String>){
 
     run_scene_from_json(modified_args).await;
 
-    debug!("waiting for threads to wrap up");
-    listener.join().unwrap();
-    debug!("Listener thread closed");
-    sender.join().unwrap();
-    debug!("Sender thread closed");
+    // debug!("waiting for threads to wrap up");
+    // listener.join().unwrap();
+    // debug!("Listener thread closed");
+    // sender.join().unwrap();
+    // debug!("Sender thread closed");
 
     _ = remove_file("data/scene_loading/main_scene.json");
 }

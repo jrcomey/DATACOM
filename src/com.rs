@@ -4,7 +4,8 @@ use std::io::{Read, Write};
 use std::net::{ToSocketAddrs, TcpStream, IpAddr, TcpListener, SocketAddr};
 // use std::error::Error;
 use std::sync::mpsc::Sender;
-use std::{fs::File, fs, thread};
+use std::thread;
+use std::fs::{self, File, OpenOptions};
 use std::time::Duration;
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
@@ -285,19 +286,19 @@ fn send_streamed_test_data(mut stream: TcpStream){
     stream.write_all(&test_command_data[..]).unwrap();
     stream.flush().unwrap();
 
-    let message_type = 4u16;
-    test_command_data.clear();
-    test_command_data.extend_from_slice(&message_type.to_ne_bytes());
+    // let message_type = 4u16;
+    // test_command_data.clear();
+    // test_command_data.extend_from_slice(&message_type.to_ne_bytes());
 
-    info!("Sending transmission end to stream");
-    thread::sleep(std::time::Duration::from_millis(10));
-    stream.write_all(&test_command_data[..]).unwrap();
-    stream.flush().unwrap();
+    // info!("Sending transmission end to stream");
+    // thread::sleep(std::time::Duration::from_millis(10));
+    // stream.write_all(&test_command_data[..]).unwrap();
+    // stream.flush().unwrap();
     
     let message_type = 1u16;
     let mut chunk_offset = 0u64;
     let chunk_length = 32u32;
-    let counter = 0u32;
+    let mut counter = 0usize;
 
     let mut i = 0usize;
 
@@ -308,13 +309,13 @@ fn send_streamed_test_data(mut stream: TcpStream){
         test_command_data.extend_from_slice(&chunk_offset.to_ne_bytes());
 
         test_command_data.extend_from_slice(&chunk_length.to_ne_bytes());
-        let nums = counter..counter+chunk_length;
-        let range_string: String = nums
-            .map(|i| i.to_string()) // Convert each number to a String
-            .collect::<Vec<String>>() // Collect into a vector of Strings
-            .join(", ");
-        test_command_data.extend_from_slice(&range_string.as_bytes());
+        let nums = counter..counter + chunk_length as usize;
+        let range_bytes = nums
+            .flat_map(|i| i.to_ne_bytes()) // Convert each number to a String
+            .collect::<Vec<u8>>(); // Collect into a vector of Strings
+        test_command_data.extend_from_slice(&range_bytes);
         chunk_offset += chunk_length as u64;
+        counter += chunk_length as usize;
 
         info!("Sending chunk to stream");
         thread::sleep(std::time::Duration::from_millis(10));
@@ -481,7 +482,7 @@ pub fn get_ports(file: &str) -> Result<Vec<SocketAddr>, Box<dyn std::error::Erro
 
 fn receive_file_metadata(rx: &Receiver<Vec<u8>>, buf: &mut Vec<u8>, start_time: std::time::Instant) -> FileInfo {
     while buf.len() < FILE_START_METADATA_BYTE_WIDTH && !has_timed_out(start_time){
-        let msg = rx.recv().unwrap();
+        let msg = rx.try_recv().unwrap();
         buf.extend_from_slice(&msg);
     }
 
@@ -494,7 +495,7 @@ fn receive_file_metadata(rx: &Receiver<Vec<u8>>, buf: &mut Vec<u8>, start_time: 
 
 fn receive_file_chunk(rx: &Receiver<Vec<u8>>, buf: &mut Vec<u8>, start_time: std::time::Instant, active_files: &mut HashMap<u64, FileInfo>){
     while buf.len() < CHUNK_METADATA_BYTE_WIDTH && !has_timed_out(start_time){
-        let msg = rx.recv().unwrap();
+        let msg = rx.try_recv().unwrap();
         buf.extend_from_slice(&msg);
     }
     debug!("received chunk metadata");
@@ -521,7 +522,7 @@ fn receive_file_chunk(rx: &Receiver<Vec<u8>>, buf: &mut Vec<u8>, start_time: std
     let file_data = active_files.get_mut(&file_id).expect("invalid file");
     
     while buf.len() < CHUNK_METADATA_BYTE_WIDTH+(chunk_length as usize) && !has_timed_out(start_time){
-        let msg = rx.recv().unwrap();
+        let msg = rx.try_recv().unwrap();
         buf.extend_from_slice(&msg);
     }
     let payload = &buf[CHUNK_METADATA_BYTE_WIDTH..CHUNK_METADATA_BYTE_WIDTH+chunk_length];
@@ -530,7 +531,7 @@ fn receive_file_chunk(rx: &Receiver<Vec<u8>>, buf: &mut Vec<u8>, start_time: std
     if !(file_data.is_definite || chunk_offset == file_data.next_expected_chunk_offset) {
         file_data.reorder_buffer.insert(chunk_offset, payload.to_vec());
     } else if !file_data.is_definite {
-        write_to_file(file_data.name(), payload.to_vec());
+        append_to_file(file_data.name(), payload.to_vec());
         file_data.next_expected_chunk_offset += chunk_length as u64;
         debug!("wrote chunk to file");
 
@@ -540,7 +541,7 @@ fn receive_file_chunk(rx: &Receiver<Vec<u8>>, buf: &mut Vec<u8>, start_time: std
             if let Some((offset, _)) = first_chunk {
                 if chunk_offset == *offset {
                     let chunk = file_data.reorder_buffer.remove(&chunk_offset).unwrap();
-                    write_to_file(file_data.name(), chunk);
+                    append_to_file(file_data.name(), chunk);
                     debug!("wrote chunk in queue to file");
                 } else {
                     break;
@@ -558,7 +559,7 @@ fn receive_file_chunk(rx: &Receiver<Vec<u8>>, buf: &mut Vec<u8>, start_time: std
 
 fn finish_receiving_file(rx: &Receiver<Vec<u8>>, buf: &mut Vec<u8>, start_time: std::time::Instant, active_files: &mut HashMap<u64, FileInfo>){
     while buf.len() < FILE_END_METADATA_BYTE_WIDTH && !has_timed_out(start_time){
-        let msg = rx.recv().unwrap();
+        let msg = rx.try_recv().unwrap();
         buf.extend_from_slice(&msg);        
     }
 
@@ -568,14 +569,19 @@ fn finish_receiving_file(rx: &Receiver<Vec<u8>>, buf: &mut Vec<u8>, start_time: 
     let file_id = u64::from_ne_bytes(file_id_bytes);
     let file_data = active_files.remove(&file_id).unwrap();
     let name = file_data.name();
-    write_to_file(name, file_data.data.to_vec());
+    append_to_file(name, file_data.data.to_vec());
 }
 
-fn write_to_file(file_name: String, data: Vec<u8>){
+fn append_to_file(file_name: String, data: Vec<u8>){
     let path = Path::new(&file_name);
-    let mut file = File::create(path).unwrap();
-    let file_contents = String::from_utf8(data).unwrap();
-    let _ = writeln!(file, "{}", file_contents.as_str());
+    let mut file = OpenOptions::new()
+        .append(true)
+        .create(true)
+        .open(path)
+        .unwrap();
+    // let file_contents = String::from_utf8(data).unwrap();
+    file.write_all(&data).unwrap();
+    // let _ = writeln!(&mut file, "{}", file_contents.as_str());
 }
 
 pub fn receive_file(rx: &Receiver<Vec<u8>>, active_files: &mut HashMap<u64, FileInfo>) -> bool {
@@ -585,7 +591,12 @@ pub fn receive_file(rx: &Receiver<Vec<u8>>, active_files: &mut HashMap<u64, File
     let mut bytes_read = 0usize;
     let mut buf: Vec<u8> = Vec::new();
     while bytes_read < MESSAGE_TYPE_BYTE_WIDTH && !has_timed_out(start_time) {
-        let msg = rx.recv().unwrap();
+        let msg_result = rx.try_recv();
+        if let Err(e) = msg_result {
+            return false;
+        }
+        // let msg = rx.try_recv().unwrap();
+        let msg = msg_result.unwrap();
         // println!("read in {:?}", msg);
         let msg_len = msg.len();
         buf.extend_from_slice(&msg);

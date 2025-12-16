@@ -250,6 +250,7 @@ pub async fn run_scene_from_network(args: Vec<String>){
     // files that the receiver is getting data about and writing to
     let mut active_files: HashMap<u64, com::FileInfo> = HashMap::new();
     
+    // initial file transfer
     loop {
         // debug!("active files len = {}", active_files.len());
         if com::receive_file(&rx, &mut active_files){
@@ -259,11 +260,93 @@ pub async fn run_scene_from_network(args: Vec<String>){
 
     _ = remove_file(&file_path);
 
-    // TODO: change to something more generic
-    let mut modified_args = args.clone();
-    modified_args[1] = "main_scene.json".to_string();
 
-    run_scene_from_json(modified_args).await;
+    // run_scene_from_json(modified_args).await;
+
+    let event_loop = EventLoop::new().unwrap();
+    let title = env!("CARGO_PKG_NAME");
+    let window = winit::window::WindowBuilder::new()
+        .with_title(title)
+        .build(&event_loop)
+        .unwrap();
+
+    // TODO: change to something more generic
+    let scene_file_string = String::from("data/scene_loading/main_scene.json");
+    let scene_file = scene_file_string.as_str();
+
+    // State::new uses async code, so we're going to wait for it to finish
+    let mut state = state::State::new(&window, scene_file).await;
+    let mut last_render_time = std::time::Instant::now();
+
+    // com::create_listener_thread(tx).unwrap();
+    debug!("about to start event loop");
+
+    event_loop
+        .run(move |event, control_flow| {
+            match event {
+                Event::DeviceEvent {
+                    event: DeviceEvent::MouseMotion{ delta, },
+                    .. // We're not using device_id currently
+                } => if state.mouse_pressed {
+                    state.viewports[0].camera_controller.process_mouse(delta.0, delta.1)
+                }
+                Event::WindowEvent {
+                    ref event,
+                    window_id,
+                } if window_id == state.window().id() && !state.input(event) => {
+                    match event {
+                        WindowEvent::CloseRequested
+                        | WindowEvent::KeyboardInput {
+                            event:
+                                KeyEvent {
+                                    state: ElementState::Pressed,
+                                    physical_key: PhysicalKey::Code(KeyCode::Escape),
+                                    ..
+                                },
+                            ..
+                        } => {
+                            debug!("Attempting to close window");
+                            control_flow.exit()
+                        },
+                        WindowEvent::Resized(physical_size) => {
+                            state.resize(*physical_size);
+                        }
+                        WindowEvent::RedrawRequested => {
+                            // This tells winit that we want another frame after this one
+                            state.window().request_redraw();
+                            let now = std::time::Instant::now();
+                            let dt = now - last_render_time;
+                            last_render_time = now;
+                            state.update(dt, false);
+
+                            match state.render(false) {
+                                Ok(_) => {}
+                                // Reconfigure the surface if it's lost or outdated
+                                Err(
+                                    wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated,
+                                ) => state.resize(state.size),
+                                // The system is out of memory, we should probably quit
+                                Err(wgpu::SurfaceError::OutOfMemory | wgpu::SurfaceError::Other) => {
+                                    log::error!("OutOfMemory");
+                                    control_flow.exit();
+                                }
+
+                                // This happens when the a frame takes too long to present
+                                Err(wgpu::SurfaceError::Timeout) => {
+                                    log::warn!("Surface timeout")
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                _ => {}
+            }
+            
+            debug!("reading streamed files...");
+            com::receive_file(&rx, &mut active_files);
+        })
+        .unwrap();
 
     // debug!("waiting for threads to wrap up");
     // listener.join().unwrap();

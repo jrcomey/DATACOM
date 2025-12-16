@@ -264,7 +264,7 @@ fn send_finite_test_data(mut stream: TcpStream){
 fn send_streamed_test_data(mut stream: TcpStream){
     let message_type = 0u16;
     let file_id = 0123456789u64;
-    let file_name_base = "data/scene_loading/main_scene.json";
+    let file_name_base = "data/scene_loading/entity_pos.json";
     let file_name_length = file_name_base.len() as u8;
     let mut file_name = [0u8; MAX_FILE_NAME_BYTE_WIDTH];
     file_name[0..file_name_length as usize].copy_from_slice(file_name_base.as_bytes());
@@ -284,11 +284,23 @@ fn send_streamed_test_data(mut stream: TcpStream){
     thread::sleep(std::time::Duration::from_millis(10));
     stream.write_all(&test_command_data[..]).unwrap();
     stream.flush().unwrap();
+
+    let message_type = 4u16;
+    test_command_data.clear();
+    test_command_data.extend_from_slice(&message_type.to_ne_bytes());
+
+    info!("Sending transmission end to stream");
+    thread::sleep(std::time::Duration::from_millis(10));
+    stream.write_all(&test_command_data[..]).unwrap();
+    stream.flush().unwrap();
     
     let message_type = 1u16;
     let mut chunk_offset = 0u64;
     let chunk_length = 32u32;
     let counter = 0u32;
+
+    let mut i = 0usize;
+
     loop {
         test_command_data.clear();
         test_command_data.extend_from_slice(&message_type.to_ne_bytes());
@@ -308,6 +320,11 @@ fn send_streamed_test_data(mut stream: TcpStream){
         thread::sleep(std::time::Duration::from_millis(10));
         stream.write_all(&test_command_data[..]).unwrap();
         stream.flush().unwrap();
+        i += 1;
+
+        if i > 1000 {
+            break;
+        }
     }
 }
 
@@ -346,7 +363,9 @@ pub fn create_sender_thread(file: String) -> Result<thread::JoinHandle<()>, std:
                         info!("sender thread received ACK");
 
                         // there was originally a loop here
-                        send_streamed_test_data(stream);
+                        let stream_clone = stream.try_clone();
+                        send_finite_test_data(stream);
+                        send_streamed_test_data(stream_clone.unwrap());
                     }
                     
                 },
@@ -468,60 +487,7 @@ fn receive_file_metadata(rx: &Receiver<Vec<u8>>, buf: &mut Vec<u8>, start_time: 
 
     let metadata = FileInfo::new(buf);
 
-    // println!("in listener thread:");
-    // for &byte in buf.iter() {
-    //     print!("{byte} ");
-    // }
-    // println!();
-    // let mut counter = MESSAGE_TYPE_BYTE_WIDTH;
-    // debug!("indexing from {} to {} to find ID", counter, counter + FILE_ID_BYTE_WIDTH);
-    // let id_bytes: [u8; FILE_ID_BYTE_WIDTH] = buf[counter..counter + FILE_ID_BYTE_WIDTH]
-    //     .try_into()
-    //     .unwrap();
-    // counter += FILE_ID_BYTE_WIDTH;
-    
-    // // debug!("indexing from {} to {} to find ID", counter, counter + FILE_ID_BYTE_WIDTH);
-    // let is_definite_file_bytes: [u8; IS_DEFINITE_FILE_BYTE_WIDTH] = buf[counter..counter + FILE_ID_BYTE_WIDTH]
-    //     .try_into()
-    //     .unwrap();
-    // counter += IS_DEFINITE_FILE_BYTE_WIDTH;
-
-    // debug!("indexing slice {} to {} to find name length", counter, counter + FILE_NAME_LENGTH_BYTE_WIDTH);
-    // let name_length_bytes: [u8; FILE_NAME_LENGTH_BYTE_WIDTH] = buf[counter..counter + FILE_NAME_LENGTH_BYTE_WIDTH]
-    //     .try_into()
-    //     .expect("name length is incorrect size");
-    // let name_length = u8::from_ne_bytes(name_length_bytes);
-    // let name_length_usize = name_length as usize;
-    // counter += FILE_NAME_LENGTH_BYTE_WIDTH;
-    // debug!("name length is {name_length} {name_length_usize}");
-
-    // debug!("indexing from {} to {} to find file length", counter, counter+FILE_LENGTH_BYTE_WIDTH);
-    // let length_bytes: [u8; FILE_LENGTH_BYTE_WIDTH] = buf[counter..counter + FILE_LENGTH_BYTE_WIDTH]
-    //     .try_into()
-    //     .unwrap();
-    // let length = u32::from_ne_bytes(length_bytes);
-    // counter += FILE_LENGTH_BYTE_WIDTH;
-
-    // while buf.len() < FILE_START_METADATA_BYTE_WIDTH + name_length_usize && !has_timed_out(start_time){
-    //     let msg = rx.recv().unwrap();
-    //     buf.extend_from_slice(&msg);
-    // }
-
-    // debug!("indexing from {} to {} to find file name", counter, counter + name_length_usize);
-    // let name: Vec<u8> = buf[counter..counter + name_length_usize].to_vec();
-    // debug!("name = {}", String::from_utf8(name.clone()).unwrap());
-    // counter += name_length_usize;
-
     let _ = buf.drain(0..FILE_START_METADATA_BYTE_WIDTH);
-
-    // debug!("file ID bytes = {:?}", id_bytes);
-    // let id = u64::from_ne_bytes(id_bytes);
-    // debug!("file ID = {id}");
-    // assert!(id == 0123456789u64);
-
-    // debug!("file length bytes = {:?}", length_bytes);
-    // debug!("file length = {length}");
-    // assert!(length == 12008u32);
 
     metadata
 }
@@ -566,6 +532,7 @@ fn receive_file_chunk(rx: &Receiver<Vec<u8>>, buf: &mut Vec<u8>, start_time: std
     } else if !file_data.is_definite {
         write_to_file(file_data.name(), payload.to_vec());
         file_data.next_expected_chunk_offset += chunk_length as u64;
+        debug!("wrote chunk to file");
 
         // TODO: clean up
         loop {
@@ -574,6 +541,7 @@ fn receive_file_chunk(rx: &Receiver<Vec<u8>>, buf: &mut Vec<u8>, start_time: std
                 if chunk_offset == *offset {
                     let chunk = file_data.reorder_buffer.remove(&chunk_offset).unwrap();
                     write_to_file(file_data.name(), chunk);
+                    debug!("wrote chunk in queue to file");
                 } else {
                     break;
                 }

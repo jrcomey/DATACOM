@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::path::Path;
 use std::io::{Read, Seek, Write};
 use log::{debug, info, error};
-use cgmath::EuclideanSpace;
+use cgmath::{EuclideanSpace, InnerSpace};
 use std::process::{Command, Stdio};
 use ndarray::{ArrayBase, OwnedRepr, Dim};
 
@@ -21,7 +21,7 @@ const NUM_CAPTURE_BUFFERS: usize = 3;
 const BYTES_PER_PIXEL: u32 = 4;
 const CHUNK_LENGTH: u64 = 1024;
 
-#[derive(Copy, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub enum BehaviorType {
     EntityRotate,
     EntityTranslate,
@@ -50,6 +50,7 @@ impl BehaviorType {
     fn is_constant_behavior(behavior_type: BehaviorType) -> bool {
         match behavior_type {
             BehaviorType::EntityTranslate => true,
+            BehaviorType::EntityRotate => true,
             BehaviorType::ComponentRotateConstantSpeed => true,
             _ => false,
         }
@@ -66,6 +67,7 @@ pub struct Behavior {
 impl Behavior {
     pub fn new(behavior_type: BehaviorType, data: Vec<f32>, data_file_path: Option<String>) -> Behavior {
         let is_constant_behavior = BehaviorType::is_constant_behavior(behavior_type);
+        // debug!("data in Behavior constructor of type {:?} = {:?}", behavior_type, data);
         Behavior {
             behavior_type,
             data,
@@ -257,6 +259,10 @@ impl Entity {
         // println!("new position: ({}, {}, {})", new_position[0], new_position[1], new_position[2]);
     }
 
+    pub fn rotate(&mut self, rotation: cgmath::Quaternion<f32>){
+        self.rotation = (self.rotation * rotation).normalize();
+    }
+
     fn to_matrix(&self) -> Matrix4<f32> {
         let translation = Matrix4::from_translation(self.position.borrow().to_vec());
         let rotation = Matrix4::from(self.rotation);
@@ -316,13 +322,26 @@ impl Entity {
                 self.set_position(old_position + offset);
             }
 
+            BehaviorType::EntityRotate => {
+                // debug!("EntityRotate data = {:?}", self.behaviors[behavior_index].data);
+                let rotation_factor = self.behaviors[behavior_index].data[0];
+                let new_quaternion_vector = Vector3::<f32>::new(
+                    (rotation_factor * self.behaviors[behavior_index].data[1]) as f32,
+                    (rotation_factor * self.behaviors[behavior_index].data[3]) as f32,
+                    (rotation_factor * self.behaviors[behavior_index].data[2]) as f32,
+                );
+                let new_quaternion = Quaternion::<f32>::from_sv(1.0, new_quaternion_vector);
+
+                self.rotation = (self.rotation * new_quaternion).normalize();
+            }
+
             // Change position to input
             BehaviorType::EntityChangeTransform => {
                 let counter = data_counter.expect("Error in Entity::run_behavior : data counter is None");
                 // println!("counter = {}", counter);
 
                 let new_position = Point3::<f32>::new(data[counter], data[counter+1], data[counter+2]);
-                let rotation = Vector3::<f32>::new(data[counter+3], data[counter+4], data[counter+5]);
+                let rotation = Vector3::<f32>::new(data[counter+6], data[counter+7], data[counter+8]);
                 self.set_position(new_position);
                 self.rotation = Quaternion::from_sv(1.0, rotation);
 
@@ -342,6 +361,7 @@ impl Entity {
 
             // Rotate item at constant speed
             BehaviorType::ComponentRotateConstantSpeed => {
+                // debug!("ComponentRotateConstantSpeed data = {:?}", self.behaviors[behavior_index].data);
                 let model_id = self.behaviors[behavior_index].data[0] as u64;
                 let rotation_factor = self.behaviors[behavior_index].data[1];
                 let new_quaternion_vector = Vector3::<f32>::new(

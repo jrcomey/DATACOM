@@ -4,6 +4,7 @@ use std::rc::Rc;
 use std::cell::RefCell;
 use std::sync::Arc;
 use std::path::Path;
+use std::fs::OpenOptions;
 use std::io::{Read, Seek, Write};
 use log::{debug, info, error};
 use cgmath::{EuclideanSpace, InnerSpace};
@@ -19,6 +20,7 @@ const DATA_ARR_WIDTH: usize = 9;
 const AVERAGE_REFRESH_RATE: usize = 16;
 const NUM_CAPTURE_BUFFERS: usize = 3;
 const BYTES_PER_PIXEL: u32 = 4;
+const FLOAT_SIZE: usize = std::mem::size_of::<f32>();
 const CHUNK_LENGTH: u64 = 1024;
 
 #[derive(Debug, Copy, Clone)]
@@ -85,10 +87,11 @@ impl Behavior {
             .collect();
         let mut data: Vec<f32> = vec![];
         let data_file_path = if !BehaviorType::is_constant_behavior(behavior_type) {
-            Some(
-                data_temp.remove(0)
-                .to_string()
-            )
+            let mut path = data_temp.remove(0).to_string();
+            path = path[1..path.len()-1].to_string();
+            path.insert_str(0, "data/scene_loading/");
+            debug!("cropped path to {}", path);
+            Some(path)
         } else {
             None
         };
@@ -112,7 +115,44 @@ impl Behavior {
         Ok(Behavior::new(behavior_type, data_vec, None))
     }
 
-    // fn retrieve_data
+    fn retrieve_data_chunk(&mut self){
+    // fn retrieve_data_chunk(behavior: &mut Behavior, target_file_path_str: &String){
+        if let Some(path_str) = &self.data_file_path {
+            let target_file_path = Path::new(path_str);
+            // let mut file = std::fs::File::create(target_file_path).unwrap();
+            let mut file = OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open(target_file_path)
+                .unwrap();
+            let mut byte_buffer = [0; CHUNK_LENGTH as usize];
+            debug!("attempting to read from {}", path_str);
+            file.read(&mut byte_buffer).unwrap();
+            let mut float_buffer = [0.0; CHUNK_LENGTH as usize / std::mem::size_of::<f32>()];
+            let mut i = 0usize;
+            while i < float_buffer.len() {
+                debug!("byte buffer len = {}", byte_buffer.len());
+                debug!("attempting to slice from {} to {}", FLOAT_SIZE*i, FLOAT_SIZE*(i+1));
+                // let bytes_raw = byte_buffer[FLOAT_SIZE*i..(FLOAT_SIZE+1)*i];
+                let bytes: [u8; FLOAT_SIZE] = byte_buffer[FLOAT_SIZE*i..FLOAT_SIZE*(i+1)].try_into().unwrap();
+                float_buffer[i] = f32::from_ne_bytes(bytes);
+                i += 1;
+            }
+
+            self.data.extend_from_slice(&float_buffer);
+            // behavior.data.extend_from_slice(&float_buffer);
+
+            
+            // delete the chunk from the file
+            let temp_path = target_file_path.with_extension("tmp");
+            let mut temp_file = std::fs::File::create(&temp_path).unwrap();
+
+            file.seek(std::io::SeekFrom::Start(CHUNK_LENGTH));
+            std::io::copy(&mut file, &mut temp_file);
+            temp_file.sync_all();
+            std::fs::rename(&temp_path, target_file_path);
+        }
+    }
 }
 
 #[allow(dead_code)]
@@ -294,29 +334,15 @@ impl Entity {
             render_pass.draw_mesh(&model.obj, camera_bind_group, &model.bind_group);
         }
     }
-    
-    fn run_behavior_new(&mut self){
-        // we need to borrow self mutably so we can change position
-        let index = 0usize;
-        let pos = Point3::<f32>::new(0.0, 0.0, 0.0);
-        let data = &self.behaviors[index].data;
-        self.set_position(pos);
-
-        let path_ref = &self.behaviors[index].data_file_path;
-        if let Some(path) = path_ref {
-            Self::retrieve_data_chunk(path);
-        }
-    }
 
     pub fn run_behavior(&mut self, behavior_index: usize, data_counter: Option<usize>) {
         // the borrow checker means that we have to refer to the behavior with self.behaviors[behavior_index] every time
-        let behavior = &self.behaviors[behavior_index];
-        let behavior_type = behavior.behavior_type;
-        let data = &self.behaviors[behavior_index].data;
+        let behavior = &mut self.behaviors[behavior_index];
 
-        match behavior_type {
+        match behavior.behavior_type {
             // Translate entity by vector
             BehaviorType::EntityTranslate => {
+                let data = &mut self.behaviors[behavior_index].data;
                 let old_position = *self.position.borrow();
                 let offset = Vector3::<f32>::new(data[0], data[1], data[2]);
                 self.set_position(old_position + offset);
@@ -324,11 +350,12 @@ impl Entity {
 
             BehaviorType::EntityRotate => {
                 // debug!("EntityRotate data = {:?}", self.behaviors[behavior_index].data);
-                let rotation_factor = self.behaviors[behavior_index].data[0];
+                let data = &mut self.behaviors[behavior_index].data;
+                let rotation_factor = data[0];
                 let new_quaternion_vector = Vector3::<f32>::new(
-                    (rotation_factor * self.behaviors[behavior_index].data[1]) as f32,
-                    (rotation_factor * self.behaviors[behavior_index].data[3]) as f32,
-                    (rotation_factor * self.behaviors[behavior_index].data[2]) as f32,
+                    (rotation_factor * data[1]) as f32,
+                    (rotation_factor * data[3]) as f32,
+                    (rotation_factor * data[2]) as f32,
                 );
                 let new_quaternion = Quaternion::<f32>::from_sv(1.0, new_quaternion_vector);
 
@@ -338,25 +365,19 @@ impl Entity {
             // Change position to input
             BehaviorType::EntityChangeTransform => {
                 let counter = data_counter.expect("Error in Entity::run_behavior : data counter is None");
-                // println!("counter = {}", counter);
+                let data_len = behavior.data.len();
+                debug!("counter = {}, data len = {}", counter, data_len);
 
-                let new_position = Point3::<f32>::new(data[counter], data[counter+1], data[counter+2]);
-                let rotation = Vector3::<f32>::new(data[counter+6], data[counter+7], data[counter+8]);
-                self.set_position(new_position);
+                let new_position = Point3::<f32>::new(behavior.data[counter], behavior.data[counter+1], behavior.data[counter+2]);
+                let rotation = Vector3::<f32>::new(behavior.data[counter+6], behavior.data[counter+7], behavior.data[counter+8]);
                 self.rotation = Quaternion::from_sv(1.0, rotation);
 
-                if counter+6 >= self.behaviors[behavior_index].data.len() / 2 {
-                    let path_ref = &self.behaviors[behavior_index].data_file_path;
-                    if let Some(path) = path_ref {
-                        Self::retrieve_data_chunk(path);
-                    }
-                    // Self::retrieve_data_chunk(.unwrap());
+                if counter+DATA_ARR_WIDTH >= data_len / 2 {
+                    // self.behaviors[behavior_index].data.drain(0..counter+DATA_ARR_WIDTH);
+                    behavior.retrieve_data_chunk();
                 }
-
-                // TODO: 16 is a magic number, referring to the milliseconds per timestep for the window refresh; figure out a better way to synchronize the timesteps
-                // self.behaviors[behavior_index].data_counter = Some(counter+9*16);
-                // println!("data_counter = {}", self.behaviors[behavior_index].data_counter.unwrap());
-                // println!("set position of entity {} to {:?} using counter {}", self.name, new_position, self.behaviors[behavior_index].data_counter.unwrap());
+                
+                self.set_position(new_position);
             }
 
             // Rotate item at constant speed
@@ -382,22 +403,6 @@ impl Entity {
         for i in 0..self.behaviors.len() {
             self.run_behavior(i, data_counter);
         }
-    }
-
-    fn retrieve_data_chunk(target_file_path_str: &String){
-        let target_file_path = Path::new(target_file_path_str);
-        let mut file = std::fs::File::create(target_file_path).unwrap();
-        let mut buffer = [0; CHUNK_LENGTH as usize];
-        file.read(&mut buffer).unwrap();
-        
-        // delete the chunk from the file
-        let temp_path = target_file_path.with_extension("tmp");
-        let mut temp_file = std::fs::File::create(&temp_path).unwrap();
-
-        file.seek(std::io::SeekFrom::Start(CHUNK_LENGTH));
-        std::io::copy(&mut file, &mut temp_file);
-        temp_file.sync_all();
-        std::fs::rename(&temp_path, target_file_path);
     }
 
     pub fn get_model(&mut self, model_component_id: u64) -> &mut model::Model {
@@ -442,6 +447,9 @@ impl Scene {
         let terrain = model::Terrain::new(cgmath::Vector3::<f32>::new(255.0, 0.0, 0.0), device);
 
         let screen_recordings = Vec::new();
+
+        debug!("created Scene");
+
         Scene {
             axes,
             entities,
@@ -501,7 +509,9 @@ impl Scene {
         for entity in &mut self.entities {
             entity.run_behaviors(self.data_counter);
             if let Some(c) = self.data_counter {
-                self.data_counter = Some(c + DATA_ARR_WIDTH * AVERAGE_REFRESH_RATE);
+                // self.data_counter = Some(c + DATA_ARR_WIDTH * AVERAGE_REFRESH_RATE);
+                self.data_counter = Some(c + DATA_ARR_WIDTH);
+                debug!("data counter is now {}", self.data_counter.unwrap());
             }
         }
     }

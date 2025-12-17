@@ -186,7 +186,7 @@ fn has_timed_out(start_time: std::time::Instant) -> bool {
 }
 
 fn send_finite_test_data(mut stream: TcpStream){
-    let path = std::path::Path::new("data/scene_loading/test_scene.json");
+    let path = std::path::Path::new("data/scene_loading/test_scene_2.json");
     let test_command_data_main = fs::read_to_string(path).unwrap();
     let data_len = test_command_data_main.len();
 
@@ -311,6 +311,7 @@ fn send_streamed_test_data(mut stream: TcpStream){
         test_command_data.extend_from_slice(&chunk_length.to_ne_bytes());
         let nums = counter..counter + chunk_length as usize;
         let range_bytes = nums
+            .map(|i| i as f32)
             .flat_map(|i| i.to_ne_bytes()) // Convert each number to a String
             .collect::<Vec<u8>>(); // Collect into a vector of Strings
         test_command_data.extend_from_slice(&range_bytes);

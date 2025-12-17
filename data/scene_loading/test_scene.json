@@ -82,10 +82,11 @@
             ],
             "Behaviors": [
                 {
-                    "behaviorType": "EntityTranslate",
+                    "behaviorType": "EntityRotate",
                     "data": [
-                        -0.01,
+                        0.2,
                         0.0,
+                        0.2,
                         0.0
                     ]
                 },

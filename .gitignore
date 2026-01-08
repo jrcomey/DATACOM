@@ -5,4 +5,4 @@
 /data/scene_loading/test_scene_2.json
 *.mp4
 *.txt
-*.bin
+tmp.py

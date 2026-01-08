@@ -116,7 +116,7 @@ impl Behavior {
         Ok(Behavior::new(behavior_type, data_vec, None))
     }
 
-    fn retrieve_data_chunk(&mut self){
+    fn retrieve_data_chunk(&mut self) {
     // fn retrieve_data_chunk(behavior: &mut Behavior, target_file_path_str: &String){
         if let Some(path_str) = &self.data_file_path {
             let target_file_path = Path::new(path_str);
@@ -383,22 +383,27 @@ impl Entity {
                 let data_len = behavior.data.len();
                 debug!("counter = {}, data len = {}", counter, data_len);
 
-                // let new_position = Point3::<f32>::new(behavior.data[counter], behavior.data[counter+1], behavior.data[counter+2]);
-                // let rotation = Vector3::<f32>::new(behavior.data[counter+6], behavior.data[counter+7], behavior.data[counter+8]);
-                let new_position = Point3::<f32>::new(behavior.data[0], behavior.data[1], behavior.data[2]);
-                let rotation = Vector3::<f32>::new(behavior.data[6], behavior.data[7], behavior.data[8]);
-                self.rotation = Quaternion::from_sv(1.0, rotation);
-                // debug!("x: {}, y: {}, z: {}, v0: {}, v1: {}, v2: {}", behavior.data[0], behavior.data[1], behavior.data[2], behavior.data[6], behavior.data[7], behavior.data[8]);
-                debug!("x: {}, y: {}, z: {}, v0: {}, v1: {}, v2: {}", new_position.x, new_position.y, new_position.z, rotation.x, rotation.y, rotation.z);
-                behavior.data.drain(0..DATA_ARR_WIDTH);
-
                 if data_len < (CHUNK_LENGTH as usize) * DATA_ARR_WIDTH {
                     // self.behaviors[behavior_index].data.drain(0..counter+DATA_ARR_WIDTH);
                     debug!("data len of {} is less than threshold of {}", data_len, (CHUNK_LENGTH as usize) * DATA_ARR_WIDTH);
                     behavior.retrieve_data_chunk();
                 }
-                
-                self.set_position(new_position);
+
+                if data_len >= DATA_ARR_WIDTH {
+                    // let new_position = Point3::<f32>::new(behavior.data[counter], behavior.data[counter+1], behavior.data[counter+2]);
+                    // let rotation = Vector3::<f32>::new(behavior.data[counter+6], behavior.data[counter+7], behavior.data[counter+8]);
+                    let new_position = Point3::<f32>::new(behavior.data[0], behavior.data[1], behavior.data[2]);
+                    let rotation = Vector3::<f32>::new(behavior.data[6], behavior.data[7], behavior.data[8]);
+                    self.rotation = Quaternion::from_sv(1.0, rotation);
+                    // debug!("x: {}, y: {}, z: {}, v0: {}, v1: {}, v2: {}", behavior.data[0], behavior.data[1], behavior.data[2], behavior.data[6], behavior.data[7], behavior.data[8]);
+                    debug!("x: {}, y: {}, z: {}, v0: {}, v1: {}, v2: {}", new_position.x, new_position.y, new_position.z, rotation.x, rotation.y, rotation.z);
+                    behavior.data.drain(0..DATA_ARR_WIDTH);
+                    
+                    self.set_position(new_position);
+                } else {
+                    debug!("Entity has run out of data and is stalling at last known transform");
+                }
+
             }
 
             // Rotate item at constant speed

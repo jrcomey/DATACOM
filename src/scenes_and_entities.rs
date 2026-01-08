@@ -4,7 +4,7 @@ use std::rc::Rc;
 use std::cell::RefCell;
 use std::sync::Arc;
 use std::path::Path;
-use std::fs::OpenOptions;
+use std::fs::{self, OpenOptions};
 use std::io::{Read, Seek, Write};
 use log::{debug, info, error};
 use cgmath::{EuclideanSpace, InnerSpace};
@@ -16,11 +16,12 @@ use crate::{model, com, text};
 use model::DrawModel;
 use text::{TextDisplay};
 
-const DATA_ARR_WIDTH: usize = 9;
+const DATA_ARR_WIDTH: usize = 12;
 const AVERAGE_REFRESH_RATE: usize = 16;
 const NUM_CAPTURE_BUFFERS: usize = 3;
 const BYTES_PER_PIXEL: u32 = 4;
-const FLOAT_SIZE: usize = std::mem::size_of::<f32>();
+const F32_SIZE: usize = std::mem::size_of::<f32>();
+const F64_SIZE: usize = std::mem::size_of::<f64>();
 const CHUNK_LENGTH: u64 = 1024;
 
 #[derive(Debug, Copy, Clone)]
@@ -125,32 +126,46 @@ impl Behavior {
                 .write(true)
                 .open(target_file_path)
                 .unwrap();
+
             let mut byte_buffer = [0; CHUNK_LENGTH as usize];
-            debug!("attempting to read from {}", path_str);
-            file.read(&mut byte_buffer).unwrap();
-            let mut float_buffer = [0.0; CHUNK_LENGTH as usize / std::mem::size_of::<f32>()];
+            let num_bytes_read = file.read(&mut byte_buffer).unwrap();
+            if num_bytes_read == 0 {
+                debug!("could not find any bytes to read");
+                return;
+            }
+
+            debug!("byte buffer: {:?}", byte_buffer);
+            let mut float_buffer = [0.0; CHUNK_LENGTH as usize / F32_SIZE];
             let mut i = 0usize;
             while i < float_buffer.len() {
-                debug!("byte buffer len = {}", byte_buffer.len());
-                debug!("attempting to slice from {} to {}", FLOAT_SIZE*i, FLOAT_SIZE*(i+1));
+                // debug!("byte buffer len = {}", byte_buffer.len());
+                // debug!("attempting to slice from {} to {}", FLOAT_SIZE*i, FLOAT_SIZE*(i+1));
                 // let bytes_raw = byte_buffer[FLOAT_SIZE*i..(FLOAT_SIZE+1)*i];
-                let bytes: [u8; FLOAT_SIZE] = byte_buffer[FLOAT_SIZE*i..FLOAT_SIZE*(i+1)].try_into().unwrap();
+                let bytes: [u8; F32_SIZE] = byte_buffer[F32_SIZE*i..F32_SIZE*(i+1)].try_into().unwrap();
                 float_buffer[i] = f32::from_ne_bytes(bytes);
                 i += 1;
             }
 
-            self.data.extend_from_slice(&float_buffer);
-            // behavior.data.extend_from_slice(&float_buffer);
+            debug!("adding {:?} to entity data", &float_buffer[0..num_bytes_read / F32_SIZE]);
+            self.data.extend_from_slice(&float_buffer[0..num_bytes_read / F32_SIZE]);
+            // debug!("data = {:?}", &self.data);
 
             
             // delete the chunk from the file
             let temp_path = target_file_path.with_extension("tmp");
             let mut temp_file = std::fs::File::create(&temp_path).unwrap();
+            let metadata = fs::metadata(&target_file_path).unwrap();
+            let file_len = metadata.len();
+            debug!("file length before deleting chunk: {file_len}");
 
-            file.seek(std::io::SeekFrom::Start(CHUNK_LENGTH));
-            std::io::copy(&mut file, &mut temp_file);
-            temp_file.sync_all();
-            std::fs::rename(&temp_path, target_file_path);
+            file.seek(std::io::SeekFrom::Start(num_bytes_read as u64)).unwrap();
+            std::io::copy(&mut file, &mut temp_file).unwrap();
+            temp_file.sync_all().unwrap();
+            std::fs::rename(&temp_path, target_file_path).unwrap();
+            let metadata = fs::metadata(&target_file_path).unwrap();
+            let file_len = metadata.len();
+            debug!("file length before deleting chunk: {file_len}");
+
         }
     }
 }
@@ -368,12 +383,18 @@ impl Entity {
                 let data_len = behavior.data.len();
                 debug!("counter = {}, data len = {}", counter, data_len);
 
-                let new_position = Point3::<f32>::new(behavior.data[counter], behavior.data[counter+1], behavior.data[counter+2]);
-                let rotation = Vector3::<f32>::new(behavior.data[counter+6], behavior.data[counter+7], behavior.data[counter+8]);
+                // let new_position = Point3::<f32>::new(behavior.data[counter], behavior.data[counter+1], behavior.data[counter+2]);
+                // let rotation = Vector3::<f32>::new(behavior.data[counter+6], behavior.data[counter+7], behavior.data[counter+8]);
+                let new_position = Point3::<f32>::new(behavior.data[0], behavior.data[1], behavior.data[2]);
+                let rotation = Vector3::<f32>::new(behavior.data[6], behavior.data[7], behavior.data[8]);
                 self.rotation = Quaternion::from_sv(1.0, rotation);
+                // debug!("x: {}, y: {}, z: {}, v0: {}, v1: {}, v2: {}", behavior.data[0], behavior.data[1], behavior.data[2], behavior.data[6], behavior.data[7], behavior.data[8]);
+                debug!("x: {}, y: {}, z: {}, v0: {}, v1: {}, v2: {}", new_position.x, new_position.y, new_position.z, rotation.x, rotation.y, rotation.z);
+                behavior.data.drain(0..DATA_ARR_WIDTH);
 
-                if counter+DATA_ARR_WIDTH >= data_len / 2 {
+                if data_len < (CHUNK_LENGTH as usize) * DATA_ARR_WIDTH {
                     // self.behaviors[behavior_index].data.drain(0..counter+DATA_ARR_WIDTH);
+                    debug!("data len of {} is less than threshold of {}", data_len, (CHUNK_LENGTH as usize) * DATA_ARR_WIDTH);
                     behavior.retrieve_data_chunk();
                 }
                 
@@ -508,11 +529,12 @@ impl Scene {
     pub fn run_behaviors(&mut self) {
         for entity in &mut self.entities {
             entity.run_behaviors(self.data_counter);
-            if let Some(c) = self.data_counter {
-                // self.data_counter = Some(c + DATA_ARR_WIDTH * AVERAGE_REFRESH_RATE);
-                self.data_counter = Some(c + DATA_ARR_WIDTH);
-                debug!("data counter is now {}", self.data_counter.unwrap());
-            }
+        }
+        
+        if let Some(c) = self.data_counter {
+            // self.data_counter = Some(c + DATA_ARR_WIDTH * AVERAGE_REFRESH_RATE);
+            self.data_counter = Some(c + DATA_ARR_WIDTH);
+            debug!("data counter is now {}", self.data_counter.unwrap());
         }
     }
 

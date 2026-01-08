@@ -249,11 +249,12 @@ pub async fn run_scene_from_network(args: Vec<String>){
 
     // files that the receiver is getting data about and writing to
     let mut active_files: HashMap<u64, com::FileInfo> = HashMap::new();
+    let mut buf: Vec<u8> = Vec::new();
     
     // initial file transfer
     loop {
         // debug!("active files len = {}", active_files.len());
-        if com::receive_file(&rx, &mut active_files){
+        if com::receive_file(&rx, &mut active_files, &mut buf){
             break;
         }
     }
@@ -343,8 +344,8 @@ pub async fn run_scene_from_network(args: Vec<String>){
                 _ => {}
             }
             
-            debug!("reading streamed files...");
-            com::receive_file(&rx, &mut active_files);
+            debug!("M: reading streamed files...");
+            com::receive_file(&rx, &mut active_files, &mut buf);
         })
         .unwrap();
 

@@ -753,7 +753,7 @@ impl<'a> State<'a> {
         for viewport in &mut self.viewports {
             viewport.camera_controller.update_camera(dt);
             viewport.camera_uniform.update_view_proj(&viewport.camera_controller.camera(), &viewport.projection);
-            log::info!("{:?}", viewport.camera_uniform);
+            // log::info!("{:?}", viewport.camera_uniform);
         
             self.queue.write_buffer(
                 &viewport.camera_buffer,

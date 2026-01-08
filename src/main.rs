@@ -720,7 +720,7 @@ run event loop
 //     fn position_change() {
 //         let mut test_scene = scene_composer::test_scene();
 //         let pos_cmd = scenes_and_entities::Command::new(
-//             scenes_and_entities::CommandType::EntityChangePosition,
+//             scenes_and_entities::CommandType::EntityChangeTransform,
 //             vec![1.0, 1.0, 1.0]
 //         );
 //         assert_eq!(

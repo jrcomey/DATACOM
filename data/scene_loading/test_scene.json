@@ -1,5 +1,6 @@
 {
     "viewports": [],
+    "terrain": {},
     "entities": [
         {   
             "Name": "ATP-XW Blizzard",

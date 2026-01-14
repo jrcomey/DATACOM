@@ -454,6 +454,7 @@ impl Scene {
         entities: Vec<Entity>, 
         timesteps: Option<usize>, 
         data_counter: Option<usize>, 
+        terrain: model::Terrain,
         device: &wgpu::Device, 
         queue: &wgpu::Queue,
         format: &wgpu::TextureFormat,
@@ -469,8 +470,6 @@ impl Scene {
             NUM_CAPTURE_BUFFERS, 
             (Into::<u64>::into(BYTES_PER_PIXEL) * ((screen_width * screen_height) as u64)) as wgpu::BufferAddress
         );
-
-        let terrain = model::Terrain::new(cgmath::Vector3::<f32>::new(255.0, 0.0, 0.0), device);
 
         let screen_recordings = Vec::new();
 
@@ -665,6 +664,8 @@ impl Scene {
             entity_vec.push(entity);
         }
 
+        let terrain = model::Terrain::new(serde_json::Value::Null, &device);
+
         let num_entities = entity_vec.len();
         println!("LOADED {} ENTITIES INTO SCENE", num_entities);
 
@@ -677,6 +678,7 @@ impl Scene {
             entity_vec,
             timesteps,
             data_counter,
+            terrain,
             device,
             queue,
             format,
@@ -733,10 +735,11 @@ impl Scene {
         screen_width: u32,
         screen_height: u32,
     ) -> Scene {
-        let json: serde_json::Value = serde_json::from_str(&json_unparsed).unwrap();
+        let mut json: serde_json::Value = serde_json::from_str(&json_unparsed).unwrap();
         let timesteps = json["timesteps"].as_u64();
         let timesteps = timesteps.map(|e| e as usize);
         let data_counter = timesteps.map(|_| 0 as usize);
+        let terrain = model::Terrain::new(json["terrain"].take(), device);
 
         let entity_temp: Vec<_> = json["entities"]
             .as_array()
@@ -752,6 +755,7 @@ impl Scene {
             entity_vec,
             timesteps,
             data_counter,
+            terrain,
             device,
             queue,
             format,

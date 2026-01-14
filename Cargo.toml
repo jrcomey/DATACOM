@@ -26,3 +26,4 @@ anyhow = "1.0"
 pollster = "0.4.0"
 hdf5 = {package = "hdf5-metno", version = "0.10.0", features = ["static"]}
 ndarray = "0.16.1"
+tempfile = "3.24.0"

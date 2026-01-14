@@ -1,3 +1,4 @@
+use serde_derive::Deserialize;
 use wgpu::util::DeviceExt;
 use cgmath::{EuclideanSpace, InnerSpace, SquareMatrix};
 
@@ -323,6 +324,22 @@ impl Axes {
     }
 }
 
+#[derive(Deserialize, Default)]
+struct TerrainConfig {
+    #[serde(default="default_terrain_z_pos")]
+    z_pos: f32,
+    
+    #[serde(default="default_terrain_width")]
+    width: u32,
+
+    #[serde(default="default_terrain_color")]
+    color: [f32; 3],
+}
+
+fn default_terrain_z_pos() -> f32 { -3.0 }
+fn default_terrain_width() -> u32 { 1000 }
+fn default_terrain_color() -> [f32; 3] { [1.0, 0.0, 0.0] }
+
 pub struct Terrain {
     // position: Rc<RefCell<Point3<f32>>>,
     vertex_buffer: wgpu::Buffer,
@@ -331,73 +348,29 @@ pub struct Terrain {
 }
 
 impl Terrain {
-    // for when render pipeline's topology was on TriangleList
-    // pub fn new(color: cgmath::Vector3<f32>, device: &wgpu::Device) -> Self {
-    //     let color_arr = [color[0], color[1], color[2]];
-    //     let mut vertices: Vec<ModelVertex> = vec![];
-        
-    //     let w: u32 = 100;
-    //     let min: i32 = w as i32 /-2;
-    //     let max = (w as i32 - 1) / 2;
-    //     // println!("min = {}, max = {}", min, max);
-    //     for i in min..max+1 {
-    //         for j in min..max+1 {
-    //             // println!("adding vertex ({}, {})", i, j);
-    //             vertices.push(ModelVertex{ position: [i as f32, j as f32, -3.0], color: color_arr });
-    //         }
-    //     }
-
-    //     let mut indices: Vec<u32> = vec![];
-    //     let num_vertices = vertices.len() as u32;
-    //     // println!("num vertices = {}", num_vertices);
-
-    //     let mut i: u32 = 0;
-    //     while i+w+1 < num_vertices {
-    //         let tl = i;
-    //         let tr = i+1;
-    //         let bl = i+w;
-    //         let br = i+w+1;
-    //         // println!("adding {}, {}, {}, {}, {}, {}", tl, bl, br, br, tr, tl);
-    //         indices.extend_from_slice(&[tl, bl, br, br, tr, tl]);
-    //         i += 1;
-    //         if i % w == w-1 {
-    //             i += 1;
-    //             // println!("reached end of row. moving to index {}", i);
-    //         }
-    //     }
-
-    //     let num_indices = indices.len() as u32;
-
-    //     let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-    //         label: Some("Vertex Buffer"),
-    //         contents: bytemuck::cast_slice(&vertices),
-    //         usage: wgpu::BufferUsages::VERTEX,
-    //     });
-
-    //     let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-    //         label: Some("Index Buffer"),
-    //         contents: bytemuck::cast_slice(&indices),
-    //         usage: wgpu::BufferUsages::INDEX,
-    //     });
-
-    //     Terrain {
-    //         vertex_buffer,
-    //         index_buffer,
-    //         num_indices,
-    //     }
-    // }
-
     // TODO: could optimize this by drawing only 2w lines, though this implementation is more flexible and probably doesn't add much to the computation
-    pub fn new(color: cgmath::Vector3<f32>, device: &wgpu::Device) -> Self {
-        let color_arr = [color[0], color[1], color[2]];
-        let mut vertices: Vec<ModelVertex> = vec![];
+    pub fn new(json: serde_json::Value, device: &wgpu::Device) -> Self {
+        // let z_pos: f32 = json["z_pos"].as_f64().unwrap() as f32;
+        // let width: u32 = json["width"].as_u64().unwrap() as u32;
+        // let color_temp: Vec<&serde_json::Value> = json["color"]
+        //     .as_array()
+        //     .unwrap()
+        //     .into_iter()
+        //     .collect();
+        // let color_arr = [
+        //     color_temp[0].as_f64().unwrap() as f32,
+        //     color_temp[1].as_f64().unwrap() as f32,
+        //     color_temp[2].as_f64().unwrap() as f32,
+        // ];
 
-        let w: u32 = 1000;
-        let min: i32 = w as i32 / -2;
-        let max = (w as i32 - 1) / 2;
+        let config: TerrainConfig = serde_json::from_value(json).unwrap_or_default();
+
+        let mut vertices: Vec<ModelVertex> = vec![];
+        let min: i32 = config.width as i32 / -2;
+        let max = (config.width as i32 - 1) / 2;
         for i in min..max+1 {
             for j in min..max+1 {
-                vertices.push(ModelVertex { position:[i as f32, j as f32, -3.0], color: color_arr });
+                vertices.push(ModelVertex { position:[i as f32, j as f32, config.z_pos], color: config.color });
                 // println!("adding vertex at ({}, {})", i, j);
             }
         }
@@ -406,15 +379,15 @@ impl Terrain {
         let num_vertices = vertices.len() as u32;
 
         let mut i: u32 = 0;
-        while i+w+1 < num_vertices {
+        while i+config.width+1 < num_vertices {
             let tl = i;
             let tr = i+1;
-            let bl = i+w;
-            let br = i+w+1;
+            let bl = i+config.width;
+            let br = i+config.width+1;
             // println!("adding indices ({}, {}), ({}, {}), ({}, {}), ({}, {})", tl, tr, tr, br, br, bl, bl, tl);
             indices.extend_from_slice(&[tl, tr, tr, br, br, bl, bl, tl]);
             i += 1;
-            if i % w == w-1 {
+            if i % config.width == config.width-1 {
                 i += 1;
             }
         }

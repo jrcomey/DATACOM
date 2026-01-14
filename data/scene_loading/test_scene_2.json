@@ -1,5 +1,9 @@
 {
-    "timesteps": 10000,
+    "terrain": {
+        "z_pos": -3.0,
+        "width": 1000,
+        "color": [1.0, 0.0, 0.0]
+    },
     "entities": [
         {   
             "Name": "ATP-XW Blizzard",

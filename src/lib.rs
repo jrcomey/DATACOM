@@ -191,6 +191,7 @@ pub async fn run_scene_from_json(args: Vec<String>) {
                             let now = std::time::Instant::now();
                             let dt = now - last_render_time;
                             last_render_time = now;
+                            info!("dt = {:?}", dt);
                             state.update(dt, false);
 
                             match state.render(false) {

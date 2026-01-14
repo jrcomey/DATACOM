@@ -4,6 +4,7 @@
         "width": 1000,
         "color": [1.0, 0.0, 0.0]
     },
+    "timesteps": 0,
     "entities": [
         {   
             "Name": "ATP-XW Blizzard",

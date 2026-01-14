@@ -8,7 +8,7 @@ use std::cell::RefCell;
 use std::time::Duration;
 use std::collections::HashSet;
 
-use crate::scenes_and_entities::Entity;
+use crate::behaviors_and_entities::Entity;
 
 #[rustfmt::skip]
 pub const OPENGL_TO_WGPU_MATRIX: Matrix4<f32> = Matrix4::new(

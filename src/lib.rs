@@ -10,7 +10,8 @@ use std::fs::{File, remove_file};
 use std::path::Path;
 use std::io::{Read, Write};
 
-mod scenes_and_entities;
+mod behaviors_and_entities;
+mod scene;
 mod state;
 mod model;
 mod camera;

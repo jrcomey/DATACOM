@@ -9,7 +9,7 @@ use wgpu::{util::DeviceExt, TextureUsages};
 use cgmath::{Deg, Quaternion, Matrix4, Rotation3};
 
 use crate::model::ModelVertex;
-use crate::scenes_and_entities::Scene;
+use crate::scene::Scene;
 use crate::model;
 use crate::camera;
 use crate::text::GlyphVertex;

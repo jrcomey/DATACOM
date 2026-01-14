@@ -238,8 +238,8 @@ pub async fn run_scene_from_network(args: Vec<String>){
     let (tx, rx): (mpsc::Sender<Vec<u8>>, mpsc::Receiver<Vec<u8>>) = mpsc::channel();
     let listener_result = com::create_listener_thread(tx);
     let listener = listener_result.unwrap();
-    let sender_result = com::create_sender_thread("data/ports.toml".to_string());
-    let sender = sender_result.unwrap();
+    // let sender_result = com::create_sender_thread("data/ports.toml".to_string());
+    // let sender = sender_result.unwrap();
 
     // files that the receiver is getting data about and writing to
     let mut active_files: HashMap<u64, com::FileInfo> = HashMap::new();
@@ -248,9 +248,15 @@ pub async fn run_scene_from_network(args: Vec<String>){
     // initial file transfer
     loop {
         // debug!("active files len = {}", active_files.len());
-        if com::receive_file(&rx, &mut active_files, &mut buf){
+        if listener.is_finished() || com::receive_file(&rx, &mut active_files, &mut buf){
             break;
         }
+    }
+
+    if listener.is_finished() {
+        // clean up
+        remove_file("data/scene_loading/main_scene.json").unwrap();
+        panic!("listener thread terminated before event loop could start");
     }
 
     // run_scene_from_json(modified_args).await;
@@ -336,8 +342,8 @@ pub async fn run_scene_from_network(args: Vec<String>){
         })
         .unwrap();
 
-    // debug!("waiting for threads to wrap up");
-    // listener.join().unwrap();
+    debug!("waiting for threads to wrap up");
+    listener.join().unwrap();
     // debug!("Listener thread closed");
     // sender.join().unwrap();
     // debug!("Sender thread closed");

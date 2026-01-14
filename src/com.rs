@@ -334,7 +334,8 @@ fn send_streamed_test_data(mut stream: TcpStream){
         test_command_data.extend_from_slice(&buffer[0..bytes_read]);
         chunk_offset += bytes_read as u64;
 
-        info!("S: Sending streamed chunk to stream: {:?}", test_command_data);
+        info!("S: Sending streamed chunk to stream");
+        debug!("{:?}", test_command_data);
         thread::sleep(std::time::Duration::from_millis(10));
         stream.write_all(&test_command_data[..]).unwrap();
         stream.flush().unwrap();
@@ -445,7 +446,7 @@ pub fn create_listener_thread(tx: Sender<Vec<u8>>) -> Result<thread::JoinHandle<
         let mut addrs_iter = "localhost:8081".to_socket_addrs().unwrap();
         let addr = addrs_iter.next().unwrap();
         // thread::sleep(Duration::from_secs(1));
-        debug!("listener: attempting to connect to TCP stream through {addr}");
+        info!("attempting to connect to TCP stream through {addr}");
 
         let start_time = std::time::Instant::now();
 
@@ -459,7 +460,7 @@ pub fn create_listener_thread(tx: Sender<Vec<u8>>) -> Result<thread::JoinHandle<
                 panic!("Error: thread timed out while trying to connect to TCP stream");
             }
         };
-        debug!("listener: established TcpStream connection");
+        info!("successfully connected to TCP stream on {addr}");
         
         stream.write_all(b"ACK").unwrap();
         stream.flush().unwrap();
@@ -468,15 +469,13 @@ pub fn create_listener_thread(tx: Sender<Vec<u8>>) -> Result<thread::JoinHandle<
             let packet = from_network(&stream);
             // debug!("Packet: {}", packet);
             // if !packet.starts_with("Error"){
-            if true {
-                // scene_reference.write().unwrap().bhvr_msg_str(&packet.as_str());
-                // debug!("Sending packet through tx");
-                let send_result = tx.send(packet.to_vec());
-                match send_result {
-                    Ok(_) => {},
-                    Err(e) => {
-                        debug!("Error attempting to send packet: {}", e);
-                    }
+            // scene_reference.write().unwrap().bhvr_msg_str(&packet.as_str());
+            // debug!("Sending packet through tx");
+            let send_result = tx.send(packet.to_vec());
+            match send_result {
+                Ok(_) => {},
+                Err(e) => {
+                    debug!("Error attempting to send packet: {}", e);
                 }
             }
         }

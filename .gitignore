@@ -5,3 +5,5 @@
 *.mp4
 *.txt
 tmp.py
+data/scene_loading/entity_pos.bin
+data/scene_loading/main_scene.json

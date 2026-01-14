@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use log::{info, debug};
 use std::fs::{File, remove_file};
 use std::path::Path;
-use std::io::{Read, Write};
+use std::io::Write;
 
 mod behaviors_and_entities;
 mod scene;
@@ -245,7 +245,7 @@ pub async fn run_scene_from_network(args: Vec<String>){
     // TODO: change to something more generic
     let scene_file_string = String::from("data/scene_loading/main_scene.json");
     let scene_file = scene_file_string.as_str();
-    create_and_clear_file(scene_file);
+    behaviors_and_entities::create_and_clear_file(scene_file);
 
     let (tx, rx): (mpsc::Sender<Vec<u8>>, mpsc::Receiver<Vec<u8>>) = mpsc::channel();
     let listener_result = com::create_listener_thread(tx);
@@ -358,16 +358,4 @@ pub async fn run_scene_from_network(args: Vec<String>){
     // debug!("Sender thread closed");
 
     _ = remove_file("data/scene_loading/main_scene.json");
-}
-
-fn create_and_clear_file(file_name: &str) {
-    let path = Path::new(file_name);
-    let mut file = std::fs::OpenOptions::new()
-        .create(true)
-        .truncate(true)
-        .write(true)
-        .open(path)
-        .unwrap();
-    debug!("clearing {file_name}");
-    writeln!(file, "").unwrap();
 }

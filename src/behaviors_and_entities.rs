@@ -8,6 +8,7 @@ use std::io::{Read, Seek};
 use log::{debug, info, error};
 use cgmath::{EuclideanSpace, InnerSpace};
 use ndarray::{ArrayBase, OwnedRepr, Dim};
+use std::io::Write;
 
 use crate::model;
 
@@ -18,6 +19,18 @@ const AVERAGE_REFRESH_RATE: usize = 16;
 const F32_SIZE: usize = std::mem::size_of::<f32>();
 const F64_SIZE: usize = std::mem::size_of::<f64>();
 const CHUNK_LENGTH: u64 = 1024;
+
+pub fn create_and_clear_file(file_name: &str) {
+    let path = Path::new(file_name);
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(true)
+        .write(true)
+        .open(path)
+        .unwrap();
+    debug!("clearing {file_name}");
+    writeln!(file, "").unwrap();
+}
 
 #[derive(Debug, Copy, Clone)]
 pub enum BehaviorType {
@@ -86,6 +99,7 @@ impl Behavior {
             let mut path = data_temp.remove(0).to_string();
             path = path[1..path.len()-1].to_string();
             path.insert_str(0, "data/scene_loading/");
+            create_and_clear_file(path.as_str());
             debug!("cropped path to {}", path);
             Some(path)
         } else {

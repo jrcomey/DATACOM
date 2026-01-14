@@ -230,18 +230,6 @@ pub async fn run_scene_from_json(args: Vec<String>) {
 pub async fn run_scene_from_network(args: Vec<String>){
     debug!("Running lib.rs::run_scene_from_network()");
 
-    // get list of acceptable ports from file
-    // this part isn't fully implemented, so we just create a basic toml with the localhost port inside
-    let toml_name = "ports";
-    let file_name_string = format!("{}{}", toml_name, ".toml");
-    let file_name_string_clone = file_name_string.clone();
-    let file_name = file_name_string.as_str();
-    let file_path = Path::new(file_name);
-    let mut file = File::create(&file_path).unwrap();
-    let ports_str = "[servers]
-    \"localhost\" = [8081]";
-    _ = writeln!(file, "{}", ports_str);
-
     // TODO: change to something more generic
     let scene_file_string = String::from("data/scene_loading/main_scene.json");
     let scene_file = scene_file_string.as_str();
@@ -250,7 +238,7 @@ pub async fn run_scene_from_network(args: Vec<String>){
     let (tx, rx): (mpsc::Sender<Vec<u8>>, mpsc::Receiver<Vec<u8>>) = mpsc::channel();
     let listener_result = com::create_listener_thread(tx);
     let listener = listener_result.unwrap();
-    let sender_result = com::create_sender_thread(file_name_string_clone);
+    let sender_result = com::create_sender_thread("data/ports.toml".to_string());
     let sender = sender_result.unwrap();
 
     // files that the receiver is getting data about and writing to
@@ -264,9 +252,6 @@ pub async fn run_scene_from_network(args: Vec<String>){
             break;
         }
     }
-
-    _ = remove_file(&file_path);
-
 
     // run_scene_from_json(modified_args).await;
 

@@ -70,6 +70,9 @@ fn main() {
             // assume user wants the scene constructed from a TCP connection
             pollster::block_on(run_scene_from_network(args));
         }
+    } else {
+        // assume user wants the scene constructed from a TCP connection
+        pollster::block_on(run_scene_from_network(args));
     }
 }
 

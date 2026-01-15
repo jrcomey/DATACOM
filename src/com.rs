@@ -430,7 +430,29 @@ pub fn create_sender_thread(file: String) -> Result<thread::JoinHandle<()>, std:
     Ok(handle)
 }
 
-pub fn create_listener_thread(tx: Sender<Vec<u8>>) -> Result<thread::JoinHandle<()>, std::io::Error>{
+fn connect_to_ip_addr(addrs: &[SocketAddr], timeout: std::time::Duration) -> std::io::Result<TcpStream> {
+    let mut last_err: Option<std::io::Error> = None;
+    for addr in addrs {
+        info!("attempting to connect to TCP stream through {addr}");
+        match TcpStream::connect_timeout(addr, timeout) {
+            Ok(stream) => {
+                info!("Connected to {}", addr);
+                return Ok(stream)
+            }
+            Err(e) => {
+                last_err = Some(e);
+            }
+        }
+    }
+
+    Err(last_err.unwrap_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput, "Could not connect to any valid IP address"
+        )
+    }))
+}
+
+pub fn create_listener_thread(tx: Sender<Vec<u8>>, file: String) -> Result<thread::JoinHandle<()>, std::io::Error>{
     /*
     get addr
     stream = TcpStream::connect(addr)
@@ -443,24 +465,17 @@ pub fn create_listener_thread(tx: Sender<Vec<u8>>) -> Result<thread::JoinHandle<
 
      */
     let handle = thread::Builder::new().name("listener thread".to_string()).spawn(move || {
-        let mut addrs_iter = "localhost:8081".to_socket_addrs().unwrap();
-        let addr = addrs_iter.next().unwrap();
+        let ports = get_ports(file.as_str()).unwrap();
+        let addrs_iter = &(ports[..]);
+        let timeout = std::time::Duration::from_secs(2);
+        // let mut addrs_iter = "localhost:8081".to_socket_addrs().unwrap();
+        // let addr = addrs_iter.next().unwrap();
         // thread::sleep(Duration::from_secs(1));
-        info!("attempting to connect to TCP stream through {addr}");
 
-        let start_time = std::time::Instant::now();
+        // let start_time = std::time::Instant::now();
 
-        let mut stream = loop {
-            let stream_result = TcpStream::connect(addr);
-            if let Ok(s) = stream_result {
-                break s
-            }
-
-            if has_timed_out(start_time) {
-                panic!("Error: thread timed out while trying to connect to TCP stream");
-            }
-        };
-        info!("successfully connected to TCP stream on {addr}");
+        let stream_result = connect_to_ip_addr(addrs_iter, timeout);
+        let mut stream = stream_result.unwrap();
         
         stream.write_all(b"ACK").unwrap();
         stream.flush().unwrap();
@@ -960,15 +975,16 @@ irrelevant = content";
         let (tx, rx) = mpsc::channel();
 
         let file_name_string = format!("{}{}", toml_name, ".toml");
-        let file_name_string_clone = file_name_string.clone();
+        let file_name_string_listener = file_name_string.clone();
+        let file_name_string_sender = file_name_string.clone();
         let file_name = file_name_string.as_str();
         let file_path = Path::new(file_name);
         let mut file = File::create(&file_path).unwrap();
         _ = writeln!(file, "{}", toml_contents);
 
-        let listener = create_listener_thread(tx);
+        let listener = create_listener_thread(tx, file_name_string_listener);
         listener.unwrap();
-        let sender = create_sender_thread(file_name_string_clone);
+        let sender = create_sender_thread(file_name_string_sender);
         sender.unwrap();
         // let join_result = handle.join();
         let start_time = std::time::Instant::now();
@@ -1003,60 +1019,5 @@ irrelevant = content";
         let toml_contents = "[somethingelse]
 irrelevant = content";
         create_listener_thread_template(toml_name, toml_contents);
-    }
-
-    #[test]
-    fn send_chunk(){
-        /*
-            sender:
-            get file path
-            msg type
-            file id
-            file name
-            file name length
-            is definite
-            send file start frame
-
-            msg type
-            chunk offset
-            chunk length
-            get chunk from file
-            send chunk frame
-
-            msg type
-            file id
-            send file end
-
-            msg type
-            send transmission end
-
-
-            listener:
-            get msg type
-            create file metadata
-            read chunk
-            assert at end
-         */
-
-        // create test file
-        let data = "";
-        let file_name = "";
-        let path = Path::new(file_name);
-        let mut file = File::create(&path).unwrap();
-        writeln!(file, "{}", data).unwrap();
-
-
-        // set up testing elements
-        let (tx, rx): (mpsc::Sender<Vec<u8>>, mpsc::Receiver<Vec<u8>>) = mpsc::channel();
-        let sender = create_sender_thread(file_name.to_string()).unwrap();
-        let listener = create_listener_thread(tx).unwrap();
-        let mut active_files: HashMap<u64, FileInfo> = HashMap::new();
-        let mut buf: Vec<u8> = Vec::new();
-
-        
-        let test_command_data_main = fs::read_to_string(path).unwrap();
-        let data_len = test_command_data_main.len();
-
-        remove_file(&path).unwrap();
     }
 }

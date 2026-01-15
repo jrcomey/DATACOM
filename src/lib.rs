@@ -236,7 +236,7 @@ pub async fn run_scene_from_network(args: Vec<String>){
     behaviors_and_entities::create_and_clear_file(scene_file);
 
     let (tx, rx): (mpsc::Sender<Vec<u8>>, mpsc::Receiver<Vec<u8>>) = mpsc::channel();
-    let listener_result = com::create_listener_thread(tx);
+    let listener_result = com::create_listener_thread(tx, "data/ports.toml".to_string());
     let listener = listener_result.unwrap();
     // let sender_result = com::create_sender_thread("data/ports.toml".to_string());
     // let sender = sender_result.unwrap();

@@ -107,7 +107,6 @@ pub struct Model {
     pub name: String,
     pub obj: Mesh,
     pub position: cgmath::Point3<f32>,
-    pub orientation: cgmath::Quaternion<f32>,
     pub rotation: cgmath::Quaternion<f32>,
     pub color: cgmath::Vector3<f32>,
     pub uniform_buffer: wgpu::Buffer,
@@ -120,7 +119,6 @@ impl Model {
         filepath: &str, 
         device: &wgpu::Device,
         position: cgmath::Point3<f32>, 
-        orientation: cgmath::Quaternion<f32>, 
         rotation: cgmath::Quaternion<f32>, 
         color: cgmath::Vector3<f32>,
         bind_group_layout: &wgpu::BindGroupLayout,
@@ -148,7 +146,6 @@ impl Model {
             name: name.to_string(),
             obj: mesh,
             position: position,
-            orientation: orientation,
             rotation: rotation,
             color: color,
             uniform_buffer: model_uniform_buffer,
@@ -188,16 +185,6 @@ impl Model {
             position_vec[i] = position.as_f64().unwrap() as f32;
         }
 
-        let orientation_temp: Vec<_> = json["Orientation"]
-            .as_array()
-            .unwrap()
-            .into_iter()
-            .collect();
-        let mut orientation_vec = cgmath::Vector3::<f32>::new(0.0, 0.0, 0.0);
-        for (i, orientation_comp) in orientation_temp.iter().enumerate() {
-            orientation_vec[i] = orientation_comp.as_f64().unwrap() as f32;
-        }
-
         let rotation_temp: Vec<_> = json["Rotation"]
             .as_array()
             .unwrap()
@@ -220,7 +207,6 @@ impl Model {
 
         // debug!("NAME: {}", name);
         // debug!("POSITION: {}", position_vec);
-        // debug!("ORIENTATION: {}", orientation_vec);
         // debug!("ROTATION: {}", rotation_vec);
         // debug!("COLOR: {}", color_vec);
 
@@ -229,7 +215,6 @@ impl Model {
             filepath,
             device,
             position_vec,
-            cgmath::Quaternion::from_sv(1.0, orientation_vec),
             cgmath::Quaternion::from_sv(1.0, rotation_vec),
             color_vec,
             model_bind_group_layout,

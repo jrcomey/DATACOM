@@ -79,16 +79,16 @@ impl FileInfo {
         let mut counter = 0usize;
 
         let message_type_bytes: [u8; MESSAGE_TYPE_BYTE_WIDTH] = buf[counter..counter+MESSAGE_TYPE_BYTE_WIDTH].try_into().unwrap();
-        let message_type_num: u16 = u16::from_le_bytes(message_type_bytes);
+        let message_type_num: u16 = u16::from_be_bytes(message_type_bytes);
         let message_type: MessageType = MessageType::get_from_bytes(message_type_num);
         counter += MESSAGE_TYPE_BYTE_WIDTH;
 
         let id_bytes: [u8; FILE_ID_BYTE_WIDTH] = buf[counter..counter+FILE_ID_BYTE_WIDTH].try_into().unwrap();
-        let id = u64::from_le_bytes(id_bytes);
+        let id = u64::from_be_bytes(id_bytes);
         counter += FILE_ID_BYTE_WIDTH;
 
         let name_length_bytes: [u8; FILE_NAME_LENGTH_BYTE_WIDTH] = buf[counter..counter+FILE_NAME_LENGTH_BYTE_WIDTH].try_into().unwrap();
-        let name_length = u8::from_le_bytes(name_length_bytes);
+        let name_length = u8::from_be_bytes(name_length_bytes);
         let name_length_usize = name_length as usize;
         counter += FILE_NAME_LENGTH_BYTE_WIDTH;
 
@@ -97,11 +97,11 @@ impl FileInfo {
         counter += MAX_FILE_NAME_BYTE_WIDTH;
 
         let file_length_bytes: [u8; FILE_LENGTH_BYTE_WIDTH] = buf[counter..counter+FILE_LENGTH_BYTE_WIDTH].try_into().unwrap();
-        let file_length = u32::from_le_bytes(file_length_bytes);
+        let file_length = u32::from_be_bytes(file_length_bytes);
         counter += FILE_LENGTH_BYTE_WIDTH;
 
         let is_definite_bytes: [u8; IS_DEFINITE_FILE_BYTE_WIDTH] = buf[counter..counter+IS_DEFINITE_FILE_BYTE_WIDTH].try_into().unwrap();
-        let is_definite_byte = u8::from_le_bytes(is_definite_bytes);
+        let is_definite_byte = u8::from_be_bytes(is_definite_bytes);
         let is_definite = is_definite_byte != 0;
         counter += IS_DEFINITE_FILE_BYTE_WIDTH;
 
@@ -208,11 +208,11 @@ fn send_finite_test_data(mut stream: TcpStream){
     let file_len = test_command_data_main.len() as u32;
 
     let mut test_command_data: Vec<u8> = Vec::new();
-    test_command_data.extend_from_slice(&message_type.to_le_bytes());
-    test_command_data.extend_from_slice(&file_id.to_le_bytes());
+    test_command_data.extend_from_slice(&message_type.to_be_bytes());
+    test_command_data.extend_from_slice(&file_id.to_be_bytes());
     test_command_data.extend_from_slice(&[file_name_length]);
     test_command_data.extend_from_slice(&file_name);
-    test_command_data.extend_from_slice(&file_len.to_le_bytes());
+    test_command_data.extend_from_slice(&file_len.to_be_bytes());
     test_command_data.extend_from_slice(&[1u8]);
 
     info!("Sending file start frame to stream");
@@ -227,9 +227,9 @@ fn send_finite_test_data(mut stream: TcpStream){
     let chunk_length_default = 1024u32;
     while (chunk_offset as usize) < data_len {
         test_command_data.clear();
-        test_command_data.extend_from_slice(&message_type.to_le_bytes());
-        test_command_data.extend_from_slice(&file_id.to_le_bytes());
-        test_command_data.extend_from_slice(&chunk_offset.to_le_bytes());
+        test_command_data.extend_from_slice(&message_type.to_be_bytes());
+        test_command_data.extend_from_slice(&file_id.to_be_bytes());
+        test_command_data.extend_from_slice(&chunk_offset.to_be_bytes());
 
         let chunk_offset_usize = chunk_offset as usize;
 
@@ -239,7 +239,7 @@ fn send_finite_test_data(mut stream: TcpStream){
             chunk_length_default
         };
 
-        test_command_data.extend_from_slice(&chunk_length.to_le_bytes());
+        test_command_data.extend_from_slice(&chunk_length.to_be_bytes());
         let max_bound = chunk_offset_usize+chunk_length as usize;
         debug!("indexing data from {} to {} out of {}", chunk_offset, max_bound, data_len);
         let payload = test_command_data_main[chunk_offset_usize..max_bound].as_bytes();
@@ -247,7 +247,7 @@ fn send_finite_test_data(mut stream: TcpStream){
         chunk_offset += chunk_length as u64;
 
         let checksum = crc32fast::hash(payload);
-        let checksum_bytes = checksum.to_le_bytes();
+        let checksum_bytes = checksum.to_be_bytes();
         test_command_data.extend_from_slice(&checksum_bytes);
 
         debug!("Sending finite chunk to stream: {:?}", test_command_data);
@@ -258,8 +258,8 @@ fn send_finite_test_data(mut stream: TcpStream){
 
     let message_type = 2u16;
     test_command_data.clear();
-    test_command_data.extend_from_slice(&message_type.to_le_bytes());
-    test_command_data.extend_from_slice(&file_id.to_le_bytes());
+    test_command_data.extend_from_slice(&message_type.to_be_bytes());
+    test_command_data.extend_from_slice(&file_id.to_be_bytes());
 
     info!("Sending file end to stream");
     debug!("{:?}", test_command_data);
@@ -269,7 +269,7 @@ fn send_finite_test_data(mut stream: TcpStream){
 
     let message_type = 4u16;
     test_command_data.clear();
-    test_command_data.extend_from_slice(&message_type.to_le_bytes());
+    test_command_data.extend_from_slice(&message_type.to_be_bytes());
 
     info!("Sending transmission end to stream");
     debug!("{:?}", test_command_data);
@@ -288,11 +288,11 @@ fn send_streamed_test_data(mut stream: TcpStream){
     let file_len = 0u32;
 
     let mut test_command_data: Vec<u8> = Vec::new();
-    test_command_data.extend_from_slice(&message_type.to_le_bytes());
-    test_command_data.extend_from_slice(&file_id.to_le_bytes());
+    test_command_data.extend_from_slice(&message_type.to_be_bytes());
+    test_command_data.extend_from_slice(&file_id.to_be_bytes());
     test_command_data.extend_from_slice(&[file_name_length]);
     test_command_data.extend_from_slice(&file_name);
-    test_command_data.extend_from_slice(&file_len.to_le_bytes());
+    test_command_data.extend_from_slice(&file_len.to_be_bytes());
     test_command_data.extend_from_slice(&[0u8]);
 
     info!("S: Sending file start frame to stream");
@@ -304,7 +304,7 @@ fn send_streamed_test_data(mut stream: TcpStream){
 
     // let message_type = 4u16;
     // test_command_data.clear();
-    // test_command_data.extend_from_slice(&message_type.to_le_bytes());
+    // test_command_data.extend_from_slice(&message_type.to_be_bytes());
 
     // info!("Sending transmission end to stream");
     // thread::sleep(Duration::from_millis(10));
@@ -335,12 +335,12 @@ fn send_streamed_test_data(mut stream: TcpStream){
         let checksum = crc32fast::hash(payload);
 
         test_command_data.clear();
-        test_command_data.extend_from_slice(&message_type.to_le_bytes());
-        test_command_data.extend_from_slice(&file_id.to_le_bytes());
-        test_command_data.extend_from_slice(&chunk_offset.to_le_bytes());
-        test_command_data.extend_from_slice(&(bytes_read as u32).to_le_bytes());
+        test_command_data.extend_from_slice(&message_type.to_be_bytes());
+        test_command_data.extend_from_slice(&file_id.to_be_bytes());
+        test_command_data.extend_from_slice(&chunk_offset.to_be_bytes());
+        test_command_data.extend_from_slice(&(bytes_read as u32).to_be_bytes());
         test_command_data.extend_from_slice(&payload);
-        test_command_data.extend_from_slice(&checksum.to_le_bytes());
+        test_command_data.extend_from_slice(&checksum.to_be_bytes());
         chunk_offset += bytes_read as u64;
 
         info!("S: Sending streamed chunk to stream");
@@ -354,15 +354,15 @@ fn send_streamed_test_data(mut stream: TcpStream){
 
     // loop {
     //     test_command_data.clear();
-    //     test_command_data.extend_from_slice(&message_type.to_le_bytes());
-    //     test_command_data.extend_from_slice(&file_id.to_le_bytes());
-    //     test_command_data.extend_from_slice(&chunk_offset.to_le_bytes());
+    //     test_command_data.extend_from_slice(&message_type.to_be_bytes());
+    //     test_command_data.extend_from_slice(&file_id.to_be_bytes());
+    //     test_command_data.extend_from_slice(&chunk_offset.to_be_bytes());
 
-    //     test_command_data.extend_from_slice(&chunk_length.to_le_bytes());
+    //     test_command_data.extend_from_slice(&chunk_length.to_be_bytes());
     //     let nums = counter..counter + chunk_length as usize;
     //     let range_bytes = nums
     //         .map(|i| i as f32)
-    //         .flat_map(|i| i.to_le_bytes()) // Convert each number to a String
+    //         .flat_map(|i| i.to_be_bytes()) // Convert each number to a String
     //         .collect::<Vec<u8>>(); // Collect into a vector of Strings
     //     test_command_data.extend_from_slice(&range_bytes);
     //     chunk_offset += chunk_length as u64;
@@ -586,10 +586,10 @@ fn receive_file_chunk(rx: &Receiver<Vec<u8>>, buf: &mut Vec<u8>, start_time: std
         .unwrap();
     debug!("L: parsed chunk metadata");
 
-    let file_id = u64::from_le_bytes(file_id_bytes);
-    let chunk_offset = u64::from_le_bytes(chunk_offset_bytes);
+    let file_id = u64::from_be_bytes(file_id_bytes);
+    let chunk_offset = u64::from_be_bytes(chunk_offset_bytes);
     let chunk_offset_us = chunk_offset as usize;
-    let chunk_length = u32::from_le_bytes(chunk_length_bytes) as usize;
+    let chunk_length = u32::from_be_bytes(chunk_length_bytes) as usize;
     debug!("L: ID = {}, offset = {}, length = {}", file_id, chunk_offset_us, chunk_length);
 
     let file_data = active_files.get_mut(&file_id).expect("invalid file");
@@ -606,7 +606,7 @@ fn receive_file_chunk(rx: &Receiver<Vec<u8>>, buf: &mut Vec<u8>, start_time: std
     let checksum_bytes: [u8; CHECKSUM_WIDTH] = buf[CHUNK_METADATA_BYTE_WIDTH+chunk_length..CHUNK_METADATA_BYTE_WIDTH+chunk_length+CHECKSUM_WIDTH]
         .try_into()
         .unwrap();
-    let checksum_actual = u32::from_le_bytes(checksum_bytes);
+    let checksum_actual = u32::from_be_bytes(checksum_bytes);
     let checksum_expected = crc32fast::hash(payload);
     debug!("checking expected checksum {} against actual checksum {}", checksum_expected, checksum_actual);
     assert!(checksum_expected == checksum_actual);
@@ -656,7 +656,7 @@ fn finish_receiving_file(rx: &Receiver<Vec<u8>>, buf: &mut Vec<u8>, start_time: 
     let file_id_bytes: [u8; FILE_ID_BYTE_WIDTH] = buf[MESSAGE_TYPE_BYTE_WIDTH..MESSAGE_TYPE_BYTE_WIDTH+FILE_ID_BYTE_WIDTH]
         .try_into()
         .unwrap();
-    let file_id = u64::from_le_bytes(file_id_bytes);
+    let file_id = u64::from_be_bytes(file_id_bytes);
     let file_data = active_files.remove(&file_id).unwrap();
     let name = file_data.name();
     append_to_file(name, file_data.data.to_vec());
@@ -711,7 +711,7 @@ pub fn receive_file(rx: &Receiver<Vec<u8>>, active_files: &mut HashMap<u64, File
     }
 
     let message_type = MessageType::get_from_bytes(
-        u16::from_le_bytes(
+        u16::from_be_bytes(
             buf[0..MESSAGE_TYPE_BYTE_WIDTH]
             .try_into()
             .unwrap()

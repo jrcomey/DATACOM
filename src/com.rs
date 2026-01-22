@@ -10,7 +10,6 @@ use std::fs::{self, File, OpenOptions};
 use std::time::Duration;
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
-use ndarray::range;
 use toml::Value;
 use log::{debug, info};
 use std::sync::mpsc::Receiver;
@@ -33,9 +32,10 @@ const CHUNK_OFFSET_BYTE_WIDTH: usize = 8;
 const CHUNK_LENGTH_BYTE_WIDTH: usize = 4;
 const CHUNK_METADATA_BYTE_WIDTH: usize = MESSAGE_TYPE_BYTE_WIDTH + FILE_ID_BYTE_WIDTH + CHUNK_OFFSET_BYTE_WIDTH + CHUNK_LENGTH_BYTE_WIDTH;
 const FILE_END_METADATA_BYTE_WIDTH: usize = MESSAGE_TYPE_BYTE_WIDTH + FILE_ID_BYTE_WIDTH;
+const CHECKSUM_WIDTH: usize = 4;
 
 const SECONDS_UNTIL_TIMEOUT: u64 = 10;
-const TIMEOUT_THRESHOLD: std::time::Duration = std::time::Duration::from_secs(SECONDS_UNTIL_TIMEOUT);
+const TIMEOUT_THRESHOLD: Duration = Duration::from_secs(SECONDS_UNTIL_TIMEOUT);
 
 #[repr(u16)]
 #[derive(Debug)]
@@ -66,7 +66,7 @@ pub struct FileInfo {
     message_type: MessageType,
     id: u64,
     name_length: u8,
-    name: [u8; u8::max_value() as usize],
+    name: [u8; MAX_FILE_NAME_BYTE_WIDTH],
     is_definite: bool,
     length: u32,
     data: Box<[u8]>,
@@ -218,7 +218,7 @@ fn send_finite_test_data(mut stream: TcpStream){
     info!("Sending file start frame to stream");
     debug!("{:?}", test_command_data);
 
-    thread::sleep(std::time::Duration::from_millis(10));
+    thread::sleep(Duration::from_millis(10));
     stream.write_all(&test_command_data[..]).unwrap();
     stream.flush().unwrap();
     
@@ -242,11 +242,16 @@ fn send_finite_test_data(mut stream: TcpStream){
         test_command_data.extend_from_slice(&chunk_length.to_ne_bytes());
         let max_bound = chunk_offset_usize+chunk_length as usize;
         debug!("indexing data from {} to {} out of {}", chunk_offset, max_bound, data_len);
-        test_command_data.extend_from_slice(&test_command_data_main[chunk_offset_usize..max_bound].as_bytes());
+        let payload = test_command_data_main[chunk_offset_usize..max_bound].as_bytes();
+        test_command_data.extend_from_slice(payload);
         chunk_offset += chunk_length as u64;
 
+        let checksum = crc32fast::hash(payload);
+        let checksum_bytes = checksum.to_ne_bytes();
+        test_command_data.extend_from_slice(&checksum_bytes);
+
         debug!("Sending finite chunk to stream: {:?}", test_command_data);
-        thread::sleep(std::time::Duration::from_millis(10));
+        thread::sleep(Duration::from_millis(10));
         stream.write_all(&test_command_data[..]).unwrap();
         stream.flush().unwrap();
     }
@@ -258,7 +263,7 @@ fn send_finite_test_data(mut stream: TcpStream){
 
     info!("Sending file end to stream");
     debug!("{:?}", test_command_data);
-    thread::sleep(std::time::Duration::from_millis(10));
+    thread::sleep(Duration::from_millis(10));
     stream.write_all(&test_command_data[..]).unwrap();
     stream.flush().unwrap();
 
@@ -268,7 +273,7 @@ fn send_finite_test_data(mut stream: TcpStream){
 
     info!("Sending transmission end to stream");
     debug!("{:?}", test_command_data);
-    thread::sleep(std::time::Duration::from_millis(10));
+    thread::sleep(Duration::from_millis(10));
     stream.write_all(&test_command_data[..]).unwrap();
     stream.flush().unwrap();
 }
@@ -293,7 +298,7 @@ fn send_streamed_test_data(mut stream: TcpStream){
     info!("S: Sending file start frame to stream");
     debug!("{:?}", test_command_data);
 
-    thread::sleep(std::time::Duration::from_millis(10));
+    thread::sleep(Duration::from_millis(10));
     stream.write_all(&test_command_data[..]).unwrap();
     stream.flush().unwrap();
 
@@ -302,7 +307,7 @@ fn send_streamed_test_data(mut stream: TcpStream){
     // test_command_data.extend_from_slice(&message_type.to_ne_bytes());
 
     // info!("Sending transmission end to stream");
-    // thread::sleep(std::time::Duration::from_millis(10));
+    // thread::sleep(Duration::from_millis(10));
     // stream.write_all(&test_command_data[..]).unwrap();
     // stream.flush().unwrap();
     
@@ -326,17 +331,21 @@ fn send_streamed_test_data(mut stream: TcpStream){
             break;
         }
 
+        let payload = &buffer[0..bytes_read];
+        let checksum = crc32fast::hash(payload);
+
         test_command_data.clear();
         test_command_data.extend_from_slice(&message_type.to_ne_bytes());
         test_command_data.extend_from_slice(&file_id.to_ne_bytes());
         test_command_data.extend_from_slice(&chunk_offset.to_ne_bytes());
         test_command_data.extend_from_slice(&(bytes_read as u32).to_ne_bytes());
-        test_command_data.extend_from_slice(&buffer[0..bytes_read]);
+        test_command_data.extend_from_slice(&payload);
+        test_command_data.extend_from_slice(&checksum.to_ne_bytes());
         chunk_offset += bytes_read as u64;
 
         info!("S: Sending streamed chunk to stream");
         debug!("{:?}", test_command_data);
-        thread::sleep(std::time::Duration::from_millis(10));
+        thread::sleep(Duration::from_millis(10));
         stream.write_all(&test_command_data[..]).unwrap();
         stream.flush().unwrap();
     }
@@ -360,7 +369,7 @@ fn send_streamed_test_data(mut stream: TcpStream){
     //     counter += chunk_length as usize;
 
     //     info!("Sending chunk to stream");
-    //     thread::sleep(std::time::Duration::from_millis(10));
+    //     thread::sleep(Duration::from_millis(10));
     //     stream.write_all(&test_command_data[..]).unwrap();
     //     stream.flush().unwrap();
     //     i += 1;
@@ -430,7 +439,7 @@ pub fn create_sender_thread(file: String) -> Result<thread::JoinHandle<()>, std:
     Ok(handle)
 }
 
-fn connect_to_ip_addr(addrs: &[SocketAddr], timeout: std::time::Duration) -> std::io::Result<TcpStream> {
+fn connect_to_ip_addr(addrs: &[SocketAddr], timeout: Duration) -> std::io::Result<TcpStream> {
     let mut last_err: Option<std::io::Error> = None;
     for addr in addrs {
         info!("attempting to connect to TCP stream through {addr}");
@@ -467,7 +476,7 @@ pub fn create_listener_thread(tx: Sender<Vec<u8>>, file: String) -> Result<threa
     let handle = thread::Builder::new().name("listener thread".to_string()).spawn(move || {
         let ports = get_ports(file.as_str()).unwrap();
         let addrs_iter = &(ports[..]);
-        let timeout = std::time::Duration::from_secs(2);
+        let timeout = Duration::from_secs(2);
         // let mut addrs_iter = "localhost:8081".to_socket_addrs().unwrap();
         // let addr = addrs_iter.next().unwrap();
         // thread::sleep(Duration::from_secs(1));
@@ -585,14 +594,22 @@ fn receive_file_chunk(rx: &Receiver<Vec<u8>>, buf: &mut Vec<u8>, start_time: std
 
     let file_data = active_files.get_mut(&file_id).expect("invalid file");
     
-    while buf.len() < CHUNK_METADATA_BYTE_WIDTH+(chunk_length as usize) && !has_timed_out(start_time){
+    while buf.len() < CHUNK_METADATA_BYTE_WIDTH+(chunk_length as usize)+CHECKSUM_WIDTH && !has_timed_out(start_time){
         let Ok(msg) = rx.try_recv() else {
             return
         };
 
         buf.extend_from_slice(&msg);
     }
+    
     let payload = &buf[CHUNK_METADATA_BYTE_WIDTH..CHUNK_METADATA_BYTE_WIDTH+chunk_length];
+    let checksum_bytes: [u8; CHECKSUM_WIDTH] = buf[CHUNK_METADATA_BYTE_WIDTH+chunk_length..CHUNK_METADATA_BYTE_WIDTH+chunk_length+CHECKSUM_WIDTH]
+        .try_into()
+        .unwrap();
+    let checksum_actual = u32::from_ne_bytes(checksum_bytes);
+    let checksum_expected = crc32fast::hash(payload);
+    debug!("checking expected checksum {} against actual checksum {}", checksum_expected, checksum_actual);
+    assert!(checksum_expected == checksum_actual);
     debug!("L: received chunk payload");
 
     if !file_data.is_definite && chunk_offset != file_data.next_expected_chunk_offset {
@@ -623,7 +640,7 @@ fn receive_file_chunk(rx: &Receiver<Vec<u8>>, buf: &mut Vec<u8>, start_time: std
     }
 
     debug!("L: draining {}+{} elements from buf", CHUNK_METADATA_BYTE_WIDTH, chunk_length);
-    buf.drain(0..CHUNK_METADATA_BYTE_WIDTH+chunk_length);
+    buf.drain(0..CHUNK_METADATA_BYTE_WIDTH+chunk_length+CHECKSUM_WIDTH);
     debug!("L: buf now contains {} elements", buf.len());
 }
 
@@ -646,7 +663,7 @@ fn finish_receiving_file(rx: &Receiver<Vec<u8>>, buf: &mut Vec<u8>, start_time: 
     buf.drain(0..FILE_END_METADATA_BYTE_WIDTH);
 }
 
-fn finish_receiving_transmission(rx: &Receiver<Vec<u8>>, buf: &mut Vec<u8>, start_time: std::time::Instant, active_files: &mut HashMap<u64, FileInfo>){
+fn finish_receiving_transmission(buf: &mut Vec<u8>){
     buf.drain(0..MESSAGE_TYPE_BYTE_WIDTH);
 }
 
@@ -726,7 +743,7 @@ pub fn receive_file(rx: &Receiver<Vec<u8>>, active_files: &mut HashMap<u64, File
         },
         MessageType::TRANSMISSION_END => {
             debug!("L: received TRANSMISSION_END");
-            finish_receiving_transmission(&rx, buf, start_time, active_files);
+            finish_receiving_transmission(buf);
             true
         }
         MessageType::ERROR => {

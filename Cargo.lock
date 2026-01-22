@@ -631,6 +631,7 @@ dependencies = [
  "anyhow",
  "bytemuck",
  "cgmath",
+ "crc32fast",
  "glium",
  "glutin",
  "hdf5-metno",

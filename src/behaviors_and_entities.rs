@@ -150,7 +150,7 @@ impl Behavior {
                 // debug!("attempting to slice from {} to {}", FLOAT_SIZE*i, FLOAT_SIZE*(i+1));
                 // let bytes_raw = byte_buffer[FLOAT_SIZE*i..(FLOAT_SIZE+1)*i];
                 let bytes: [u8; F32_SIZE] = byte_buffer[F32_SIZE*i..F32_SIZE*(i+1)].try_into().unwrap();
-                float_buffer[i] = f32::from_ne_bytes(bytes);
+                float_buffer[i] = f32::from_le_bytes(bytes);
                 i += 1;
             }
 

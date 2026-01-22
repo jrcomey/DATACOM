@@ -2,7 +2,7 @@ use winit::event::*;
 use winit::keyboard::KeyCode;
 use winit::dpi::PhysicalPosition;
 use cgmath::*;
-use std::f32::consts::{PI, FRAC_PI_2};
+use std::f32::consts::PI;
 use std::rc::Rc;
 use std::cell::RefCell;
 use std::time::Duration;

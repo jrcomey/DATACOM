@@ -17,7 +17,6 @@ use model::DrawModel;
 pub const DATA_ARR_WIDTH: usize = 12;
 const AVERAGE_REFRESH_RATE: usize = 16;
 const F32_SIZE: usize = std::mem::size_of::<f32>();
-const F64_SIZE: usize = std::mem::size_of::<f64>();
 const CHUNK_LENGTH: u64 = 1024;
 
 pub fn create_and_clear_file(file_name: &str) {

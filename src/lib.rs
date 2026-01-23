@@ -235,11 +235,18 @@ pub async fn run_scene_from_network(args: Vec<String>){
     let scene_file = scene_file_string.as_str();
     behaviors_and_entities::create_and_clear_file(scene_file);
 
-    let (tx, rx): (mpsc::Sender<Vec<u8>>, mpsc::Receiver<Vec<u8>>) = mpsc::channel();
-    let listener_result = com::create_listener_thread(tx, "data/ports.toml".to_string());
+    let (tx_sender, rx_sender): (mpsc::Sender<Vec<u8>>, mpsc::Receiver<Vec<u8>>) = mpsc::channel();
+    let (tx_listener, rx_listener): (mpsc::Sender<Vec<u8>>, mpsc::Receiver<Vec<u8>>) = mpsc::channel();
+
+    let port_string = "data/ports.toml".to_string();
+    let server_test_result = com::create_server_thread(port_string.clone());
+    let server_test = server_test_result.unwrap();
+
+    let stream = com::connect_to_tcp_stream(port_string);
+    let listener_result = com::create_listener_thread(tx_listener, stream.try_clone().unwrap());
     let listener = listener_result.unwrap();
-    // let sender_result = com::create_sender_thread("data/ports.toml".to_string());
-    // let sender = sender_result.unwrap();
+
+    let sender_result = com::create_sender_thread(rx_sender, stream);
 
     // files that the receiver is getting data about and writing to
     let mut active_files: HashMap<u64, com::FileInfo> = HashMap::new();
@@ -248,7 +255,7 @@ pub async fn run_scene_from_network(args: Vec<String>){
     // initial file transfer
     loop {
         // debug!("active files len = {}", active_files.len());
-        if listener.is_finished() || com::receive_file(&rx, &mut active_files, &mut buf){
+        if listener.is_finished() || com::receive_file(&rx_listener, &tx_sender, &mut active_files, &mut buf){
             break;
         }
     }
@@ -338,12 +345,12 @@ pub async fn run_scene_from_network(args: Vec<String>){
             }
             
             debug!("M: reading streamed files...");
-            com::receive_file(&rx, &mut active_files, &mut buf);
+            com::receive_file(&rx_listener, &tx_sender, &mut active_files, &mut buf);
         })
         .unwrap();
 
-    debug!("waiting for threads to wrap up");
-    listener.join().unwrap();
+    // debug!("waiting for threads to wrap up");
+    // listener.join().unwrap();
     // debug!("Listener thread closed");
     // sender.join().unwrap();
     // debug!("Sender thread closed");

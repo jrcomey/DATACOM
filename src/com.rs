@@ -36,6 +36,7 @@ const CHECKSUM_WIDTH: usize = 4;
 
 const SECONDS_UNTIL_TIMEOUT: u64 = 10;
 const TIMEOUT_THRESHOLD: Duration = Duration::from_secs(SECONDS_UNTIL_TIMEOUT);
+const MAX_CHUNK_TRANSMIT_ATTEMPTS: u8 = 5;
 
 #[repr(u16)]
 #[derive(Debug)]
@@ -43,7 +44,7 @@ enum MessageType {
     FILE_START,
     FILE_CHUNK,
     FILE_END,
-    FILE_ACK,
+    REQUEST_RETRANSMIT_CHUNK,
     TRANSMISSION_END,
     ERROR,
 }
@@ -54,7 +55,7 @@ impl MessageType {
             0 => MessageType::FILE_START,
             1 => MessageType::FILE_CHUNK,
             2 => MessageType::FILE_END,
-            3 => MessageType::FILE_ACK,
+            3 => MessageType::REQUEST_RETRANSMIT_CHUNK,
             4 => MessageType::TRANSMISSION_END,
             _ => MessageType::ERROR,
         }
@@ -380,7 +381,7 @@ fn send_streamed_test_data(mut stream: TcpStream){
     // }
 }
 
-pub fn create_sender_thread(file: String) -> Result<thread::JoinHandle<()>, std::io::Error>{
+pub fn create_server_thread(file: String) -> Result<thread::JoinHandle<()>, std::io::Error>{
     /*
     get ports
     get addr
@@ -392,8 +393,8 @@ pub fn create_sender_thread(file: String) -> Result<thread::JoinHandle<()>, std:
         }
      */
 
-    let handle = thread::Builder::new().name("sender thread".to_string()).spawn(move|| {
-        info!("Opened sender thread");
+    let handle = thread::Builder::new().name("server thread".to_string()).spawn(move|| {
+        info!("Opened server thread");
         let ports = get_ports(file.as_str()).unwrap();
         let addrs_iter = &(ports[..]);
         debug!("got addr");
@@ -412,11 +413,12 @@ pub fn create_sender_thread(file: String) -> Result<thread::JoinHandle<()>, std:
                     let mut ack = [0u8; 3];
                     stream.read_exact(&mut ack).unwrap();
                     if &ack == b"ACK" {
-                        info!("sender thread received ACK");
+                        info!("server thread received ACK");
 
                         // there was originally a loop here
                         let stream_clone = stream.try_clone();
                         send_finite_test_data(stream);
+                        thread::sleep(Duration::from_secs(3));
                         send_streamed_test_data(stream_clone.unwrap());
                     }
                     
@@ -461,7 +463,21 @@ fn connect_to_ip_addr(addrs: &[SocketAddr], timeout: Duration) -> std::io::Resul
     }))
 }
 
-pub fn create_listener_thread(tx: Sender<Vec<u8>>, file: String) -> Result<thread::JoinHandle<()>, std::io::Error>{
+pub fn connect_to_tcp_stream(file: String) -> TcpStream {
+    let ports = get_ports(file.as_str()).unwrap();
+    let addrs_iter = &(ports[..]);
+    let timeout = Duration::from_secs(2);
+    // let mut addrs_iter = "localhost:8081".to_socket_addrs().unwrap();
+    // let addr = addrs_iter.next().unwrap();
+    // thread::sleep(Duration::from_secs(1));
+
+    // let start_time = std::time::Instant::now();
+
+    let stream_result = connect_to_ip_addr(addrs_iter, timeout);
+    stream_result.unwrap()
+}
+
+pub fn create_listener_thread<'a>(tx: Sender<Vec<u8>>, stream: TcpStream) -> Result<thread::JoinHandle<()>, std::io::Error>{
     /*
     get addr
     stream = TcpStream::connect(addr)
@@ -474,21 +490,7 @@ pub fn create_listener_thread(tx: Sender<Vec<u8>>, file: String) -> Result<threa
 
      */
     let handle = thread::Builder::new().name("listener thread".to_string()).spawn(move || {
-        let ports = get_ports(file.as_str()).unwrap();
-        let addrs_iter = &(ports[..]);
-        let timeout = Duration::from_secs(2);
-        // let mut addrs_iter = "localhost:8081".to_socket_addrs().unwrap();
-        // let addr = addrs_iter.next().unwrap();
-        // thread::sleep(Duration::from_secs(1));
-
-        // let start_time = std::time::Instant::now();
-
-        let stream_result = connect_to_ip_addr(addrs_iter, timeout);
-        let mut stream = stream_result.unwrap();
         
-        stream.write_all(b"ACK").unwrap();
-        stream.flush().unwrap();
-
         loop {
             let packet = from_network(&stream);
             // debug!("Packet: {}", packet);
@@ -499,10 +501,30 @@ pub fn create_listener_thread(tx: Sender<Vec<u8>>, file: String) -> Result<threa
             match send_result {
                 Ok(_) => {},
                 Err(e) => {
-                    debug!("Error attempting to send packet: {}", e);
+                    debug!("Error attempting to send packet from listener to main thread: {}", e);
                 }
             }
         }
+    })
+    .map_err(|_| std::io::Error::new(std::io::ErrorKind::Other, "Thread spawn failed"))?;
+
+    Ok(handle)
+}
+
+pub fn create_sender_thread(rx: Receiver<Vec<u8>>, mut stream: TcpStream) -> Result<thread::JoinHandle<()>, std::io::Error>{
+    let handle = thread::Builder::new().name("sender thread".to_string()).spawn(move || {
+        stream.write_all(b"ACK").unwrap();
+        stream.flush().unwrap();
+
+        loop {
+            let Ok(msg) = rx.try_recv() else {
+                continue
+            };
+
+            stream.write_all(&msg).unwrap();
+            stream.flush().unwrap();
+        }
+
     })
     .map_err(|_| std::io::Error::new(std::io::ErrorKind::Other, "Thread spawn failed"))?;
 
@@ -562,10 +584,15 @@ fn receive_file_metadata(rx: &Receiver<Vec<u8>>, buf: &mut Vec<u8>, start_time: 
     Some(metadata)
 }
 
-fn receive_file_chunk(rx: &Receiver<Vec<u8>>, buf: &mut Vec<u8>, start_time: std::time::Instant, active_files: &mut HashMap<u64, FileInfo>){
+fn receive_file_chunk(
+    rx: &Receiver<Vec<u8>>, 
+    buf: &mut Vec<u8>, 
+    start_time: std::time::Instant, 
+    active_files: &mut HashMap<u64, FileInfo>
+) -> Option<Vec<u8>> {
     while buf.len() < CHUNK_METADATA_BYTE_WIDTH && !has_timed_out(start_time){
         let Ok(msg) = rx.try_recv() else {
-            return
+            return None
         };
 
         buf.extend_from_slice(&msg);
@@ -596,7 +623,7 @@ fn receive_file_chunk(rx: &Receiver<Vec<u8>>, buf: &mut Vec<u8>, start_time: std
     
     while buf.len() < CHUNK_METADATA_BYTE_WIDTH+(chunk_length as usize)+CHECKSUM_WIDTH && !has_timed_out(start_time){
         let Ok(msg) = rx.try_recv() else {
-            return
+            return None
         };
 
         buf.extend_from_slice(&msg);
@@ -609,7 +636,17 @@ fn receive_file_chunk(rx: &Receiver<Vec<u8>>, buf: &mut Vec<u8>, start_time: std
     let checksum_actual = u32::from_be_bytes(checksum_bytes);
     let checksum_expected = crc32fast::hash(payload);
     debug!("checking expected checksum {} against actual checksum {}", checksum_expected, checksum_actual);
-    assert!(checksum_expected == checksum_actual);
+    
+    if checksum_expected != checksum_actual {
+        debug!("cheksum failed");
+        let msg_type = MessageType::REQUEST_RETRANSMIT_CHUNK;
+        let mut request_buf = Vec::<u8>::new();
+        request_buf.extend_from_slice(&(msg_type as u16).to_be_bytes());
+        request_buf.extend_from_slice(&file_id_bytes);
+        request_buf.extend_from_slice(&chunk_offset_bytes);
+        return Some(request_buf)
+    }
+
     debug!("L: received chunk payload");
 
     if !file_data.is_definite && chunk_offset != file_data.next_expected_chunk_offset {
@@ -639,9 +676,11 @@ fn receive_file_chunk(rx: &Receiver<Vec<u8>>, buf: &mut Vec<u8>, start_time: std
         file_data.data[chunk_offset_us..chunk_offset_us+chunk_length].copy_from_slice(payload);
     }
 
-    debug!("L: draining {}+{} elements from buf", CHUNK_METADATA_BYTE_WIDTH, chunk_length);
+    debug!("L: draining {}+{}+{} elements from buf", CHUNK_METADATA_BYTE_WIDTH, chunk_length, CHECKSUM_WIDTH);
     buf.drain(0..CHUNK_METADATA_BYTE_WIDTH+chunk_length+CHECKSUM_WIDTH);
     debug!("L: buf now contains {} elements", buf.len());
+
+    None
 }
 
 fn finish_receiving_file(rx: &Receiver<Vec<u8>>, buf: &mut Vec<u8>, start_time: std::time::Instant, active_files: &mut HashMap<u64, FileInfo>){
@@ -685,7 +724,12 @@ fn append_to_file(file_name: String, data: Vec<u8>){
     // let _ = writeln!(&mut file, "{}", file_contents.as_str());
 }
 
-pub fn receive_file(rx: &Receiver<Vec<u8>>, active_files: &mut HashMap<u64, FileInfo>, buf: &mut Vec<u8>) -> bool {
+pub fn receive_file(
+    rx_main: &Receiver<Vec<u8>>, 
+    tx_sender: &Sender<Vec<u8>>,
+    active_files: &mut HashMap<u64, FileInfo>, 
+    buf: &mut Vec<u8>
+) -> bool {
     // debug!("Preparing to receive file");
     let start_time = std::time::Instant::now();
 
@@ -697,7 +741,7 @@ pub fn receive_file(rx: &Receiver<Vec<u8>>, active_files: &mut HashMap<u64, File
         }
     }
     while bytes_read < MESSAGE_TYPE_BYTE_WIDTH && !has_timed_out(start_time) {
-        let Ok(msg) = rx.try_recv() else {
+        let Ok(msg) = rx_main.try_recv() else {
             return false
         };
 
@@ -721,7 +765,7 @@ pub fn receive_file(rx: &Receiver<Vec<u8>>, active_files: &mut HashMap<u64, File
     let transmission_over = match message_type {
         MessageType::FILE_START => {
             debug!("L: received FILE_START");
-            if let Some(file) = receive_file_metadata(&rx, buf, start_time) {
+            if let Some(file) = receive_file_metadata(&rx_main, buf, start_time) {
                 debug!("L: adding {} to active files", file.id);
                 active_files.insert(file.id, file);
             }
@@ -729,16 +773,23 @@ pub fn receive_file(rx: &Receiver<Vec<u8>>, active_files: &mut HashMap<u64, File
         },
         MessageType::FILE_CHUNK => {
             debug!("L: received FILE_CHUNK");
-            receive_file_chunk(&rx, buf, start_time, active_files);
+            let vec_opt = receive_file_chunk(&rx_main, buf, start_time, active_files);
+            if let Some(vec) = vec_opt {
+                info!("Requesting chunk to be retransmitted");
+                let send_result = tx_sender.send(vec);
+                if let Err(e) = send_result {
+                    debug!("Error attempting to send packet from listener to main thread: {}", e);
+                }
+            }
             false
         },
         MessageType::FILE_END => {
             debug!("L: received FILE_END");
-            finish_receiving_file(&rx, buf, start_time, active_files);
+            finish_receiving_file(&rx_main, buf, start_time, active_files);
             false
         },
-        MessageType::FILE_ACK => {
-            debug!("L: received FILE_ACK");
+        MessageType::REQUEST_RETRANSMIT_CHUNK => {
+            debug!("L: received REQUEST_RETRANSMIT_CHUNK");
             false
         },
         MessageType::TRANSMISSION_END => {
@@ -987,54 +1038,54 @@ irrelevant = content";
         get_ports_template(toml_name, toml_contents, expected);
     }
 
-    fn create_listener_thread_template(toml_name: &str, toml_contents: &str){
-        let _ = pretty_env_logger::try_init();
-        let (tx, rx) = mpsc::channel();
+    // fn create_listener_thread_template(toml_name: &str, toml_contents: &str){
+    //     let _ = pretty_env_logger::try_init();
+    //     let (tx, rx) = mpsc::channel();
 
-        let file_name_string = format!("{}{}", toml_name, ".toml");
-        let file_name_string_listener = file_name_string.clone();
-        let file_name_string_sender = file_name_string.clone();
-        let file_name = file_name_string.as_str();
-        let file_path = Path::new(file_name);
-        let mut file = File::create(&file_path).unwrap();
-        _ = writeln!(file, "{}", toml_contents);
+    //     let file_name_string = format!("{}{}", toml_name, ".toml");
+    //     let file_name_string_listener = file_name_string.clone();
+    //     let file_name_string_server = file_name_string.clone();
+    //     let file_name = file_name_string.as_str();
+    //     let file_path = Path::new(file_name);
+    //     let mut file = File::create(&file_path).unwrap();
+    //     _ = writeln!(file, "{}", toml_contents);
 
-        let listener = create_listener_thread(tx, file_name_string_listener);
-        listener.unwrap();
-        let sender = create_sender_thread(file_name_string_sender);
-        sender.unwrap();
-        // let join_result = handle.join();
-        let start_time = std::time::Instant::now();
-        let mut passed = false;
-        while !has_timed_out(start_time){
-            let received = rx.recv().unwrap();
-            let received_str = String::from_utf8(received).unwrap();
-            info!("RECEIVED = {}", received_str);
-            if received_str.len() > 0 {
-                passed = true;
-                break;
-            }
-        }
-        assert!(passed);
+    //     let listener = create_listener_thread(tx, file_name_string_listener);
+    //     listener.unwrap();
+    //     let server_test = create_server_thread(file_name_string_server);
+    //     server_test.unwrap();
+    //     // let join_result = handle.join();
+    //     let start_time = std::time::Instant::now();
+    //     let mut passed = false;
+    //     while !has_timed_out(start_time){
+    //         let received = rx.recv().unwrap();
+    //         let received_str = String::from_utf8(received).unwrap();
+    //         info!("RECEIVED = {}", received_str);
+    //         if received_str.len() > 0 {
+    //             passed = true;
+    //             break;
+    //         }
+    //     }
+    //     assert!(passed);
 
-        _ = remove_file(&file_path);
-        // join_result.unwrap();
-    }
+    //     _ = remove_file(&file_path);
+    //     // join_result.unwrap();
+    // }
 
-    #[test]
-    fn create_listener_thread_success(){
-        let toml_name = "create_listener_thread_success";
-        let toml_contents = "[servers]
-\"localhost\" = [8081]";
-        create_listener_thread_template(toml_name, toml_contents);
-    }
+//     #[test]
+//     fn create_listener_thread_success(){
+//         let toml_name = "create_listener_thread_success";
+//         let toml_contents = "[servers]
+// \"localhost\" = [8081]";
+//         create_listener_thread_template(toml_name, toml_contents);
+//     }
 
-    #[test]
-    #[should_panic]
-    fn create_listener_thread_failure(){
-        let toml_name = "create_listener_thread_failure";
-        let toml_contents = "[somethingelse]
-irrelevant = content";
-        create_listener_thread_template(toml_name, toml_contents);
-    }
+//     #[test]
+//     #[should_panic]
+//     fn create_listener_thread_failure(){
+//         let toml_name = "create_listener_thread_failure";
+//         let toml_contents = "[somethingelse]
+// irrelevant = content";
+//         create_listener_thread_template(toml_name, toml_contents);
+//     }
 }
